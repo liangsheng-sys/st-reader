@@ -1,0 +1,139 @@
+{
+  "nyVersion": "1.1.9",
+  "nyCommit": "784d627d29941a9ba8abf275953179fb34840c64",
+  "fontCommit": "6e4b84c976cadb3c49a40fd9a1c203e4f7fcf2da",
+  "files": [
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/LICENSE.txt",
+      "target": "data/default-user/extensions/Ny-font-manager/LICENSE.txt",
+      "size": 35149,
+      "gitBlob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/README.md",
+      "target": "data/default-user/extensions/Ny-font-manager/README.md",
+      "size": 7784,
+      "gitBlob": "2475a3b6b7e8c15f0ccbe39a880cf16a08c0fa46"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/customIndependentFont.js",
+      "target": "data/default-user/extensions/Ny-font-manager/customIndependentFont.js",
+      "size": 8859,
+      "gitBlob": "f2e847b8287e8d79e0e547e8b351456a6d0ce158"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/index.js",
+      "target": "data/default-user/extensions/Ny-font-manager/index.js",
+      "size": 192,
+      "gitBlob": "85dcc996290e92da9b1580a6b07ad2f26176bd03"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/manifest.json",
+      "target": "data/default-user/extensions/Ny-font-manager/manifest.json",
+      "size": 183,
+      "gitBlob": "3b44815443433f48e202841160c57e76c555de13"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwChatFontImporter.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwChatFontImporter.js",
+      "size": 9945,
+      "gitBlob": "17317e79073d3979e82a0cc7ce8c36f51f15c173"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwCore.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwCore.js",
+      "size": 114284,
+      "gitBlob": "6e25eabea2614c44b5ffec196554ea4671048707"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwFonts.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwFonts.js",
+      "size": 40351,
+      "gitBlob": "c7c54a9c0baa52df98520cd280e92f4ae6f77e9e"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwLocaleData.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwLocaleData.js",
+      "size": 3824,
+      "gitBlob": "5cc9afbaa543e3d0ee56e68b8950d939b10800df"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwProtectedContent.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwProtectedContent.js",
+      "size": 1881,
+      "gitBlob": "e3875c908793f59cf7c0dcc6afbdba418a078a6c"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwSettingsUi.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwSettingsUi.js",
+      "size": 2094,
+      "gitBlob": "3622be74c5dfe8125e20db7abb5d7f913864a70c"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwState.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwState.js",
+      "size": 18237,
+      "gitBlob": "cb2c0afd1c347699f8034bf56187574071572165"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUiDisplaySettingsTab.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUiDisplaySettingsTab.js",
+      "size": 97850,
+      "gitBlob": "8491606f08492f4647eb097853937ac109237d6a"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUiFontSettingsTab.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUiFontSettingsTab.js",
+      "size": 17201,
+      "gitBlob": "f30a736422e150538933078d9de8897c9af04830"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUiHelpTab.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUiHelpTab.js",
+      "size": 679,
+      "gitBlob": "e9e6f1c35eef472016b006d2678f742fe8b19cee"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUiImportTab.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUiImportTab.js",
+      "size": 25770,
+      "gitBlob": "f00765d2ee423457fc3a58bafdb14f0d7966bba6"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUiTabs.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUiTabs.js",
+      "size": 672,
+      "gitBlob": "c16cb5d791a3963681f7b92f9f0a8d2651377f91"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/nytwUtils.js",
+      "target": "data/default-user/extensions/Ny-font-manager/nytwUtils.js",
+      "size": 1172,
+      "gitBlob": "529e731bae48ae5155b44af5de6a9a03f2f5c3ac"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/settings.html",
+      "target": "data/default-user/extensions/Ny-font-manager/settings.html",
+      "size": 67068,
+      "gitBlob": "259f1169cdebdf15693503f709bd17e1eb86c614"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Naya1-1/Ny-font-manager/784d627d29941a9ba8abf275953179fb34840c64/style.css",
+      "target": "data/default-user/extensions/Ny-font-manager/style.css",
+      "size": 71800,
+      "gitBlob": "2469616e3d58ac0e4bcdee65a5389fcbcb271875"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/google/fonts/6e4b84c976cadb3c49a40fd9a1c203e4f7fcf2da/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+      "target": "fixtures/fonts/JetBrainsMono.ttf",
+      "size": 187208,
+      "gitBlob": "aa310be8b717fe3774f9444dd89d5f4101cc6d10"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/google/fonts/6e4b84c976cadb3c49a40fd9a1c203e4f7fcf2da/ofl/jetbrainsmono/OFL.txt",
+      "target": "fixtures/fonts/OFL.txt",
+      "size": 4399,
+      "gitBlob": "821a3dac22aff15a1f1c9689a1d79c45bb58ca39"
+    }
+  ]
+}
