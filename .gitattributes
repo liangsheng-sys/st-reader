@@ -1,0 +1,2 @@
+# Windows 批处理必须使用 CRLF，避免 cmd.exe 错读 UTF-8 中文行。
+*.cmd text eol=crlf

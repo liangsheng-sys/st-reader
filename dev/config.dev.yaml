@@ -1,0 +1,21 @@
+# 首次启动时复制到 .dev/config.yaml；运行数据不入库。
+dataRoot: 'E:\st-reader\.dev\data'
+port: 8100
+listen: false
+whitelistMode: true
+whitelist:
+  - 127.0.0.1
+  - ::1
+protocol:
+  ipv4: true
+  ipv6: false
+browserLaunch:
+  enabled: false
+enableServerPlugins: false
+enableServerPluginsAutoUpdate: false
+enableDownloadableTokenizers: false
+extensions:
+  enabled: true
+  autoUpdate: false
+  models:
+    autoDownload: false
