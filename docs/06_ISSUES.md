@@ -9,3 +9,4 @@
 | I003 | 2026-09-28 | Fable | `messageFormatting()`（ST `public/script.js:1650-1678`）按**当前选中角色**与**当前 chat 数组**跑正则与深度。阅读器读其他角色的聊天时作用域正则会错、深度会错。需自有正则管线（T12，两种策略见 03 §4.2） | T12 | open |
 | I004 | 2026-09-28 | Fable | Ny-font-manager 用高优先级注入 CSS，且部分规则可能以 `#chat` 或 `.mes_text` 为选择器；cssScope 克隆规则时需处理 `!important` 与 `@font-face`（后者不需克隆，全局生效） | T13 / F5 | open |
 | I005 | 2026-09-28 | Fable | 真实数据规模：372 个角色目录、1730 个 jsonl、6.5 GB，162 个文件 >10 MB，2 个 >50 MB。阅读器必须按需加载单个聊天、分页渲染；不得一次索引全部正文 | T12 / T30 | open |
+| I006 | 2026-09-28 | Opus | T20 界面说明（02）需要 §5 补充：①`listCharacters()` / `listGroups()`（抽屉"按角色"一级列表，含缩略图 URL）；`listByGroup(groupId)`；②`ChatSummary` 含 `{chatKey, title, isGroup, lastDate, messageCount, preview}`；③视图模型每个 swipe 带 `sendDate` 与 `reasoningDuration`，楼层带 ST 当前 `swipeId`（用于"ST 当前"小圆点）；④`getCurrentChatKey()`（"当前"入口，只读）；⑤bookmarks 记录里存聊天显示名与片段，便于跨聊天收藏列表不打开聊天就能显示 | T21/T22 | open，astra 在 T12/T13 处理；UI 先用 mock |
