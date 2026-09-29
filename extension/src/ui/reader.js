@@ -1,10 +1,13 @@
-// 阅读器主控（T21/T22）：全屏覆盖层 #stcr_root、正文 #stcr_chat（D12）。
+// 阅读器主控（T21/T22/T23a）：全屏覆盖层 #stcr_root、正文 #stcr_chat（D12）。
 // 只读（D02）：只调 03 §5 的读取接口；候选/思维链/进度/划线/收藏都是阅读器自己的状态，绝不写回 ST。
 
 import { getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js';
 import { initFormatter } from '../core/formatter.js';
+import { store } from '../core/store.js';
 import { createPanel } from './annotationsPanel.js';
 import { backupStatus, describeStoreError, exportBackup, pickAndImport } from './backup.js';
+import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
+import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
 import { createDrawer } from './drawer.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
@@ -88,6 +91,7 @@ export async function openReader({ tab, chatKey } = {}) {
         getHandle: () => session.handle,
         getChatKey: () => (session.handle ? session.chatKey : null),
         onJump: target => jumpToMark(target),
+        onCard: record => openCardFromNote(record),
         isPinned: () => getPrefs().panelPinned,
         onPinChange: pinned => setPrefs({ panelPinned: pinned }),
         onBackupHint: () => { if (!getPrefs().panelPinned || !wide()) session.panel.close(); session.settings.openMore(); },
@@ -97,8 +101,13 @@ export async function openReader({ tab, chatKey } = {}) {
     session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport() });
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
+        onCard: range => openCardFromSelection(range),
         setPopover: (el, options) => setPopover(el, options),
         closePopover: options => closePopover(session, options),
+    });
+    session.studio = createCardStudio({
+        root, toast: say, getDirection: () => getPrefs().direction,
+        onClose: () => { if (S === session) session.scroller.focus({ preventScroll: true }); },
     });
     session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
     root.querySelector('.stcr-body').prepend(session.drawer.el);
@@ -133,6 +142,7 @@ export function closeReader() {
     if (!S) return;
     const session = S;
     closePopover(session); // 批注输入框点外面=保存，这里同理：先保存再关
+    session.studio.close(); // 先关卡片工作台：它可能借用着这个聊天的句柄
     S = null;
     session.token++;
     session.controller?.abort();
@@ -330,6 +340,7 @@ function onClick(event) {
             case 'fold': toggleFold(actEl); return;
             case 'bookmark-floor': if (mes) toggleBookmark(mes, false); return;
             case 'bookmark-swipe': if (mes) toggleBookmark(mes, true); return;
+            case 'card': if (mes) openCardForFloor(mes); return;
             default: break;
         }
     }
@@ -360,6 +371,11 @@ function openMarkAt(id, rect) {
 function handleKey(event) {
     const session = S;
     if (!session || event.type !== 'keydown' || event.isComposing) return;
+    if (session.studio.isOpen()) {
+        // 卡片工作台开着：阅读器快捷键一律不响应，Esc 关工作台（工作台里的按键它自己处理）
+        if (event.key === 'Escape') { session.studio.close(); event.preventDefault(); }
+        return;
+    }
     if (isTypingTarget(event.target)) {
         if (event.key === 'Escape') {
             // 在批注框里按 Esc = 不保存关掉；在别的输入框里 = 离开输入框
@@ -398,6 +414,7 @@ function handleKey(event) {
 
 /** Esc 逐层关闭：小浮层 → 设置条 → 面板 → 抽屉 → 阅读器本身（02 §1.1）。钉住的抽屉/面板不算一层。 */
 function closeTopLayer() {
+    if (S.studio.isOpen()) { S.studio.close(); return; }
     if (S.popover) { closePopover(S, { cancel: true }); return; }
     if (S.settings.isOpen()) { S.settings.close(); return; }
     if (S.panel.isOpen() && !(getPrefs().panelPinned && wide())) { S.panel.close(); return; }
@@ -539,6 +556,60 @@ function scrollToRange(range) {
     updateProgress();
 }
 
+// ───────────────────────── 分享卡片（T23a） ─────────────────────────
+
+function openStudio(source) {
+    const session = S;
+    closePopover(session, { cancel: true });
+    session.selUi.hideBubble();
+    session.studio.open(source).catch(error => {
+        console.error('[st-reader] 卡片工作台打开失败：', error);
+        say(`卡片工作台打不开：${error.message ?? error}`);
+    });
+}
+
+/** 楼层工具条 🖼：整楼（当前显示的候选）。 */
+function openCardForFloor(mes) {
+    if (!S?.handle || mes.classList.contains('stcr-mes--broken')) return;
+    openStudio({ handle: S.handle, ownsHandle: false, kind: 'floor', annotations: S.marks.records(), includeReasoning: false,
+        floors: [wholeFloor(Number(mes.getAttribute('mesid')), Number(mes.dataset.swipe))] });
+}
+
+/** 选中浮层"卡片"：可跨楼；只摘看得见的楼和展开着的思维链。 */
+function openCardFromSelection(range) {
+    const session = S;
+    if (!session?.handle) return;
+    const floors = selectionToFloors(range, renderedFloors());
+    if (!floors.length) { say('这段选区里没有正文文字'); return; }
+    if (floors.length > MAX_CARD_FLOORS) { say(`一张卡最多 ${MAX_CARD_FLOORS} 楼，请少选一些`); return; }
+    getSelection()?.removeAllRanges();
+    openStudio({ handle: session.handle, ownsHandle: false, kind: 'selection', floors, annotations: session.marks.records(),
+        includeReasoning: floors.some(floor => floor.reasoning) });
+}
+
+/** 批注面板划线条目上的 🖼：别的聊天的划线就自己只读打开那个聊天，工作台关掉时释放。 */
+async function openCardFromNote(record) {
+    const session = S;
+    if (!session) return;
+    if (!getPrefs().panelPinned || !wide()) session.panel.close();
+    const chatKey = record.anchor.chatKey;
+    const borrowed = !!session.handle && chatKey === session.chatKey;
+    let handle = borrowed ? session.handle : null;
+    try {
+        if (!handle) handle = await openChat(chatKey, { pageSize: PAGE_SIZE });
+        if (S !== session) { if (!borrowed) handle.close(); return; }
+        const floor = await annotationToFloor(handle, record, createPieceCache());
+        if (!floor) { say('这条划线找不到原文位置了（原文可能变了）'); if (!borrowed) handle.close(); return; }
+        const annotations = borrowed ? session.marks.records() : await store.annotations.list({ chatKey });
+        if (S !== session) { if (!borrowed) handle.close(); return; }
+        openStudio({ handle, ownsHandle: !borrowed, kind: 'note', floors: [floor], annotations, includeReasoning: record.anchor.part === 'reasoning' });
+    } catch (error) {
+        if (handle && !borrowed) handle.close();
+        console.error('[st-reader] 用划线做卡片失败：', error);
+        say(error instanceof RangeError ? '这条划线所在的楼已经不存在了' : `卡片打不开：${describeError(error)}`);
+    }
+}
+
 async function doExport() {
     try {
         const name = await exportBackup(S.root);
@@ -622,6 +693,7 @@ async function loadChat(chatKey, { index = null, swipe = null } = {}) {
 
 /** 离开聊天：先清 DOM 与模型引用，再 close 旧 handle（03 §5.3）。 */
 function releaseChat(session) {
+    if (session.handle && session.studio.usesHandle(session.handle)) session.studio.close();
     session.marks.reset();
     session.chat.replaceChildren();
     session.firstPage = session.lastPage = -1;

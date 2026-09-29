@@ -1,8 +1,9 @@
 // 阅读器界面自测（T21）。纯 Node 运行，无依赖：node extension/src/ui/ui.test.js
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
-import { DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns, matchesFilter, normalizePrefs, parseJumpInput,
-    pickSwipe, previewLine, progressText, pruneProgress, reasoningTitle, swipePreviews } from './logic.js';
+import { alignTexts, cardFileName, cleanMaskWord, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
+    mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
+    reasoningTitle, swipePreviews, wordAt } from './logic.js';
 
 const results = [];
 function check(name, fn) {
@@ -101,6 +102,44 @@ export async function testUiLogic() {
         const table = { a: { t: 1 }, b: { t: 3 }, c: { t: 2 }, bad: { t: 'x' } };
         equal(Object.keys(pruneProgress(table, 2)).sort(), ['b', 'c']);
         equal(Object.keys(pruneProgress(table, 10)).sort(), ['a', 'b', 'c']);
+    });
+    check('卡片选段：阅读器位置换算到"已替换名字"的副本（名字挨着、只选半个名字）', () => {
+        const a = '爱丽丝看着小明说：“爱丽丝知道。”然后离开了房间很久很久';
+        const b = 'char看着user说：“char知道。”然后离开了房间很久很久';
+        const seg = alignTexts(a, b);
+        const pick = (x, y) => b.slice(mapOffset(seg, x, 'start'), mapOffset(seg, y, 'end'));
+        equal(pick(3, 5), '看着', '名字中间的字：');
+        equal(pick(1, 5), 'char看着', '只选了半个名字：');
+        equal(pick(13, 20), '知道。”然后离', '替换之后：');
+        equal(pick(0, a.length), b, '全选：');
+        equal(alignTexts('相同的文字', '相同的文字'), [{ a0: 0, a1: 5, b0: 0, b1: 5, equal: true }]);
+    });
+    check('卡片选段：长楼对齐不卡（2 万字 × 2）', () => {
+        const long = '雨'.repeat(20000);
+        const started = Date.now();
+        const seg = alignTexts(`${long}爱丽丝${long}`, `${long}char${long}`);
+        if (Date.now() - started > 2000) throw new Error('太慢');
+        equal(mapOffset(seg, 20001, 'start'), 20000);
+        equal(mapOffset(seg, 40003, 'end'), 40004);
+    });
+    check('卡片点词：按词取，标点和空白不算', () => {
+        equal(wordAt('她把伞收了起来，抬头看你', 3) !== null, true);
+        equal(wordAt('她把伞收了起来，抬头看你', 7), null, '逗号：');
+        equal(wordAt('hello world', 2), { start: 0, end: 5 });
+        equal(wordAt('hello world', 5), null, '空格：');
+        equal(wordAt('', 0), null);
+    });
+    check('卡片设置：坏值回默认；名字开关不在里面（每次都从"开"开始）', () => {
+        equal(normalizeCardPrefs(null), { ...DEFAULT_CARD_PREFS });
+        const p = normalizeCardPrefs({ template: 'x', size: 'giant', mask: 'blur', icon: 'fa-skull', uniform: 'no', signature: 'S'.repeat(99), replaceNames: false });
+        equal([p.template, p.size, p.mask, p.icon, p.uniform, p.signature.length, 'replaceNames' in p], [null, 'portrait', 'bar', 'fa-star', true, 40, false]);
+        equal(normalizeCardPrefs({ template: 'digest', mask: 'sticker', icon: 'fa-cat', digestAccent: 'theme' }).digestAccent, 'theme');
+    });
+    check('卡片文件名：不含聊天名与角色名', () => {
+        equal(cardFileName(new Date(2026, 8, 28, 21, 4)), 'st-reader-card-20260928-2104.png');
+    });
+    check('屏蔽词输入：去空白、压换行、空与超长拒绝', () => {
+        equal([cleanMaskWord('  伦敦 '), cleanMaskWord('第一行\n第二行'), cleanMaskWord('   '), cleanMaskWord('字'.repeat(41))], ['伦敦', '第一行 第二行', null, null]);
     });
     return [...results];
 }

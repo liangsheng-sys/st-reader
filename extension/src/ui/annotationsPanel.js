@@ -14,12 +14,12 @@ const TABS = [
 ];
 
 /**
- * @param {{marks:object, getHandle:()=>object|null, getChatKey:()=>string|null,
+ * @param {{marks:object, getHandle:()=>object|null, getChatKey:()=>string|null, onCard:(record:object)=>void,
  *   onJump:(target:{chatKey:string,index:number,swipe:number|null,annotationId?:string,part?:string})=>void,
  *   onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean, onBackupHint:()=>void, toast:(msg:string)=>void,
  *   confirm:(message:string, ok:string)=>Promise<boolean>}} deps
  */
-export function createPanel({ marks, getHandle, getChatKey, onJump, onPinChange, isPinned, onBackupHint, toast, confirm }) {
+export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPinChange, isPinned, onBackupHint, toast, confirm }) {
     let tab = 'notes';
     let scope = null; // 'chat' | 'all'；null = 按有没有打开聊天自动决定
     let colorFilter = null;
@@ -90,7 +90,8 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onPinChange,
             h('button', { type: 'button', class: 'stcr-btn stcr-item-main', 'data-jump': r.id, title: '跳到这条划线' },
                 h('span', { class: 'stcr-item-quote', text: `“${r.anchor.quote.exact}”` }),
                 r.note ? h('span', { class: 'stcr-item-note', text: r.note }) : null,
-                h('span', { class: 'stcr-item-meta', text: `第 ${w.mesIndex + 1} 楼${swipeLabel(w.chatKey, w.mesIndex, w.swipeIndex)}${r.anchor.part === 'reasoning' ? ' · 思维链' : ''}` })));
+                h('span', { class: 'stcr-item-meta', text: `第 ${w.mesIndex + 1} 楼${swipeLabel(w.chatKey, w.mesIndex, w.swipeIndex)}${r.anchor.part === 'reasoning' ? ' · 思维链' : ''}` })),
+            iconButton('fa-image', '用这段做分享卡片', { class: 'stcr-item-x stcr-item-card', 'data-card': r.id }));
     }
     function bookmarkRow(r) {
         return h('div', { class: 'stcr-item stcr-item--bookmark', role: 'listitem' },
@@ -190,6 +191,12 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onPinChange,
         if (jump) {
             const r = shown.get(jump.dataset.jump);
             if (r) onJump({ chatKey: r.anchor.chatKey, index: r.anchor.mesIndex, swipe: r.anchor.swipeIndex, annotationId: r.id, part: r.anchor.part });
+            return;
+        }
+        const card = event.target.closest('[data-card]');
+        if (card) {
+            const r = shown.get(card.dataset.card);
+            if (r) onCard(r);
             return;
         }
         const unbookmark = event.target.closest('[data-unbookmark]');

@@ -172,3 +172,153 @@ export function pruneProgress(table, max = 300) {
     entries.sort((a, b) => b[1].t - a[1].t);
     return Object.fromEntries(entries.slice(0, max));
 }
+
+// ───────────────────────── 分享卡片（T23a）的纯逻辑 ─────────────────────────
+
+/** 三档尺寸（02 §6.2）。width/minHeight 是 CSS 像素，导出时 ×2，得到 1080×1350 / 1080×1080 / 1600×900 起。 */
+export const CARD_SIZES = Object.freeze({
+    portrait: Object.freeze({ width: 540, minHeight: 675, label: '竖版' }),
+    square: Object.freeze({ width: 540, minHeight: 540, label: '方形' }),
+    wide: Object.freeze({ width: 800, minHeight: 450, label: '宽版' }),
+});
+export const CARD_TEMPLATES = Object.freeze(['theme', 'paper', 'dark', 'digest']);
+export const CARD_MASKS = Object.freeze(['bar', 'block', 'sticker']);
+/** 小图案只用 core 允许的六个内置图标（03 §5.9 MaskStyle.icon）。 */
+export const CARD_ICON_CHOICES = Object.freeze(['fa-star', 'fa-heart', 'fa-cat', 'fa-cloud', 'fa-moon', 'fa-shield']);
+
+export const DEFAULT_CARD_PREFS = Object.freeze({
+    template: null,        // null = 跟随排版方向：原样→继承主题，书页→纸张（02 §7）
+    size: 'portrait',
+    mask: 'bar',
+    icon: 'fa-star',
+    uniform: true,         // 统一长度：遮盖一律约 3 字宽，长度也不泄密（02 §6.3）
+    showNames: true,
+    signatureOn: true,
+    signature: 'ST Reader',
+    digestTitle: '一段故事',
+    digestSourceOn: true,
+    digestAccent: 'blue',  // 'blue' / 'theme'
+});
+
+/** 存储里读出的卡片偏好 → 合法值。名字替换总开关故意不记：每次打开都从"开"开始。 */
+export function normalizeCardPrefs(raw) {
+    const input = raw && typeof raw === 'object' ? raw : {};
+    const out = { ...DEFAULT_CARD_PREFS };
+    if (CARD_TEMPLATES.includes(input.template)) out.template = input.template;
+    if (Object.hasOwn(CARD_SIZES, input.size)) out.size = input.size;
+    if (CARD_MASKS.includes(input.mask)) out.mask = input.mask;
+    if (CARD_ICON_CHOICES.includes(input.icon)) out.icon = input.icon;
+    for (const key of ['uniform', 'showNames', 'signatureOn', 'digestSourceOn']) if (typeof input[key] === 'boolean') out[key] = input[key];
+    if (typeof input.signature === 'string') out.signature = input.signature.slice(0, 40);
+    if (typeof input.digestTitle === 'string') out.digestTitle = input.digestTitle.slice(0, 40);
+    if (input.digestAccent === 'blue' || input.digestAccent === 'theme') out.digestAccent = input.digestAccent;
+    return out;
+}
+
+/** 导出文件名：st-reader-card-20260928-2104.png（不带聊天名、角色名）。 */
+export function cardFileName(date = new Date()) {
+    return `st-reader-card-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.png`;
+}
+
+/**
+ * 对齐两段文字：b 是 a 把一些词（名字）换掉之后的样子。返回相等段与不同段，用来把阅读器里的选区位置
+ * 换算到"已替换名字"的卡片副本上。逐字前进，遇到不同就在前方找一处连续 window 个字都相同的地方重新对上。
+ * @returns {{a0:number,a1:number,b0:number,b1:number,equal:boolean}[]}
+ */
+export function alignTexts(a, b, { window = 8, reach = 96 } = {}) {
+    const segments = [];
+    let i = 0, j = 0;
+    const synced = (ai, bj) => {
+        if (ai > a.length || bj > b.length) return false;
+        if (ai < a.length && bj < b.length && a[ai] !== b[bj]) return false;
+        const ta = a.slice(ai, ai + window), tb = b.slice(bj, bj + window);
+        return ta === tb && (ta.length === window || (ai + ta.length === a.length && bj + tb.length === b.length));
+    };
+    while (i < a.length || j < b.length) {
+        const si = i, sj = j;
+        while (i < a.length && j < b.length && a[i] === b[j]) { i++; j++; }
+        if (i > si) segments.push({ a0: si, a1: i, b0: sj, b1: j, equal: true });
+        if (i >= a.length && j >= b.length) break;
+        let next = null;
+        for (let d = 1; d <= reach * 2 && !next; d++) {
+            for (let da = Math.max(0, d - reach); da <= Math.min(d, reach); da++) {
+                if (synced(i + da, j + d - da)) { next = [i + da, j + d - da]; break; }
+            }
+        }
+        next ??= [a.length, b.length];
+        segments.push(...refineDiff(a, b, i, next[0], j, next[1]));
+        [i, j] = next;
+    }
+    return segments;
+}
+
+/** 名字挨得很近时（"爱丽丝看着小明"），粗对齐会把两处连成一段；用小范围的最长公共子序列再切开。单个字的巧合不算。 */
+function refineDiff(a, b, a0, a1, b0, b1) {
+    const n = a1 - a0, m = b1 - b0;
+    const whole = [{ a0, a1, b0, b1, equal: false }];
+    if (!n || !m || n * m > 250000) return whole;
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let x = n - 1; x >= 0; x--) for (let y = m - 1; y >= 0; y--) {
+        dp[x][y] = a[a0 + x] === b[b0 + y] ? dp[x + 1][y + 1] + 1 : Math.max(dp[x + 1][y], dp[x][y + 1]);
+    }
+    const runs = [];
+    for (let x = 0, y = 0; x < n && y < m;) {
+        if (a[a0 + x] === b[b0 + y] && dp[x][y] === dp[x + 1][y + 1] + 1) {
+            const last = runs.at(-1);
+            if (last && last.x1 === x && last.y1 === y) { last.x1++; last.y1++; } else runs.push({ x0: x, x1: x + 1, y0: y, y1: y + 1 });
+            x++; y++;
+        } else if (dp[x + 1][y] >= dp[x][y + 1]) x++;
+        else y++;
+    }
+    const out = [];
+    let x = 0, y = 0;
+    for (const run of runs.filter(r => r.x1 - r.x0 >= 2)) {
+        if (run.x0 > x || run.y0 > y) out.push({ a0: a0 + x, a1: a0 + run.x0, b0: b0 + y, b1: b0 + run.y0, equal: false });
+        out.push({ a0: a0 + run.x0, a1: a0 + run.x1, b0: b0 + run.y0, b1: b0 + run.y1, equal: true });
+        x = run.x1; y = run.y1;
+    }
+    if (x < n || y < m) out.push({ a0: a0 + x, a1: a1, b0: b0 + y, b1: b1, equal: false });
+    return out.length ? out : whole;
+}
+
+/**
+ * 把 a 里的位置换算到 b。落在"不同段"（被替换的名字）中间时：起点往前靠、终点往后靠，
+ * 名字只选了半个也会整个带上（换成 char 之类的替换词）。
+ */
+export function mapOffset(segments, x, edge = 'start') {
+    if (!segments.length) return 0;
+    for (const s of segments) {
+        const inside = edge === 'start' ? x >= s.a0 && x < s.a1 : x > s.a0 && x <= s.a1;
+        if (!inside) continue;
+        if (s.equal) return s.b0 + (x - s.a0);
+        return edge === 'start' ? s.b0 : s.b1;
+    }
+    return x <= 0 ? 0 : segments.at(-1).b1;
+}
+
+/**
+ * 预览里点到的那个"词"：用浏览器自带的分词（中文按词典分词），标点和空白不算词。
+ * @returns {{start:number,end:number}|null}
+ */
+export function wordAt(text, offset, segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('zh', { granularity: 'word' }) : null) {
+    if (!text || offset < 0 || offset > text.length) return null;
+    if (segmenter) {
+        for (const part of segmenter.segment(text)) {
+            const end = part.index + part.segment.length;
+            if (offset >= part.index && offset < end) return part.isWordLike ? { start: part.index, end } : null;
+        }
+        return null;
+    }
+    const word = /[\p{L}\p{N}_]/u;
+    if (!word.test(text[offset] ?? '')) return null;
+    let start = offset, end = offset + 1;
+    while (start > 0 && word.test(text[start - 1])) start--;
+    while (end < text.length && word.test(text[end])) end++;
+    return { start, end };
+}
+
+/** 屏蔽词输入：去首尾空白、压掉换行；空、超过 40 字返回 null。 */
+export function cleanMaskWord(value, max = 40) {
+    const word = String(value ?? '').replace(/\s*\n\s*/g, ' ').trim();
+    return word && word.length <= max ? word : null;
+}

@@ -110,7 +110,7 @@ export function buildSwipeControl(model, shown, { compact = false } = {}) {
         iconButton('fa-chevron-right', '下一个候选（]）', { class: 'stcr-swipe-next', 'data-act': 'swipe-next', 'data-index': model.index, disabled: shown === count - 1 }));
 }
 
-/** 楼层工具：收藏楼 / 收藏此候选 / 思维链 / 复制。生成卡片（T23）接在这里。 */
+/** 楼层工具：收藏楼 / 收藏此候选 / 思维链 / 复制 / 生成卡片（T23a）。 */
 function buildToolbar(model, hasReasoning) {
     const toggle = (icon, act, label) => {
         const button = iconButton(icon, label, { 'data-act': act, 'aria-pressed': 'false' });
@@ -121,7 +121,8 @@ function buildToolbar(model, hasReasoning) {
         toggle('fa-bookmark', 'bookmark-floor', '收藏这一楼（B）'),
         model.swipes.length > 1 ? toggle('fa-star', 'bookmark-swipe', '收藏这个候选') : null,
         hasReasoning ? iconButton('fa-brain', '展开 / 收起思维链（R）', { 'data-act': 'reasoning' }) : null,
-        iconButton('fa-copy', '复制本楼文字', { 'data-act': 'copy' }));
+        iconButton('fa-copy', '复制本楼文字', { 'data-act': 'copy' }),
+        iconButton('fa-image', '用这一楼生成分享卡片', { 'data-act': 'card' }));
 }
 
 /** 代码块右上角的复制钮（F3）。自有 stcr- 类，复制 code.textContent（03 §5.3）。 */

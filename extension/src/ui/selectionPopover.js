@@ -1,6 +1,6 @@
 // 选中文字浮层（02 §1.5、F7/F2a）、点已有划线的浮层、批注输入框、批注气泡。
 // 全部挂在 #stcr_root 里（事件已在根节点截断，不会冒泡到 ST）。
-// "生成卡片"按钮由 T23 接入；"设为替换词…"随 T23 的替换规则一起做。
+// "卡片"按钮（T23a）：可跨楼，跨楼时只有它能用。"设为替换词…"随 T23b 的替换规则一起做。
 
 import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
@@ -9,11 +9,11 @@ import { COLORS } from './marks.js';
 const MASK_MAX = 30;
 
 /**
- * @param {{root:HTMLElement, marks:object, toast:(msg:string)=>void,
+ * @param {{root:HTMLElement, marks:object, toast:(msg:string)=>void, onCard:(range:Range)=>void,
  *   setPopover:(el:HTMLElement, opts?:{onDismiss?:()=>void})=>void, closePopover:(opts?:{cancel?:boolean})=>void}} deps
  *   onDismiss：浮层被"点外面/换别的浮层"关掉时调用；closePopover({cancel:true})（Esc、取消）不调用。
  */
-export function createSelectionUi({ root, marks, toast, setPopover, closePopover }) {
+export function createSelectionUi({ root, marks, toast, onCard, setPopover, closePopover }) {
     let bubble = null;
 
     /** 把浮层放在一个屏幕矩形的上方（放不下就放下方）；手机贴底。 */
@@ -46,7 +46,7 @@ export function createSelectionUi({ root, marks, toast, setPopover, closePopover
 
     /**
      * 选中文字后调用。info: {range, el(楼), container(.mes_text/.mes_reasoning)|null, text}
-     * container 为 null = 跨楼或跨正文/思维链，只能做卡片（T23）。
+     * container 为 null = 跨楼或跨正文/思维链，只能做卡片。
      */
     function showForSelection({ range, el, container, text }) {
         const canMark = !!container;
@@ -57,6 +57,8 @@ export function createSelectionUi({ root, marks, toast, setPopover, closePopover
             h('span', { class: 'stcr-sep', 'aria-hidden': 'true' }),
             h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', disabled: !canMark, title: canMark ? '划线并写批注' : '划线请在同一段正文里选', onclick: () => mark('yellow', true) },
                 h('i', { class: 'fa-solid fa-pen', 'aria-hidden': 'true' }), '批注'),
+            h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', title: '用选中的文字做分享卡片（可以跨楼选）', onclick: () => card() },
+                h('i', { class: 'fa-solid fa-image', 'aria-hidden': 'true' }), '卡片'),
             h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', disabled: !canMask,
                 title: canMask ? '加入屏蔽词（只作用于分享卡片）' : '请选一个词（30 字以内）', onclick: () => mask() },
             h('i', { class: 'fa-solid fa-eye-slash', 'aria-hidden': 'true' }), '屏蔽'));
@@ -75,6 +77,10 @@ export function createSelectionUi({ root, marks, toast, setPopover, closePopover
                 console.error('[st-reader] 划线失败：', error);
                 toast(error instanceof RangeError ? '这里不能划线（请选正文里的文字）' : `划线没保存上：${error.message ?? error}`);
             }
+        }
+        function card() {
+            closePopover();
+            onCard(saved);
         }
         async function mask() {
             closePopover();
