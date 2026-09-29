@@ -80,7 +80,7 @@ export function rasterizeCardIcon(glyph, color, doc = document) {
     if (!face) throw new Error('ST 的 Font Awesome 实心图标字体尚未加载，请等待界面完成加载');
     const canvas = doc.createElement('canvas'); canvas.width = 128; canvas.height = 128;
     const context = canvas.getContext('2d');
-    context.font = `900 100px ${face.family}`;
+    context.font = `900 100px ${JSON.stringify(face.family.replace(/^["']|["']$/g, ''))}`;
     context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillStyle = color;
     context.fillText(glyph, 64, 66);
     return canvas.toDataURL('image/png');

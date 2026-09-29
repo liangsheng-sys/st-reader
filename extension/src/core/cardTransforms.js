@@ -35,19 +35,20 @@ function occurrences(text, rule) {
 }
 
 /** 按优先级再按长词选取不重叠范围；输出不再参与后续规则，避免 A→B→C 连锁。 */
-function selectMatches(text, groups) {
+function selectMatches(text, groups, accept = () => true) {
     const selected = [];
     for (const group of groups) {
         const candidates = group.flatMap((rule, order) => occurrences(text, rule).map(match => ({ ...match, order })));
         candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.order - b.order || a.start - b.start);
-        for (const candidate of candidates) if (!selected.some(item => candidate.start < item.end && candidate.end > item.start)) selected.push(candidate);
+        for (const candidate of candidates) if (accept(candidate) && !selected.some(item => overlaps(candidate, item))) selected.push(candidate);
     }
     return selected.sort((a, b) => a.start - b.start);
 }
+const overlaps = (a, b) => a.start < b.end && a.end > b.start;
 
 /**
  * 纯函数：正则前的原文 → 文本/受保护替换片段。输入永不修改。
- * 我的规则优先，随后自动名字；同级长词优先，不递归替换目标文本。
+ * 自动名字整体保护；我的规则只有完整同名或不相交时优先。同级长词优先，不递归替换目标文本。
  * @param {string} text 正则前原文
  * @param {{replaceNames?:boolean,rules?:object[],avatarUrl?:string,userName?:string,characterName?:string,isGroup?:boolean,groupNames?:string[]}} options
  * @returns {{segments:object[],mappings:object[]}}
@@ -60,15 +61,36 @@ export function replaceNamesInRaw(text, options = {}) {
         ? options.userName || '{{user}}' : options.characterName || '{{char}}');
     const mine = (options.rules ?? []).filter(rule => !rule.scope || rule.scope === 'all' || rule.scope === options.avatarUrl);
     mine.forEach(validateRule);
-    const matches = selectMatches(text, [mine.map(rule => ({ ...rule, source: 'mine' })), automaticNameRules(options)]);
+    const automatic = automaticNameRules(options);
+    // 保护所有自动名字范围，包括嵌套短名字，不能让长的用户规则跨边界吞掉名字。
+    const protectedMatches = automatic.flatMap(rule => occurrences(text, rule));
+    const skipped = [];
+    const matches = selectMatches(text, [mine.map(rule => ({ ...rule, source: 'mine' })), automatic], candidate => {
+        if (candidate.rule.source !== 'mine') return true;
+        const completeName = protectedMatches.some(item => candidate.start === item.start && candidate.end === item.end && candidate.rule.from === item.rule.from);
+        const blocked = protectedMatches.some(item => overlaps(candidate, item)
+            && !(completeName && candidate.start <= item.start && candidate.end >= item.end));
+        if (blocked) skipped.push(candidate);
+        return !blocked;
+    });
     const segments = [], mappings = [];
     let offset = 0;
     for (const { start, end, rule } of matches) {
         if (start > offset) segments.push({ kind: 'text', text: text.slice(offset, start) });
         segments.push({ kind: 'replacement', to: { ...rule.to } });
         const existing = mappings.find(item => item.from === rule.from && item.source === rule.source && item.to.kind === rule.to.kind && item.to.value === rule.to.value);
-        if (existing) existing.count++;
-        else mappings.push({ from: rule.from, to: { ...rule.to }, source: rule.source, count: 1 });
+        const mapping = existing ?? { from: rule.from, to: { ...rule.to }, source: rule.source, count: 0 };
+        if (!existing) mappings.push(mapping);
+        mapping.count++;
+        // 跳过诊断附在真正保护了完整名字的映射上，旧 UI 不会误把未执行规则用于批注文案。
+        const protectsName = protectedMatches.some(item => start <= item.start && end >= item.end);
+        for (const candidate of skipped.filter(item => protectsName && overlaps(item, { start, end }))) {
+            mapping.skippedOverlap = true;
+            mapping.skippedRules ??= [];
+            const found = mapping.skippedRules.find(item => item.from === candidate.rule.from && item.to.kind === candidate.rule.to.kind && item.to.value === candidate.rule.to.value);
+            if (found) found.count++;
+            else mapping.skippedRules.push({ from: candidate.rule.from, to: { ...candidate.rule.to }, count: 1 });
+        }
         offset = end;
     }
     if (offset < text.length || !segments.length) segments.push({ kind: 'text', text: text.slice(offset) });

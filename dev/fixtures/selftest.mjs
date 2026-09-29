@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import { inflateSync } from 'node:zlib';
 import { assertDevPath, DEV_ROOT, USER_ROOT } from './paths.mjs';
 import { crc32, makeCharacterPng } from './png.mjs';
+import { assertCharacterFixture } from './cardCheck.mjs';
 import { CHARACTERS, GLOBAL_REGEX, SCOPED_REGEX, THEME, BIG_COUNT, makeCard, makeSmallChats, makeGroup, makeGroupMessages } from './data.mjs';
 
 /** 既验证 PNG 文件格式，也验证数据覆盖范围；已生成样本时流式复核所有文件。 */
@@ -13,6 +14,16 @@ export async function testFixtures() {
     const results = [];
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
+    await test('I013 宿主补字段/更改当前 chat 后 PNG 仍有效，关键字段或正则变化仍拒绝', () => {
+        const expected = makeCard(CHARACTERS[0]), changed = structuredClone(expected);
+        changed.chat = 'STCR-95-T30-50MiB-4000楼'; changed.fav = false;
+        changed.data.extensions.depth_prompt = { prompt: '', depth: 4, role: 'system' };
+        assertCharacterFixture(makeCharacterPng(changed, CHARACTERS[0].color), expected);
+        for (const corrupt of [card => { card.data.name = '其他角色'; }, card => { card.data.extensions.regex_scripts = []; }]) {
+            const card = structuredClone(changed); corrupt(card);
+            assert.throws(() => assertCharacterFixture(makeCharacterPng(card, CHARACTERS[0].color), expected));
+        }
+    });
     await test('三个独立虚构角色与有效 PNG 卡片（CRC、像素、chara 元数据）', () => {
         assert.equal(new Set(CHARACTERS.map(character => character.avatar)).size, 3);
         for (const character of CHARACTERS) {
@@ -85,9 +96,11 @@ export async function testFixtures() {
     const manifestPath = assertDevPath(path.join(DEV_ROOT, 'fixtures', 'manifest.json'));
     if (fs.existsSync(manifestPath)) {
         const manifest = JSON.parse(fs.readFileSync(manifestPath));
-        await test('所有落盘 fixture 大小与 SHA-256 一致（流式检查）', async () => {
+        await test('落盘聊天等文件大小/SHA-256 一致；角色 PNG 核对关键 JSON 而非文件大小', async () => {
             for (const file of manifest.files) {
                 const target = assertDevPath(path.join(USER_ROOT, file.path));
+                const character = CHARACTERS.find(character => file.path === `characters/${character.avatar}`);
+                if (character) { assertCharacterFixture(fs.readFileSync(target), makeCard(character)); continue; }
                 const hash = createHash('sha256');
                 for await (const piece of fs.createReadStream(target)) hash.update(piece);
                 assert.equal(fs.statSync(target).size, file.bytes, file.path);
@@ -112,6 +125,21 @@ export async function testFixtures() {
             for (const regex of GLOBAL_REGEX) assert.equal(ext.regex.filter(script => script.id === regex.id).length, 1);
             assert.ok(ext.character_allowed_regex.includes(CHARACTERS[0].avatar));
             assert.equal(settings.power_user.theme, THEME.name);
+        });
+    }
+    const performancePath = assertDevPath(path.join(DEV_ROOT, 'fixtures', 'performance.json'));
+    if (fs.existsSync(performancePath)) {
+        await test('T30 独立大文件至少 50 MiB，SHA-256 与 4000 楼完整，未放宽聊天校验', async () => {
+            const manifest = JSON.parse(fs.readFileSync(performancePath));
+            const target = assertDevPath(path.join(USER_ROOT, manifest.path)), hash = createHash('sha256');
+            assert.ok(manifest.synthetic && fs.statSync(target).size >= 50 * 1048576);
+            for await (const part of fs.createReadStream(target)) hash.update(part);
+            assert.equal(hash.digest('hex'), manifest.sha256);
+            let rows = 0;
+            for await (const line of createInterface({ input: fs.createReadStream(target), crlfDelay: Infinity })) {
+                const value = JSON.parse(line); assert.ok(rows++ ? value.mes : value.chat_metadata.stcr_fixture);
+            }
+            assert.equal(rows, manifest.count + 1);
         });
     }
     return results;

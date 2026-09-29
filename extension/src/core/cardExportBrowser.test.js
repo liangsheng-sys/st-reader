@@ -1,6 +1,7 @@
 import { exportCard, createCardMessage, bindCardSource, wrapMaskSpans } from './cardExport.js';
 import { maskTextNodesInPlace, prepareCardAssets } from './cardContent.js';
-import { buildCardFontCss } from './cardFonts.js';
+import { buildCardFontCss, rasterizeCardIcon } from './cardFonts.js';
+import { CARD_ICONS } from './cardTransforms.js';
 import { makeChatKey, openChat } from './chatSource.js';
 import { refreshCssScope } from './cssScope.js';
 import { TEST_PNG } from './persistence.test.js';
@@ -36,6 +37,21 @@ export async function testCardExportBrowser() {
     let floor, handle;
     try {
         handle = await openChat(makeChatKey({ avatarUrl: 'STCR_T11_Aster.png', fileName: 'STCR-01-正则与多候选' })); handles.push(handle);
+        await test('I018 六个 core 图标实际 PNG 字形完整（不是 10px 小点）', async () => {
+            for (const glyph of Object.values(CARD_ICONS)) {
+                const source = rasterizeCardIcon(glyph, '#000000');
+                const blob = new Blob([Uint8Array.from(atob(source.split(',')[1]), char => char.charCodeAt(0))], { type: 'image/png' });
+                const { data } = await pixels(blob);
+                let count = 0, minY = 128, maxY = 0;
+                for (let i = 3; i < data.length; i += 4) if (data[i] > 128) { count++; minY = Math.min(minY, Math.floor(i / 4 / 128)); maxY = Math.max(maxY, Math.floor(i / 4 / 128)); }
+                assert(count > 1000 && maxY - minY > 50, `图标退化为小点：${count}/${maxY - minY}`);
+            }
+        });
+        await test('I019 正文/名字/正则宏合并仍完整脱敏并保留跳过诊断', async () => {
+            const { element, mappings } = await createCardMessage(handle, 11, { ...cleanOptions, rules: [{ from: '虚构', to: { kind: 'text', value: '假想' }, scope: 'all' }] });
+            assert(!element.textContent.includes('（假想）') && !element.textContent.includes(handle.header.characterName) && !element.textContent.includes(handle.header.userName), '部分名字泄漏');
+            assert(mappings.some(item => item.skippedOverlap && item.skippedRules[0].from === '虚构' && item.skippedRules[0].count > 0), '诊断在合并时丢失');
+        });
         await test('原文先替换再正则，只执行一次，源候选不变', async () => {
             const raw = JSON.stringify(handle.getMessage(11));
             const result = await createCardMessage(handle, 11, cleanOptions); floor = result.element; chat.append(floor);

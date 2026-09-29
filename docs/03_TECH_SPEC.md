@@ -100,7 +100,7 @@ T13 锚点为 `{chatKey, mesIndex, swipeIndex, part, quote:{exact,prefix,suffix}
 先用前后文消歧，再用唯一 exact 回退；找不到或无法唯一确定分别为 `text-missing` / `ambiguous`。原文哈希变化仅作诊断，不阻止唯一文本定位。只对当前已渲染的同聊天/楼/候选/区域判断 orphan，其他目标为 unrelated，不把未加载页误判为孤立。重定位持久化 orphan，但保留原引用、批注文字与哈希；文本恢复后可从孤立区恢复。
 
 ### 4.4 卡片脱敏（F2a）
-T14 在候选**原文副本**上选取不重叠的替换范围：我的规则优先于自动名字，同级长词优先、同长按传入顺序；结果不串换。自动规则为 header 用户→user、单聊 header 角色→char、群成员按定义顺序→char1..N；未知群发言者退化为char，不冒充某个成员；同名成员按首次出现编号。`{{ user }}` 等大小写/空白变体也走此规则。名字总开关关闭时，两层替换都停用，屏蔽词仍有效。
+T14 在候选**原文副本**上选取不重叠的替换范围：我的规则优先于自动名字（T30/I019：但不能拆开自动名字），同级长词优先、同长按传入顺序；结果不串换。自动规则为 header 用户→user、单聊 header 角色→char、群成员按定义顺序→char1..N；未知群发言者退化为char，不冒充某个成员；同名成员按首次出现编号。`{{ user }}` 等大小写/空白变体也走此规则。名字总开关关闭时，两层替换都停用，屏蔽词仍有效。
 
 匹配片段在**显示正则前**从原文取走，以临时不透明占位符穿过一次 `runDisplayRegex` 与既有安全格式化器，随后仅在文本节点恢复成文字/图标/图片。用户替换文字通过 textContent 放入，不能成为 HTML、宏或正则代码；替换目标被保护，既不被再次替换，也不被屏蔽词吞掉。脚本 replacement 的 user/char 宏同样先保护，避免重新插回真名。普通正文仍完整执行原正则，作用域、深度与只跑一次保持 T12 语义。**受保护片段不参与显示正则匹配**；若正则删掉、拆散占位符，或将其放入属性/style，导出明确失败，不拿未脱敏正文回退。T12 的旧纯文本函数及 renderMessage 签名没有变化。
 
@@ -113,7 +113,9 @@ I009 实证：187208字节的 Ny JetBrainsMono（兼容重复导入别名）实�
 导出边界：没有可读字节的普通URL字体（如ST默认Noto Sans）使用系统回退并通过console.warn / onWarning通知；需要精确字形时在Ny导入本地字体。中文是否覆盖由所导入字体决定，T11 JetBrainsMono只证明拉丁字母/数字。跨域不可读CSS、URL背景图与交互媒体不导出；不为它们发请求。宽≤8192 CSS px，高≤16384 CSS px，倍率1–3，最终≤3200万像素，本卡字体合计≤32 MiB。超限抛错，不静默裁切。
 
 ### 4.5 大文件（I005、NF2）
-`/api/chats/get` 一次返回整个文件；不能整篇渲染。`chatSource` 只取被打开的聊天，保留原始消息和紧凑深度索引，按页构造视图模型，close 释放正文；UI 翻页时释放上一页 DOM。T12 已实测 21.35 MiB / 1600 楼；50 MB 与真机整合耗时留待 T30，不能由此样本推断已通过。
+`/api/chats/get` 一次返回整个文件；不能整篇渲染。`chatSource` 只取被打开的聊天，保留原始消息和紧凑深度索引，按页构造视图模型，close 释放正文；UI 翻页时释放上一页 DOM。T12 已实测 21.35 MiB / 1600 楼；T30 新增独立 **55987114 字节 / 53.39 MiB / 4000 楼** fixture，生成器为 `dev/fixtures/performance.mjs`，不修改原 T11 卡片与聊天，数据与报告只在 `.dev/`。
+
+`stcrSelfTest({performance:true})` 驱动真实阅读器（30楼一批、最多120楼），计时到 rAF 后绘制完成的下一任务；测3次打开、8次跨批次、20次分页翻屏、切回小聊天与关闭。`dev/test-performance.cmd` 使用已有 Chrome/Edge、独立 `.tmp` 配置、同源网络拦截和精确 JS 堆读数，主动 GC 后比较，结束清理。普通浏览器缺少主动 GC 时明确输出“内存未验证”，不能据此全勾。验收指标：打开每次 <3000ms；翻屏 P95<100ms、最慢<150ms；预取30楼一批<300ms；切小聊天释放≥70%增量。实测与硬件/窗口/字体/宿主负载相关；T30 多轮有超限，**性能暂不能宣告稳定通过**，见 I020 与 T30 交接。不得挑最快一轮覆盖失败样本。
 
 ## §5 core ↔ ui 接口（astra 在 T12 填写，Opus 只依赖这里）
 **T12 合同版本 1，2026-09-28。下列已交付接口均有真实实现与可执行测试。** 后续改签名、字段语义或错误行为须登记 06 并在交接信通知 Opus。内部实证接口 `formatWithStrategy`、`loadHostRuntime`、`createChatSource` 不供 UI 依赖。
@@ -384,7 +386,8 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
  * @property {'fa-star'|'fa-heart'|'fa-cat'|'fa-cloud'|'fa-moon'|'fa-shield'} [icon='fa-star']
  * @property {string} [assetId] sticker可用已导入图片；给出时优先于icon
  */
-/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},source:'mine'|'automatic',count:number}} CardMapping */
+/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},count:number}} SkippedNameRule */
+/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},source:'mine'|'automatic',count:number,skippedOverlap?:true,skippedRules?:SkippedNameRule[]}} CardMapping */
 ```
 
 导出开启名字替换时必须有绑定的原文；传普通已格式化楼层而不绑定会报错，因为不能在正则后的HTML上假装完成“正则前名字替换”。每次导出对绑定楼层从原始候选重渲染一次，保持模板的外壳/样式，在副本内更新三个展示区域；不会把预览已经处理过的正文再跑一次正则。没有绑定、且 `replaceNames:false` 时可直接导出任何安全DOM，此时仅做屏蔽。
@@ -392,6 +395,12 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 **选段合同**：若只要部分楼层，先用 createCardMessage 得到已脱敏、已格式化的节点，在这个副本上提取选段（例如Range.cloneContents），放入模板；然后用 `exportCard(template,{...options,replaceNames:false})` 导出已经处理好的片段。这里的false是“导出时不再做名字阶段”，不会还原已替换的名字。规则/名字开关变化时，从原始handle重建预览和选段。不要把只剩部分正文的元素再次bind，否则导出会按绑定重建整楼。原阅读器上的选区映射与工作台重选/确认由T23处理，不能直接把阅读器原始HTML当作已脱敏HTML。
 
 我的规则 scope=all 或匹配**当前目标发言角色的avatar**；群聊按实际成员，用户楼没有任意成员作用域。整词判断按Unicode字母/数字/组合符/下划线边界；中文连续字串需要精确边界或关闭wholeWord。规则不是正则表达式；同级重叠先长词，相同长度用传入顺序，store.list的顺序稳定。目标图标只允许上述六种；素材引用必须存在，重新校验图片签名/限额，SVG再次清洗。mappings只包含实际命中，含原词，供工作台私有映射预览，不能放到分享图或日志。
+
+**T30 / I019 合同增补**：先收集原文中全部自动名字的 UTF-16 范围（单聊 char/user、群成员、已展开的名字宏），每次“我的规则”匹配若碰到任何自动名字，必须与其中某个名字同时满足**原词逐字完全相等（区分大小写）且范围完全相同**，并且不截断其他相交的自动名字，才可覆盖；前缀、后缀、内部片段、跨边界及包含整名的更长原词均跳过该处。规则在其他不与名字相交的位置仍能执行，scope/wholeWord/caseSensitive 仍按原合同过滤。嵌套名字中，完整短名不能拆开另一个长名。
+
+`skippedOverlap:true` 标在**真正保护了完整名字的实际映射**上（自动映射或完整同名的我的映射）；同一映射的 `skippedRules` 为 `{from,to,count}` 列表，count 为与该映射相交而跳过的次数。顶层 count 仍只统计实际替换次数。不要将诊断子项再作为替换规则；这避免旧 UI 的批注脱敏遍历 mappings 时误用一个根本没执行的规则。正文、思维链、名字行及命中的显示正则名字宏合并时保留并累加诊断。UI 可显示“为保护完整名字，已跳过部分重叠规则”，真实原词只留私有侧栏。函数签名与旧字段不变；当前 UI 的新增提示由 Opus 后续接入（见 I019）。
+
+I018① 已修：Canvas 字体名去外层引号后重新引用，六个 FA 实心图标均作真实 PNG 像素验证。I018② 本轮不在 core 解析带 var() 的简写：安全样式拷贝会先过滤资源声明，直接复制 cssText 会绕开边界；通用简写展开又需处理层叠、!important、变量与回退。目前模板继续使用 background-color/border-color 等单项属性，外来自定义 CSS 的这类简写仍可能丢失，保留该限制。
 
 参数错误抛TypeError/RangeError；源handle关闭时沿用CLOSED；字体文件缺失/解码失败、图案缺失、占位符损坏、不可读图片、截图失败抛带中文原因的Error。任何错误都不产出“可能未脱敏”的替代图。UI await导出期间禁用重复按钮，catch后保留预览；关闭工作台时自行释放handle、DOM及自己创建的Blob URL。core只生成Blob，不控制用户的保存位置。
 
@@ -402,11 +411,13 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 | 签名 | 返回 |
 |---|---|
 | `automaticNameRules({userName='',characterName='',isGroup=false,groupNames=[]}={})` | 自动规则数组；不读宿主 |
-| `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules与replaceNames |
+| `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules与replaceNames；自动名字整体保护及 skippedOverlap/skippedRules 见5.9 |
 | `maskText(text,words=[],maskStyle='bar')` | 数组；普通段`{kind:'text',text,start,end}`，遮盖段`{kind:'mask',width,style,start,end}`；位置是原输入UTF-16偏移，遮盖段无原词。Node自测覆盖这两个变换内核 |
 | `wrapMaskSpans(root,words=[],maskStyle='bar',assets=new Map())` | 返回root的DOM副本；输入不变，无网络或存储。assets是`Map<id,{dataUrl}>`，必须是经过store/prepareCardAssets校验的数据；一般工作台使用exportCard接管校验即可 |
 
 自定义卡片中的副标题/批注需由UI明确决定是否显示；屏蔽会遍历这些文本节点。将不应导出的控件标记 `data-stcr-export-ignore`，副本构造时整树跳过。不要把真实名字放进背景图；图片像素不做OCR脱敏。被保护的替换文字通过 `.stcr-replacement[data-stcr-protected]` 标记，在预览裁剪时保留该包裹，保证“替换优先于屏蔽”。这两个标志都不包含真实原词。
+
+纯函数例：`replaceNamesInRaw('测试旅人（虚构） 虚构',{userName:'测试旅人（虚构）',rules:[{from:'虚构',to:{kind:'text',value:'假想'}}]})` 的文本结果是 `user 假想`。自动映射 `测试旅人（虚构）→user` 带 `skippedOverlap:true, skippedRules:[{from:'虚构',to:{kind:'text',value:'假想'},count:1}]`；另有正常的 `虚构→假想` 我的映射。关闭 replaceNames 时仍返回原文与空映射。
 
 ### 5.11 T14 接入示例与开发验收
 

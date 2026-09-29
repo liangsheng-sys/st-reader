@@ -1,5 +1,9 @@
 # T11 合成样本
 
+T30：`dev/generate-performance.cmd` 单独生成 `STCR-95-T30-50MiB-4000楼`（55987114字节），必须先停服务，不重建其他样本。`selftest.mjs` 同时验证其大小、SHA-256和4000楼逐行JSON。
+
+I013：宿主正常保存角色卡会补字段、重编码PNG或改变默认chat。自测改为PNG块CRC与chara/ccv3关键JSON字段（姓名、描述、创建者、角色版本、合成标记、作用域正则），不再用PNG大小/哈希判定漂移。所有聊天以及其他清单文件仍严格检查原大小与SHA-256；改名字或删正则仍会失败，无需每次正常浏览后重建fixture。
+
 所有角色、头像、故事、思维链字段从代码生成，未使用真实聊天。生成器仅用 Node 内置模块，固定写入 `E:\st-reader\.dev\data`。先运行 T10 启动器初始化并停止服务，再双击 `dev/generate-fixtures.cmd`。Ny 兼容扩展与测试字体另由 `dev/install-test-font.cmd` 安装；详细点击步骤见 `docs/SETUP_WINDOWS.md` 的 §2.1。
 
 | 样本 | 内容与预期 |

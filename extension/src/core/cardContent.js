@@ -128,7 +128,8 @@ export async function renderCardParts(source, options, doc = document) {
         container.innerHTML = formatWithStrategy(filtered, model, names, { reasoning });
         for (const macro of macroResults) {
             const count = macro.tokens.reduce((sum, item) => sum + container.innerHTML.split(item.token).length - 1, 0);
-            if (count) mappings.push(...macro.mappings.map(item => ({ ...item, count: item.count * count })));
+            if (count) mappings.push(...macro.mappings.map(item => ({ ...item, count: item.count * count,
+                ...(item.skippedRules ? { skippedRules: item.skippedRules.map(rule => ({ ...rule, count: rule.count * count })) } : {}) })));
         }
         // 脚本宏未命中时，其占位符不会出现；原文中的占位符必须完整保留。
         const tokens = protectedText.tokens.filter(item => protectedText.text.includes(item.token) || container.innerHTML.includes(item.token));
@@ -140,7 +141,16 @@ export async function renderCardParts(source, options, doc = document) {
     const actualMappings = [];
     for (const item of mappings) {
         const found = actualMappings.find(other => other.from === item.from && other.source === item.source && other.to.kind === item.to.kind && other.to.value === item.to.value);
-        if (found) found.count += item.count; else actualMappings.push({ ...item });
+        if (found) {
+            found.count += item.count;
+            if (item.skippedOverlap) {
+                found.skippedOverlap = true; found.skippedRules ??= [];
+                for (const skipped of item.skippedRules) {
+                    const prior = found.skippedRules.find(rule => rule.from === skipped.from && rule.to.kind === skipped.to.kind && rule.to.value === skipped.to.value);
+                    if (prior) prior.count += skipped.count; else found.skippedRules.push({ ...skipped });
+                }
+            }
+        } else actualMappings.push({ ...item, ...(item.skippedRules ? { skippedRules: item.skippedRules.map(rule => ({ ...rule })) } : {}) });
     }
     return { body, reasoning, name, mappings: actualMappings, model, swipeIndex };
 }

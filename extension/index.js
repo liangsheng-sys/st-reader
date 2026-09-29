@@ -6,7 +6,7 @@ if (isDevInstance(window.location)) {
     installReadonlyGuard(window);
     console.log('[st-reader] 开发实例只读保护已开启。');
     window.stcrSelfTest = async (options = {}) => {
-        const runCore = options.core ?? !options.fixtures;
+        const runCore = options.core ?? (!options.fixtures && !options.performance);
         if (!isReadonlyGuardInstalled(window)) throw new Error('开发实例的 fetch 只读保护已失效。');
         const { testReadonlyGuard } = await import('./src/core/readonlyGuard.test.js');
         const results = await testReadonlyGuard();
@@ -28,6 +28,10 @@ if (isDevInstance(window.location)) {
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
+        }
+        if (options.performance) {
+            const { testPerformanceBrowser } = await import('./src/core/performanceBrowser.test.js');
+            results.push(...await testPerformanceBrowser());
         }
         console.table(results);
         console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
