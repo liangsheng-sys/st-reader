@@ -22,7 +22,7 @@
 - T10 启动器：`dev/start-dev-st.cmd` → 原生 Node `start-dev-st.mjs`，首次从 `dev/config.dev.yaml` 创建被忽略的 `.dev/config.yaml`；固定 D03 数据路径，创建扩展目录联接，临时目录固定在 `.tmp/`。`--import dev/isolate-dev-st.mjs` 只在开发进程内将 `PUBLIC_DIRECTORIES.globalExtensions/backups` 指向 `.dev/`，防止管理扩展时宿主对 F 盘全局扩展执行 Git 检查（I007），不修改宿主文件。
 - T10 只读保护在扩展模块载入时安装（早于 `APP_READY`），仅对本机 HTTP 8100 默认启用；D02 七个路径不分 HTTP 方法拦截，抛 `StcrReadonlyError` 并记录 `console.error`。此为整个开发窗口的 fetch 断言，不替代静态审计，不覆盖 XHR 或宿主直接函数调用。只跑 13 项保护测试用 `stcrSelfTest({core:false})` 或 `?stcrSelfTest=1&core=0`。
 - T11 的 Node 自检追加 8 项样本/落盘验证。浏览器 `stcrSelfTest({fixtures:true})` 共 18 项；打开星灯后附加 `{font:true, rendered:true}` 共 21 项，检查原生显示及 Ny 字体数据库/FontFace。
-- T13 后 `node dev/selftest.mjs` 共 **50 项**（13 保护 + 8 样本 + 15 T12 + 14 T13）；`await window.stcrSelfTest()` 共 **70 项**（13 保护 + 15 T12 纯逻辑 + 17 T12 浏览器 + 14 T13 纯逻辑 + 11 T13 浏览器）。先在宿主打开雾岚，使星灯未选中，关闭阅读器，并按手册导入 Ny 测试字体。网址 `?stcrSelfTest=1&coreWhenChat=1` 运行同一套检查；仅重跑 T12 时加 `{persistence:false}`（45 项）。跨页面存储实证为 `stcrStorageProbe('write')`，刷新后 `stcrStorageProbe('read')`。所有写入仅在扩展自有 IndexedDB 测试表，成功后清理。
+- T14 后 `node dev/selftest.mjs` 共 **68 项**（13 保护 + 8 样本 + 15 T12 + 14 T13 + 18 T14）；`await window.stcrSelfTest()` 共 **99 项**（此前70项 + 18 T14 纯逻辑 + 11 T14 浏览器）。先在宿主打开雾岚，使星灯未选中，关闭阅读器，并按手册导入 Ny 测试字体。网址 `?stcrSelfTest=1&coreWhenChat=1` 运行同一套检查。重跑 T13 及以前用 `{cardExport:false}`（70项）；仅 T12 用 `{persistence:false,cardExport:false}`（45项）；仅 T14 用 `{core:false,persistence:false,cardExport:true}`（42项，含13项保护）。跨页面存储实证仍为 `stcrStorageProbe('write')`，刷新后 `stcrStorageProbe('read')`。T14 没有写字体数据库；导出不发网络请求，临时 DOM finally 清理。
 
 ## §2 数据模型（ST jsonl）
 - 单聊第 0 行 header：`{user_name, character_name, create_date, chat_metadata:{...}}`；群聊直接从消息开始。
@@ -100,7 +100,17 @@ T13 锚点为 `{chatKey, mesIndex, swipeIndex, part, quote:{exact,prefix,suffix}
 先用前后文消歧，再用唯一 exact 回退；找不到或无法唯一确定分别为 `text-missing` / `ambiguous`。原文哈希变化仅作诊断，不阻止唯一文本定位。只对当前已渲染的同聊天/楼/候选/区域判断 orphan，其他目标为 unrelated，不把未加载页误判为孤立。重定位持久化 orphan，但保留原引用、批注文字与哈希；文本恢复后可从孤立区恢复。
 
 ### 4.4 卡片脱敏（F2a）
-在卡片用的**文本副本**上操作，不动阅读器 DOM：名字替换在**正则前**的原文层做（user_name → user，单聊角色 → char，群成员按成员顺序 → char1 / char2…）；屏蔽词在**正则后**的文本节点层包 `<span class="stcr-mask stcr-mask--bar|block|sticker">`；再交 `modern-screenshot`。永久替换规则、图标/图片与“我的规则 > 自动 > 屏蔽词”的优先级按最新 02 §6 和 I010 在 T13/T14 接入。
+T14 在候选**原文副本**上选取不重叠的替换范围：我的规则优先于自动名字，同级长词优先、同长按传入顺序；结果不串换。自动规则为 header 用户→user、单聊 header 角色→char、群成员按定义顺序→char1..N；未知群发言者退化为char，不冒充某个成员；同名成员按首次出现编号。`{{ user }}` 等大小写/空白变体也走此规则。名字总开关关闭时，两层替换都停用，屏蔽词仍有效。
+
+匹配片段在**显示正则前**从原文取走，以临时不透明占位符穿过一次 `runDisplayRegex` 与既有安全格式化器，随后仅在文本节点恢复成文字/图标/图片。用户替换文字通过 textContent 放入，不能成为 HTML、宏或正则代码；替换目标被保护，既不被再次替换，也不被屏蔽词吞掉。脚本 replacement 的 user/char 宏同样先保护，避免重新插回真名。普通正文仍完整执行原正则，作用域、深度与只跑一次保持 T12 语义。**受保护片段不参与显示正则匹配**；若正则删掉、拆散占位符，或将其放入属性/style，导出明确失败，不拿未脱敏正文回退。T12 的旧纯文本函数及 renderMessage 签名没有变化。
+
+最后在正则后的 DOM 文本节点查找屏蔽词，支持跨 em/strong/高亮 span，隔离段落/楼层边界，跳过 style/script/按钮和替换片段。删除原词后放入 `<span class="stcr-mask stcr-mask--bar|block|sticker">`；不是盖在仍存在的字上。bar 为实色直角条、block 为主题色圆角块、sticker 为3个 FA 图标或本地图片。默认统一3em宽；可关闭统一长度，按 Unicode 码点数设置宽度。遮盖元素不含原词，源属性/注释不进入截图副本。
+
+`modern-screenshot` 固定4.7.0单文件与完整MIT许可（见 LICENSES）。副本在禁脚本、禁外网的 srcdoc 中排版，保留可读主题CSS、important、媒体/嵌套规则和伪元素，不改变宿主。仅本地 data 图片与已有可读图片的 Canvas 副本进入导出；不克隆 CSS 资源 URL、@import，禁止依赖补取资源。字体在最终副本构造后收集：用 readonly 事务读取实际使用的 Ny 本地 Blob，内嵌 data URL @font-face；字体解码失败就拒绝。FA 实心图标以宿主已加载字形离线绘制成小PNG。不加载worker，不走CDN。
+
+I009 实证：187208字节的 Ny JetBrainsMono（兼容重复导入别名）实际嵌入PNG；把PNG的拉丁字形与同一已加载FontFace的Canvas参考比较，在允许≤1px行盒取整对齐后像素差为0，serif参考差为513267；另逐像素检查主题薄荷色边线与实心遮盖。没有把“字体名字出现在CSS里”当作完成。
+
+导出边界：没有可读字节的普通URL字体（如ST默认Noto Sans）使用系统回退并通过console.warn / onWarning通知；需要精确字形时在Ny导入本地字体。中文是否覆盖由所导入字体决定，T11 JetBrainsMono只证明拉丁字母/数字。跨域不可读CSS、URL背景图与交互媒体不导出；不为它们发请求。宽≤8192 CSS px，高≤16384 CSS px，倍率1–3，最终≤3200万像素，本卡字体合计≤32 MiB。超限抛错，不静默裁切。
 
 ### 4.5 大文件（I005、NF2）
 `/api/chats/get` 一次返回整个文件；不能整篇渲染。`chatSource` 只取被打开的聊天，保留原始消息和紧凑深度索引，按页构造视图模型，close 释放正文；UI 翻页时释放上一页 DOM。T12 已实测 21.35 MiB / 1600 楼；50 MB 与真机整合耗时留待 T30，不能由此样本推断已通过。
@@ -223,7 +233,7 @@ try {
 
 `textTransforms.js` 已交付：`makeTextQuote(text,start,end,contextLength=32)` → `{exact,prefix,suffix}`；`locateTextQuote(text,quote)` → `{start,end}|null`（歧义也返回 null）；`replaceLiteralNames(text,pairs)` → string（`pairs:[{from,to}]`，长词优先且不串换）；`splitMaskedText(text,words)` → `[{type:'text',text}|{type:'mask',length}]`（mask 不含原词）。这批纯逻辑进入 Node/浏览器共用测试，满足 T12 卡片中的锚点、脱敏测试要求。
 
-T13 接口见下列 5.5–5.8，T12 已交付签名不变。T14 的 PNG/DOM 脱敏尚未交付；届时须支持最新 02 §6 的单聊 char / 群聊 char1..N、永久规则与素材优先级，不能把纯存储的 replaceRules 当作已接入导出渲染。
+T13 接口见5.5–5.8，T14接口见5.9–5.11。T12 已交付签名与行为不变；T14 的新片段模型用于 I010 的优先级、图案和安全恢复，不替换这里的旧函数。
 
 ### 5.5 T13 存储合同（2026-09-29，首次交付）
 
@@ -343,3 +353,84 @@ console.table(await store.importAll(backupText)); // 同一份再导入全部跳
 ```
 
 I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯 JSON（含阅读进度和候选记忆），会自动进入备份。**迁移归 T22 的 prefs.js 接入，不在 T13 修改 UI**：先检查 settings 已有值；缺失时读取/解析旧值，await set 成功后才删旧 localStorage 键。已有 settings 则优先保留；解析或落盘失败保留旧键。建议 UI 对进度写入去抖并等待保存 Promise；当前快照含最多约6 MiB图片，避免每个滚动事件立即持久化。
+
+### 5.9 T14 导出合同（2026-09-29，首次交付）
+
+从 `../core/cardExport.js` 导入下列函数。T14 不新增工作台按钮或模板，不修改 src/ui。
+
+| 签名 | 返回与语义 |
+|---|---|
+| `createCardMessage(handle,index,{swipeIndex,...options}={})` | Promise<{element,mappings}>；创建未挂载的 `.mes.stcr-card-message`，含 `.name_text/.mes_text/.mes_reasoning`，没有头像/操作按钮。先从原文脱敏再格式化，支持当前候选与思维链；不切宿主候选。必须把 element 放入模板中，才能获得实时主题/字号。handle 在导出完成前不能 close |
+| `bindCardSource(element,handle,index,swipeIndex?)` | 同步返回同一个 element，仅在 WeakMap 记录来源；不改 DOM。供 UI 自建楼层使用；必须含 `.mes_text`，可选 `.name_text/.mes_reasoning`。省略 swipeIndex 使用该楼 ST 当前候选 |
+| `exportCard(rootEl,options={})` | Promise<Blob>，type为image/png；不下载、不写文件、不变更输入DOM。可传单楼或含多楼的模板根。元素须已连接到当前页面且有非零宽度；读取实际样式与字体后仅操作隔离副本，成功/失败都清理 |
+
+```js
+/**
+ * @typedef {object} CardOptions
+ * @property {boolean} [replaceNames=true] 同时控制我的规则与自动名字；不关闭屏蔽词
+ * @property {ReplaceRule[]} [rules] 见5.5；导出默认读store.replaceRules，预览createCardMessage默认[]
+ * @property {Asset[]} [assets] 见5.5；导出默认读store.assets，预览createCardMessage默认[]
+ * @property {string[]} [maskWords] 导出默认读store.maskWords；createCardMessage不应用遮盖
+ * @property {'bar'|'block'|'sticker'|MaskStyle} [maskStyle='bar']
+ * @property {number} [width] 根节点实际宽度；CSS像素
+ * @property {number} [scale=2] 1–3，可小数；PNG宽高乘倍率
+ * @property {(message:string)=>void} [onWarning] 非本地字体回退时可在工作台展示提示
+ */
+/**
+ * @typedef {object} MaskStyle
+ * @property {'bar'|'block'|'sticker'} kind
+ * @property {boolean} [uniform=true] 固定3em宽；false按被遮词的Unicode码点数
+ * @property {string} [color] 必须#RRGGBB实色；bar默认#000000，其余默认#72b8a5
+ * @property {'fa-star'|'fa-heart'|'fa-cat'|'fa-cloud'|'fa-moon'|'fa-shield'} [icon='fa-star']
+ * @property {string} [assetId] sticker可用已导入图片；给出时优先于icon
+ */
+/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},source:'mine'|'automatic',count:number}} CardMapping */
+```
+
+导出开启名字替换时必须有绑定的原文；传普通已格式化楼层而不绑定会报错，因为不能在正则后的HTML上假装完成“正则前名字替换”。每次导出对绑定楼层从原始候选重渲染一次，保持模板的外壳/样式，在副本内更新三个展示区域；不会把预览已经处理过的正文再跑一次正则。没有绑定、且 `replaceNames:false` 时可直接导出任何安全DOM，此时仅做屏蔽。
+
+**选段合同**：若只要部分楼层，先用 createCardMessage 得到已脱敏、已格式化的节点，在这个副本上提取选段（例如Range.cloneContents），放入模板；然后用 `exportCard(template,{...options,replaceNames:false})` 导出已经处理好的片段。这里的false是“导出时不再做名字阶段”，不会还原已替换的名字。规则/名字开关变化时，从原始handle重建预览和选段。不要把只剩部分正文的元素再次bind，否则导出会按绑定重建整楼。原阅读器上的选区映射与工作台重选/确认由T23处理，不能直接把阅读器原始HTML当作已脱敏HTML。
+
+我的规则 scope=all 或匹配**当前目标发言角色的avatar**；群聊按实际成员，用户楼没有任意成员作用域。整词判断按Unicode字母/数字/组合符/下划线边界；中文连续字串需要精确边界或关闭wholeWord。规则不是正则表达式；同级重叠先长词，相同长度用传入顺序，store.list的顺序稳定。目标图标只允许上述六种；素材引用必须存在，重新校验图片签名/限额，SVG再次清洗。mappings只包含实际命中，含原词，供工作台私有映射预览，不能放到分享图或日志。
+
+参数错误抛TypeError/RangeError；源handle关闭时沿用CLOSED；字体文件缺失/解码失败、图案缺失、占位符损坏、不可读图片、截图失败抛带中文原因的Error。任何错误都不产出“可能未脱敏”的替代图。UI await导出期间禁用重复按钮，catch后保留预览；关闭工作台时自行释放handle、DOM及自己创建的Blob URL。core只生成Blob，不控制用户的保存位置。
+
+### 5.10 T14 纯变换与 DOM 适配合同
+
+从 `cardExport.js` 可重导入 `replaceNamesInRaw/maskText/automaticNameRules/wrapMaskSpans`；纯函数的原文件为 `cardTransforms.js`。T12 textTransforms.js 的旧函数继续可用，签名未改。
+
+| 签名 | 返回 |
+|---|---|
+| `automaticNameRules({userName='',characterName='',isGroup=false,groupNames=[]}={})` | 自动规则数组；不读宿主 |
+| `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules与replaceNames |
+| `maskText(text,words=[],maskStyle='bar')` | 数组；普通段`{kind:'text',text,start,end}`，遮盖段`{kind:'mask',width,style,start,end}`；位置是原输入UTF-16偏移，遮盖段无原词。Node自测覆盖这两个变换内核 |
+| `wrapMaskSpans(root,words=[],maskStyle='bar',assets=new Map())` | 返回root的DOM副本；输入不变，无网络或存储。assets是`Map<id,{dataUrl}>`，必须是经过store/prepareCardAssets校验的数据；一般工作台使用exportCard接管校验即可 |
+
+自定义卡片中的副标题/批注需由UI明确决定是否显示；屏蔽会遍历这些文本节点。将不应导出的控件标记 `data-stcr-export-ignore`，副本构造时整树跳过。不要把真实名字放进背景图；图片像素不做OCR脱敏。被保护的替换文字通过 `.stcr-replacement[data-stcr-protected]` 标记，在预览裁剪时保留该包裹，保证“替换优先于屏蔽”。这两个标志都不包含真实原词。
+
+### 5.11 T14 接入示例与开发验收
+
+```js
+import { createCardMessage, exportCard } from '../core/cardExport.js';
+import { store } from '../core/store.js';
+
+// handle/index来自阅读器，readingSwipe为阅读器当前看的候选。
+const [rules, assets, maskWords] = await Promise.all([
+    store.replaceRules.list(), store.assets.list(), store.maskWords.list(),
+]);
+const options = { rules, assets, maskWords, replaceNames: true,
+    maskStyle: { kind: 'block', color: '#72b8a5', uniform: true },
+    onWarning: message => showCardWarning(message) }; // UI自己的提示函数
+const { element, mappings } = await createCardMessage(handle, index, {
+    ...options, swipeIndex: readingSwipe,
+});
+previewRoot.replaceChildren(element); // previewRoot位于 #stcr_root / #stcr_chat 样式上下文
+// mappings仅显示在私有规则列表；模板不要包含该列表。
+const png = await exportCard(previewRoot, options);
+// UI通过保存对话框或自己的下载按钮保存此Blob；不传聊天文件名或真实姓名作默认文件名。
+const url = URL.createObjectURL(png);
+previewImage.src = url;
+// 替换预览图或关闭工作台时 URL.revokeObjectURL(url)。
+```
+
+在开发实例控制台：`await stcrExportDemo()` 会用合成星灯第12楼、当前存储候选构造预览，屏蔽“星图/今晚”，弹出**实际PNG**与“保存PNG（请选E盘）”按钮；也可打开 `http://localhost:8100/?stcrExportDemo=1`。先按T11手册导入Ny字体。普通浏览器支持文件选择时由人类选择E盘；不支持时右键图片另存为。`stcrSelfTest()` 的T14部分会逐项检查图案、群成员、源DOM不变、零fetch、遮盖像素、Ny字形和失败清理。

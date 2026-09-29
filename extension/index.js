@@ -20,6 +20,11 @@ if (isDevInstance(window.location)) {
             const { testPersistenceBrowser } = await import('./src/core/persistenceBrowser.test.js');
             results.push(...await testPersistenceLogic(), ...await testPersistenceBrowser());
         }
+        if (options.cardExport ?? runCore) {
+            const { testCardExportLogic } = await import('./src/core/cardExport.test.js');
+            const { testCardExportBrowser } = await import('./src/core/cardExportBrowser.test.js');
+            results.push(...await testCardExportLogic(), ...await testCardExportBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
@@ -31,6 +36,10 @@ if (isDevInstance(window.location)) {
     window.stcrStorageProbe = async phase => {
         const { testStorageProbe } = await import('./src/core/persistenceBrowser.test.js');
         return testStorageProbe(phase);
+    };
+    window.stcrExportDemo = async () => {
+        const { showCardExportDemo } = await import('./src/core/cardExportBrowser.test.js');
+        return showCardExportDemo();
     };
 }
 
@@ -58,11 +67,13 @@ eventSource.on(event_types.APP_READY, async () => {
     } catch (error) { console.error('[st-reader] 阅读器入口挂载失败：', error); }
     const probe = new URLSearchParams(window.location.search).get('stcrStorageProbe');
     if (isDevInstance(window.location) && probe) window.stcrStorageProbe(probe).catch(error => console.error('[st-reader] 刷新验证失败：', error));
+    if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrExportDemo') === '1') window.stcrExportDemo().catch(error => console.error('[st-reader] PNG 演示失败：', error));
     // 开发验收也可用网址参数触发；与控制台的一行命令运行同一套测试。
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrSelfTest') === '1') {
         const params = new URLSearchParams(window.location.search);
         const options = { core: params.has('core') ? params.get('core') !== '0' : params.get('fixtures') !== '1', fixtures: params.get('fixtures') === '1', font: params.get('font') === '1', rendered: params.get('rendered') === '1' };
         if (params.has('persistence')) options.persistence = params.get('persistence') !== '0';
+        if (params.has('cardExport')) options.cardExport = params.get('cardExport') !== '0';
         const run = () => window.stcrSelfTest(options).catch(error => console.error('[st-reader] 自测失败：', error));
         const waitAvatar = options.rendered ? 'STCR_T11_Aster.png' : params.get('coreWhenChat') === '1' ? 'STCR_T11_Mist.png' : null;
         if (waitAvatar) {
