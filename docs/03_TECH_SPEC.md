@@ -22,7 +22,7 @@
 - T10 启动器：`dev/start-dev-st.cmd` → 原生 Node `start-dev-st.mjs`，首次从 `dev/config.dev.yaml` 创建被忽略的 `.dev/config.yaml`；固定 D03 数据路径，创建扩展目录联接，临时目录固定在 `.tmp/`。`--import dev/isolate-dev-st.mjs` 只在开发进程内将 `PUBLIC_DIRECTORIES.globalExtensions/backups` 指向 `.dev/`，防止管理扩展时宿主对 F 盘全局扩展执行 Git 检查（I007），不修改宿主文件。
 - T10 只读保护在扩展模块载入时安装（早于 `APP_READY`），仅对本机 HTTP 8100 默认启用；D02 七个路径不分 HTTP 方法拦截，抛 `StcrReadonlyError` 并记录 `console.error`。此为整个开发窗口的 fetch 断言，不替代静态审计，不覆盖 XHR 或宿主直接函数调用。只跑 13 项保护测试用 `stcrSelfTest({core:false})` 或 `?stcrSelfTest=1&core=0`。
 - T11 的 Node 自检追加 8 项样本/落盘验证。浏览器 `stcrSelfTest({fixtures:true})` 共 18 项；打开星灯后附加 `{font:true, rendered:true}` 共 21 项，检查原生显示及 Ny 字体数据库/FontFace。
-- T12 的 `node dev/selftest.mjs` 共 **36 项**（13 保护 + 8 样本 + 15 core）；`await window.stcrSelfTest()` 共 **45 项**（13 保护 + 15 core + 17 浏览器实证），先在宿主打开雾岚，使星灯未选中。网址 `?stcrSelfTest=1&coreWhenChat=1` 在人类打开雾岚后自动跑相同测试。只调用同源只读 API；大文件证据见交接信。
+- T13 后 `node dev/selftest.mjs` 共 **50 项**（13 保护 + 8 样本 + 15 T12 + 14 T13）；`await window.stcrSelfTest()` 共 **70 项**（13 保护 + 15 T12 纯逻辑 + 17 T12 浏览器 + 14 T13 纯逻辑 + 11 T13 浏览器）。先在宿主打开雾岚，使星灯未选中，关闭阅读器，并按手册导入 Ny 测试字体。网址 `?stcrSelfTest=1&coreWhenChat=1` 运行同一套检查；仅重跑 T12 时加 `{persistence:false}`（45 项）。跨页面存储实证为 `stcrStorageProbe('write')`，刷新后 `stcrStorageProbe('read')`。所有写入仅在扩展自有 IndexedDB 测试表，成功后清理。
 
 ## §2 数据模型（ST jsonl）
 - 单聊第 0 行 header：`{user_name, character_name, create_date, chat_metadata:{...}}`；群聊直接从消息开始。
@@ -45,7 +45,8 @@ extension/
     hostRuntime.js    缓存宿主模块加载；仅供 core 内部
     textTransforms.js 纯文本引用与字面量脱敏变换；Node/浏览器共用
     cssScope.js       克隆 #chat → #stcr_chat 规则；监听新增 style/link；主题切换重跑
-    store.js          localforage 实例 'st-reader'：annotations / bookmarks / maskWords / settings；export/import JSON
+    store.js          localforage 实例 'st-reader'：annotations / bookmarks / maskWords / settings / replaceRules / assets
+    assetCodec.js     store 内部：本地小图片验证、SVG 清洗与 data URL 备份
     anchor.js         文本引用锚点 {exact, prefix, suffix} 的生成与重定位
     cardExport.js     DOM 节点 → 脱敏变换 → PNG Blob
     readonlyGuard.js  开发期：包装 fetch，命中禁用接口即 throw 并 console.error
@@ -83,12 +84,20 @@ DOM 约定（D12）：根 `#stcr_root`（`position:fixed; inset:0; z-index` 高�
 - 为 NF1/NF3，消息里的脚本、iframe、表单、宿主操作属性、资源 URL 被移除；含资源 URL/转义或全局 at-rule 的 style 不参与渲染。不加载外部媒体或执行交互 HTML（D11）。主题与 Ny 已加载的全局字体由 T13 样式克隆接入，不由消息重新下载。
 
 ### 4.2 美化命中（D10、I004）
-遍历 `document.styleSheets`（跨域的跳过）与所有 `<style>`；对 `selectorText` 含 `#chat` 的规则，生成一条把 `#chat` 替换为 `#stcr_chat` 的副本，写入 `<style id="stcr-scoped-css">`。`@font-face`、`:root` 变量不需克隆。用 `MutationObserver` 监听 `<head>` 新增样式并去抖重跑；监听 ST 的 `SETTINGS_UPDATED` 事件重跑。
+T13 遍历 `document.styleSheets` 与 adoptedStyleSheets；只把真正的 `#chat` ID token（含等价 CSS 转义）改为 `#stcr_chat`。属性字符串、`#chatty` 不改，并列选择器只保留有关分支。追加零特异性的 `:where(#stcr_root, #stcr_root *)`，避免 `:is(#chat,.x)` 的另一分支污染原生页面。副本写入自有 `<style id="stcr-scoped-css">`，位于 head 最后；不修改宿主规则。
+
+递归保留 `@media/@supports/@layer/@container/@scope`、嵌套选择器及声明的 `!important`，跳过跨域不可读表、禁用表及自有副本。`@font-face`、全局动画和 `:root` 变量沿用宿主。相对 `url()` 按原样式表 URL 解析；远端地址、API 地址、CSS 转义资源、image-set 及资源属性中可能间接引入 URL 的 var/attr 保守跳过（颜色、字号变量保留），避免克隆触发出站请求。跨域样式及被跳过声明可从 stats 计数看到。
+
+MutationObserver 监听整个文档中新建/移除 style/link、style 文本、相关属性及 link load，50 ms 去抖；ST `SETTINGS_UPDATED` 同样触发。主题把 `#custom-style` 换掉/改文本后自动重跑。直接调用 CSSOM `insertRule/deleteRule/replaceSync` 或替换 adoptedStyleSheets 不一定触发 DOM 观察器：插件应发设置事件或调用 `refreshCssScope()`。只读扫描，不主动下载样式表。
+
+**I014**：Ny 把字号/色彩等变量直接写在原生 `#chat.style`；兄弟阅读容器无法继承。T13 读取这些自定义属性的计算值，写入自有 `#stcr_chat` 规则并随变动更新；绝不写原生容器。样式自测在独立空白文档模拟变量修改，避免触发 Ny 对原生容器的观察器。
 
 T11 锁定 Ny-font-manager 1.1.9（版本与许可证见 LICENSES）：本地文件存在 IndexedDB `nytw-fonts` / `fonts`，记录为 `{id, blob}`，由 `new FontFace(family, ArrayBuffer)` 加入 `document.fonts`，**不生成可供扫描的 `@font-face` 或 blob URL**。T14 不能仅扫描 CSS 找字体，必须验证导出包含此字体（I009）；T11 使用本地 187208 字节的 JetBrains Mono 测试拉丁字母与数字，中文由后备字体显示。
 
 ### 4.3 锚点（F7）
-`{chatKey, mesIndex, swipeIndex, quote:{exact, prefix, suffix}, rawHash}`。生成：从 `Selection` 取该楼 `.mes_text` 的 `textContent` 偏移。重定位：楼渲染后在 `textContent` 里找 `prefix+exact+suffix`，退化为只找 `exact`；找不到则标记 orphan。
+T13 锚点为 `{chatKey, mesIndex, swipeIndex, part, quote:{exact,prefix,suffix}, rawHash}`，`part` 区分正文和思维链。生成/匹配使用**正则后可锚定文本节点**，排除 style/script/button 与 `data-stcr-ignore-anchor`；rawHash 则来自对应候选的**正则前原文**，是 SHA-256，不存整楼副本。UTF-16 偏移与 DOM Range 一致，前后文默认各 32 码元。
+
+先用前后文消歧，再用唯一 exact 回退；找不到或无法唯一确定分别为 `text-missing` / `ambiguous`。原文哈希变化仅作诊断，不阻止唯一文本定位。只对当前已渲染的同聊天/楼/候选/区域判断 orphan，其他目标为 unrelated，不把未加载页误判为孤立。重定位持久化 orphan，但保留原引用、批注文字与哈希；文本恢复后可从孤立区恢复。
 
 ### 4.4 卡片脱敏（F2a）
 在卡片用的**文本副本**上操作，不动阅读器 DOM：名字替换在**正则前**的原文层做（user_name → user，单聊角色 → char，群成员按成员顺序 → char1 / char2…）；屏蔽词在**正则后**的文本节点层包 `<span class="stcr-mask stcr-mask--bar|block|sticker">`；再交 `modern-screenshot`。永久替换规则、图标/图片与“我的规则 > 自动 > 屏蔽词”的优先级按最新 02 §6 和 I010 在 T13/T14 接入。
@@ -214,4 +223,121 @@ try {
 
 `textTransforms.js` 已交付：`makeTextQuote(text,start,end,contextLength=32)` → `{exact,prefix,suffix}`；`locateTextQuote(text,quote)` → `{start,end}|null`（歧义也返回 null）；`replaceLiteralNames(text,pairs)` → string（`pairs:[{from,to}]`，长词优先且不串换）；`splitMaskedText(text,words)` → `[{type:'text',text}|{type:'mask',length}]`（mask 不含原词）。这批纯逻辑进入 Node/浏览器共用测试，满足 T12 卡片中的锚点、脱敏测试要求。
 
-T13 的 DOM Range 锚点、orphan、store、cssScope，T14 的 PNG/DOM 脱敏尚未交付；不得把旧占位签名当作已可调用接口。T13 须落实 I006 的跨聊天收藏 `title/preview`，并按 I010 新增 replaceRules/assets；T14 须支持最新 02 §6 的单聊 char / 群聊 char1..N、永久规则与素材优先级。新增合同随各卡交付，修改本节既有合同需登记问题。
+T13 接口见下列 5.5–5.8，T12 已交付签名不变。T14 的 PNG/DOM 脱敏尚未交付；届时须支持最新 02 §6 的单聊 char / 群聊 char1..N、永久规则与素材优先级，不能把纯存储的 replaceRules 当作已接入导出渲染。
+
+### 5.5 T13 存储合同（2026-09-29，首次交付）
+
+`import { store, bookmarkId } from '../core/store.js'`。所有 store 方法返回 Promise；`bookmarkId` 同步。初始化会检查宿主 localforage 与 IndexedDB；失败会抛错，不回退 ST 设置或 localStorage。库名 **st-reader**、表 **stcr_data**、单个快照键 **stcr:state:v1**，六类数据同一次 setItem 原子提交。每次操作重读持久化数据，页内串行；支持 Web Locks 的浏览器还会跨标签串行，无 Web Locks 时只保证同一实例串行。
+
+| 签名 | 返回与行为 |
+|---|---|
+| `store.ready()` | `Promise<void>`；可重复等待初始化 |
+| `store.annotations/bookmarks/replaceRules/assets.list(query = {})` | 记录数组，按 createdAt、id 升序；query 字段严格相等，annotations 的 chatKey/mesIndex/swipeIndex/part 在 anchor 内匹配 |
+| 上述集合 `.get(id)` | 记录或 null；返回独立副本 |
+| 上述集合 `.put(record)` | 保存后的完整记录；省略 id 创建，带 id 是**完整替换**（不是补丁）；更新请先 get 再展开旧字段 |
+| 上述集合 `.remove(id)` | boolean，是否曾存在；assets 见下方引用规则 |
+| `store.maskWords.list()` / `.set(words)` / `.add(word)` / `.remove(word)` | `Promise<string[]>`；字面、区分大小写、精确去重，保留输入空格，拒绝空白词；set 替换整个词表 |
+| `store.settings.all()` | JSON 对象 |
+| `store.settings.get(key, fallback = null)` | JSON 值；缺失返回 fallback 的副本 |
+| `store.settings.set(key, value)` / `.remove(key)` | 保存值 / boolean；只接受有限数字、字符串、布尔、null、数组、普通对象，无 undefined/函数/日期对象/循环引用 |
+| `store.info()` | `{lastExportAt:string|null, counts:{annotations,bookmarks,maskWords,settings,replaceRules,assets}}` |
+| `store.exportAll()` | JSON **字符串**，含六类数据与素材；成功生成即记录 lastExportAt（不等同于用户已保存到磁盘） |
+| `store.previewImport(json)` | `ImportReport`，完整验证、计数但不落盘 |
+| `store.importAll(json)` | `ImportReport`，验证后原子**合并**；重复 ID、设置键、词条跳过，保留现有编辑，不覆盖/清空 |
+| `bookmarkId({chatKey,mesIndex,swipeIndex = null})` | 稳定 ID；省略/null 表示整楼，与具体候选收藏可并存 |
+| `store.assets.references(id)` | 使用该素材的替换规则数组 |
+| `store.assets.remove(id,{removeRules = false} = {})` | 有引用默认抛 ASSET_IN_USE；明确 true 时连同引用规则原子删除 |
+
+备份结构 `{format:'st-reader',version:1,exportedAt,data:{annotations:{[id]:record},bookmarks:{},maskWords:[],settings:{},replaceRules:{},assets:{}}`。导入/导出上限 24 MiB（UTF-8），拒绝未来版本、未知/缺失分类、危险原型键、坏引用；同 ID 素材字节不同则取消导入，避免悄悄更换已有规则的图片。preview 与 import 之间若其他页面有写入，以 import 的最新计数为准。
+
+`StcrStoreError.code`：`UNAVAILABLE / INVALID_STATE / INVALID_DATA / INVALID_BACKUP / BACKUP_TOO_LARGE / ASSET_LIMIT / MISSING_ASSET / ASSET_IN_USE / ASSET_CONFLICT`。聊天键沿用 StcrDataError；图片类型/大小使用 TypeError/RangeError，浏览器解码、配额和存储错误保留原错误。失败时 UI 提示并保留用户输入，不能显示“已保存”。不提供清库接口。
+
+```js
+/** @typedef {{exact:string,prefix:string,suffix:string}} TextQuote */
+/** @typedef {{chatKey:string,mesIndex:number,swipeIndex:number,part:'body'|'reasoning',quote:TextQuote,rawHash:string}} Anchor */
+/**
+ * @typedef {object} Annotation
+ * @property {string} id 创建可省略，core 生成 stcr:annotations:...:UUID
+ * @property {Anchor} anchor
+ * @property {string} title 聊天显示名，最多 2000 码元；UI 用 textContent
+ * @property {string} preview 列表摘要，最多 1000 码元
+ * @property {string} note 默认空串，最多 100000 码元
+ * @property {'yellow'|'green'|'blue'|'pink'} color 默认 yellow
+ * @property {boolean} orphan 默认 false
+ * @property {null|'text-missing'|'ambiguous'} orphanReason 默认 null
+ * @property {string} createdAt core 生成的 ISO 时间，更新保留
+ * @property {string} updatedAt core 每次 put 更新
+ */
+/** @typedef {{id:string,chatKey:string,mesIndex:number,swipeIndex:number|null,title:string,preview:string,createdAt:string,updatedAt:string}} Bookmark */
+/** @typedef {{id:string,from:string,to:{kind:'text'|'icon'|'asset',value:string},scope:string,caseSensitive:boolean,wholeWord:boolean,createdAt:string,updatedAt:string}} ReplaceRule */
+/** @typedef {{id:string,name:string,mime:string,size:number,dataUrl:string,createdAt:string,updatedAt:string}} Asset */
+/** @typedef {Object<string,{added:number,skipped:number}>} ImportReport 六个固定分类 */
+```
+
+Bookmark 创建时 id、时间由 core 生成，title/preview 必填，swipeIndex 默认 null；id 必须与 bookmarkId 一致，不能让同一收藏产生重复行。Annotation、ReplaceRule、Asset 也允许创建时省略 id/时间；记录均使用 `stcr:` 前缀。楼号/候选号从 0 开始。
+
+ReplaceRule：from 为非空字面量（≤1000 码元）；scope 默认为 all，或角色 avatar 文件名；caseSensitive/wholeWord 默认 false。`to.kind:'icon'` 的 value 为单个 `fa-star` 形式名称；asset 的 value 为已存在的 Asset.id；text 可为空串。仅持久化这些选项，T14 才执行替换。
+
+Asset.put 输入 `{id?,name,blob}` 或 `{id?,name,dataUrl}`；PNG/JPEG/WebP/SVG，单张≤200 KiB、最多30张，返回统一 base64 dataUrl。校验 MIME/文件头，浏览器实际解码位图；SVG 用宿主 DOMPurify 清洗并移除事件、脚本、外部资源、动画、样式和外链，备份导入也重洗。SVG 必须在 ST 浏览器调用，Node 测试使用位图。导出不含 Ny 字体；其字体数据库归 Ny 管理。
+
+### 5.6 T13 锚点合同
+
+`import { createAnchor, resolveAnchor, relocateAnnotations, getAnchorText, createTextAnchor, locateAnchorText, hashRawText } from '../core/anchor.js'`。
+
+```js
+/** @typedef {{chatKey:string,mesIndex:number,swipeIndex:number,part?:'body'|'reasoning',rawText:string}} AnchorContext */
+/** @typedef {{status:'attached'|'orphan'|'unrelated',reason:null|'text-missing'|'ambiguous',rawChanged:boolean,start:number|null,end:number|null}} AnchorLocation */
+/** @typedef {AnchorLocation & {range:Range|null}} AnchorResolution */
+/** @typedef {AnchorResolution & {annotation:Annotation}} RelocatedAnnotation */
+```
+
+| 签名 | 返回与约定 |
+|---|---|
+| `getAnchorText(rootEl)` | 同步 string；与锚点相同的过滤文本，UI 不要用普通 textContent 代替 |
+| `createTextAnchor(text,start,end,context)` | `Promise<Anchor>`；Node 纯逻辑路径，end 不包含 |
+| `locateAnchorText(text,anchor,context)` | `Promise<AnchorLocation>`；Node 纯逻辑匹配 |
+| `hashRawText(text)` | `Promise<string>`，sha256: 后接64位小写十六进制 |
+| `createAnchor(rootEl,selectionOrRange,context)` | `Promise<Anchor>`；单个非空 Range/Selection，起止均在同一个正文或思维链容器内，否则 RangeError |
+| `resolveAnchor(rootEl,anchor,context)` | `Promise<AnchorResolution>`；attached 才有跨文本节点 Range；不写存储、不包 span |
+| `relocateAnnotations(rootEl,context)` | `Promise<RelocatedAnnotation[]>`；只查询当前四元组，按 §4.3 持久化 orphan，返回 UI 所需 Range |
+
+rawText 必须传对应候选的原正文或原思维链；part 默认 body。复制按钮已排除，其余装饰节点标记 `data-stcr-ignore-anchor`。不要跨楼或正文/思维链创建一个锚点。这些函数异步计算哈希，UI 等待期间若重新渲染/切聊天，应以请求代号丢弃旧 Range，并重跑当前容器。高亮 DOM 由 T22 自己管理；core 不改选区、不写聊天、不改候选。
+
+### 5.7 T13 样式合同
+
+`import { startCssScope, refreshCssScope, stopCssScope } from '../core/cssScope.js'`。
+
+`startCssScope()` 同步返回默认控制器 `{start(),refresh(),stop(),stats}`；幂等启动，APP_READY 已调用。`refreshCssScope()` 同步返回统计 `{rules,skippedSheets,skippedDeclarations,inlineVariables,revision}`；revision 只在副本文本变化时递增。`stopCssScope()` 幂等移除自己的样式/观察器/设置事件监听。UI 关闭阅读器无须 stop，保留监听即可在下次打开时使用当前主题。
+
+UI 只需满足 `#stcr_root` 内含 `#stcr_chat` 及 D12 类名；样式克隆自动生效，无须把宿主 CSS 复制到 UI 文件。未克隆全局字体/变量，它们仍由宿主管理。具体监听范围与显式 refresh 场景见 §4.2。`createCssScope/collectScopedCss/rewriteChatSelector` 为测试内部接口，不作为 UI 合同。
+
+### 5.8 T13 接入示例与 I012 设置迁移
+
+```js
+import { store, bookmarkId } from '../core/store.js';
+import { createAnchor, relocateAnnotations } from '../core/anchor.js';
+
+// handle/model 与 rootEl 由 UI 当前渲染页提供；readingSwipe 是阅读器自己的候选。
+const model = handle.getMessage(index);
+const context = { chatKey: handle.chatKey, mesIndex: index, swipeIndex: readingSwipe,
+    part: 'body', rawText: model.swipes[readingSwipe].text };
+const anchor = await createAnchor(rootEl, window.getSelection(), context);
+const annotation = await store.annotations.put({ anchor, title: handle.title,
+    preview: anchor.quote.exact.slice(0, 240), note: '我的想法', color: 'yellow' });
+await store.annotations.put({ ...annotation, note: '修改后的想法' });
+const attached = await relocateAnnotations(rootEl, context);
+// attached 内 status===attached 的 range 交给 UI 绘制；孤立面板用下句查询。
+const orphans = await store.annotations.list({ orphan: true });
+
+const target = { chatKey: handle.chatKey, mesIndex: index, swipeIndex: null };
+await store.bookmarks.put({ ...target, title: handle.title, preview: '这楼的纯文本摘要' });
+console.log(await store.bookmarks.get(bookmarkId(target)));
+
+await store.settings.set('stcr:ui:prefs:v1', { fontSize: 18, lineHeight: 1.8 });
+await store.settings.set('stcr:ui:progress:v1', { [handle.chatKey]: { index, swipe: readingSwipe } });
+const backupText = await store.exportAll(); // UI 创建 application/json Blob，保存到用户选定位置。
+console.table(await store.previewImport(backupText)); // 供 UI 的合并确认页使用。
+console.table(await store.importAll(backupText)); // 同一份再导入全部跳过，保留当前修改。
+```
+
+I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯 JSON（含阅读进度和候选记忆），会自动进入备份。**迁移归 T22 的 prefs.js 接入，不在 T13 修改 UI**：先检查 settings 已有值；缺失时读取/解析旧值，await set 成功后才删旧 localStorage 键。已有 settings 则优先保留；解析或落盘失败保留旧键。建议 UI 对进度写入去抖并等待保存 Promise；当前快照含最多约6 MiB图片，避免每个滚动事件立即持久化。

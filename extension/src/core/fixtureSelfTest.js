@@ -53,7 +53,8 @@ export async function testBrowserFixtures({ font = false, rendered = false } = {
     });
     if (font) {
         const ny = context.extensionSettings['Ny-font-manager'];
-        const entry = ny?.importedFonts?.find(item => item.kind === 'file' && item.family === 'JetBrainsMono');
+        // Ny 再次导入同一字体会加 (2) 等后缀；按当前正文选择检查实际 Blob。
+        const entry = ny?.importedFonts?.find(item => item.kind === 'file' && /^JetBrainsMono(?: \(\d+\))?$/.test(item.family) && item.family === ny.bodyFont);
         await test('Ny 本地字体已存入 IndexedDB，字节完整', async () => {
             assert(entry, '请在 Ny 字体管理器中导入 JetBrainsMono.ttf');
             // 先查数据库是否存在；避免 open 在未安装时意外创建空数据库。
@@ -78,8 +79,8 @@ export async function testBrowserFixtures({ font = false, rendered = false } = {
         });
         await test('Ny FontFace 已加载且正文使用本地字体', async () => {
             await document.fonts.ready;
-            assert(ny.bodyFont === 'JetBrainsMono', '请将 JetBrainsMono 设为正文字体');
-            assert([...document.fonts].some(face => face.family.replaceAll('"', '') === 'JetBrainsMono' && face.status === 'loaded'), 'FontFace 未加载');
+            assert(entry && ny.bodyFont === entry.family, '请将已导入的 JetBrainsMono 设为正文字体');
+            assert([...document.fonts].some(face => face.family.replaceAll('"', '') === entry.family && face.status === 'loaded'), 'FontFace 未加载');
             const message = document.querySelector('#chat .mes_text');
             assert(message && getComputedStyle(message).fontFamily.includes('JetBrainsMono'), '聊天正文未应用本地字体');
         });

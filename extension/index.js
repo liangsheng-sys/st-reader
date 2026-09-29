@@ -15,6 +15,11 @@ if (isDevInstance(window.location)) {
             const { testCoreBrowser } = await import('./src/core/coreBrowser.test.js');
             results.push(...await testCoreLogic(), ...await testCoreBrowser());
         }
+        if (options.persistence ?? runCore) {
+            const { testPersistenceLogic } = await import('./src/core/persistence.test.js');
+            const { testPersistenceBrowser } = await import('./src/core/persistenceBrowser.test.js');
+            results.push(...await testPersistenceLogic(), ...await testPersistenceBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
@@ -22,6 +27,10 @@ if (isDevInstance(window.location)) {
         console.table(results);
         console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
         return results;
+    };
+    window.stcrStorageProbe = async phase => {
+        const { testStorageProbe } = await import('./src/core/persistenceBrowser.test.js');
+        return testStorageProbe(phase);
     };
 }
 
@@ -35,16 +44,25 @@ eventSource.on(event_types.APP_READY, async () => {
         const { initFormatter } = await import('./src/core/formatter.js');
         await initFormatter();
     } catch (error) { console.error('[st-reader] 格式化模块初始化失败：', error); }
+    try {
+        const { startCssScope } = await import('./src/core/cssScope.js');
+        const { store } = await import('./src/core/store.js');
+        startCssScope(); await store.ready();
+        console.log('[st-reader] T13 样式、存储与锚点模块已就绪。');
+    } catch (error) { console.error('[st-reader] 样式与存储初始化失败：', error); }
     // 界面入口（T21）：魔杖菜单、顶栏按钮、/reader。格式化失败也挂入口，打开时会再试一次并提示。
     try {
         const { mountEntries } = await import('./src/ui/mount.js');
         mountEntries();
         console.log('[st-reader] 阅读器入口已挂载：魔杖菜单「阅读器」、顶栏书本按钮、/reader。');
     } catch (error) { console.error('[st-reader] 阅读器入口挂载失败：', error); }
+    const probe = new URLSearchParams(window.location.search).get('stcrStorageProbe');
+    if (isDevInstance(window.location) && probe) window.stcrStorageProbe(probe).catch(error => console.error('[st-reader] 刷新验证失败：', error));
     // 开发验收也可用网址参数触发；与控制台的一行命令运行同一套测试。
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrSelfTest') === '1') {
         const params = new URLSearchParams(window.location.search);
         const options = { core: params.has('core') ? params.get('core') !== '0' : params.get('fixtures') !== '1', fixtures: params.get('fixtures') === '1', font: params.get('font') === '1', rendered: params.get('rendered') === '1' };
+        if (params.has('persistence')) options.persistence = params.get('persistence') !== '0';
         const run = () => window.stcrSelfTest(options).catch(error => console.error('[st-reader] 自测失败：', error));
         const waitAvatar = options.rendered ? 'STCR_T11_Aster.png' : params.get('coreWhenChat') === '1' ? 'STCR_T11_Mist.png' : null;
         if (waitAvatar) {

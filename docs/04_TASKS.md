@@ -14,8 +14,8 @@
 |---|---|---|---|---|
 | T10 | **开发实例**：`dev/start-dev-st.cmd` + `.dev/config.yaml`（`dataRoot: E:\st-reader\.dev\data`，`port: 8100`，`listen: false`，`whitelistMode: true`）；首次运行自动建 `.dev/`、把 `extension/` 以目录联接挂到 `.dev/data/default-user/extensions/st-reader`；`extension/src/core/readonlyGuard.js`（包装 fetch，命中 D02 禁用接口即 throw）。补全 `SETUP_WINDOWS.md` 的"启动开发实例"一节 | astra | 通过 | 人类双击 `dev\start-dev-st.cmd`，浏览器打开 `http://localhost:8100`，扩展列表里有"阅读器 (ST Reader)"且控制台有占位日志 |
 | T11 | **合成数据** `dev/fixtures/gen.mjs`（Node 内置模块，无依赖）：生成 ≥3 个角色（其一带作用域正则且加入 `character_allowed_regex`）、1 个群聊、楼层含 3–5 个 swipe 且各带思维链、代码块（≥3 种语言）、原始 HTML、超长楼（≥20k 字）、一份 ≥20 MB 聊天；一套带 `custom_css`（含 `#chat .mes_text` 与 `#chat .mes_text q` 选择器）的主题；≥3 条全局显示类正则（其一使用 `{{char}}`，其一带 minDepth/maxDepth）；开发实例里安装 Ny-font-manager 并登记 LICENSES。**不得复制任何真实聊天** | astra | 通过 | 双击开发实例后能在 ST 里打开这些角色与群聊；正则与主题可见 |
-| T12 | **core 第一批**：`chatSource / messageModel / regexPipeline / formatter`；决定 §4.1 策略并写明理由；把 §5 接口写实；`dev/selftest.mjs`（Node 跑纯逻辑：header 解析、swipe/思维链取值、锚点、脱敏文本变换）+ 浏览器端 `stcrSelfTest()`（在开发实例控制台跑正则命中/深度/只跑一次断言） | astra | 待验收 | `node dev/selftest.mjs` 全绿；开发实例控制台 `stcrSelfTest()` 全绿；未选中角色 A 时渲染 A 的聊天，A 的作用域正则命中 |
-| T13 | **core 第二批**：`cssScope / store / anchor`；主题切换、新增 style 后重跑；store 导出/导入 JSON；锚点重定位含 orphan | astra | 待开始 | 控制台演示：切主题后 `#stcr_chat` 内规则更新；导出 JSON 再导入数据一致；改正则后锚点仍能定位或进 orphan |
+| T12 | **core 第一批**：`chatSource / messageModel / regexPipeline / formatter`；决定 §4.1 策略并写明理由；把 §5 接口写实；`dev/selftest.mjs`（Node 跑纯逻辑：header 解析、swipe/思维链取值、锚点、脱敏文本变换）+ 浏览器端 `stcrSelfTest()`（在开发实例控制台跑正则命中/深度/只跑一次断言） | astra | 通过 | `node dev/selftest.mjs` 全绿；开发实例控制台 `stcrSelfTest()` 全绿；未选中角色 A 时渲染 A 的聊天，A 的作用域正则命中 |
+| T13 | **core 第二批**：`cssScope / store / anchor`；主题切换、新增 style 后重跑；store 导出/导入 JSON；锚点重定位含 orphan | astra | 待验收 | 控制台演示：切主题后 `#stcr_chat` 内规则更新；导出 JSON 再导入数据一致；改正则后锚点仍能定位或进 orphan |
 | T14 | **cardExport**：vendored `modern-screenshot`（登记 LICENSES）；`exportCard(rootEl, opts)` → PNG Blob；名字替换与屏蔽 span 变换函数（纯函数，进 selftest）；验证 Ny-font-manager 的 IndexedDB 字体在 PNG 里生效 | astra | 待开始 | 控制台对一个楼层调用后下载出 PNG，字体与主题色正确，屏蔽词被盖住 |
 
 ## M2 阅读体验（Opus；T20 可立即开始，T21 起需 T12 交付）
