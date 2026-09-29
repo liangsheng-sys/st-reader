@@ -34,8 +34,13 @@ eventSource.on(event_types.APP_READY, async () => {
     try {
         const { initFormatter } = await import('./src/core/formatter.js');
         await initFormatter();
-        console.log('[st-reader] T12 数据与格式化模块已就绪，阅读器界面待 T21 接入。');
     } catch (error) { console.error('[st-reader] 格式化模块初始化失败：', error); }
+    // 界面入口（T21）：魔杖菜单、顶栏按钮、/reader。格式化失败也挂入口，打开时会再试一次并提示。
+    try {
+        const { mountEntries } = await import('./src/ui/mount.js');
+        mountEntries();
+        console.log('[st-reader] 阅读器入口已挂载：魔杖菜单「阅读器」、顶栏书本按钮、/reader。');
+    } catch (error) { console.error('[st-reader] 阅读器入口挂载失败：', error); }
     // 开发验收也可用网址参数触发；与控制台的一行命令运行同一套测试。
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrSelfTest') === '1') {
         const params = new URLSearchParams(window.location.search);

@@ -1,0 +1,23 @@
+<div id="stcr_root" class="stcr-root" role="dialog" aria-modal="true" aria-label="阅读器" tabindex="-1">
+    <header class="stcr-topbar">
+        <button type="button" class="stcr-btn stcr-icon-btn" data-act="drawer" title="选择聊天（\）" aria-label="选择聊天"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+        <div class="stcr-title" aria-live="polite">
+            <span class="stcr-title-owner">阅读器</span>
+            <span class="stcr-title-file"></span>
+        </div>
+        <span class="stcr-top-percent" aria-hidden="true"></span>
+        <button type="button" class="stcr-btn stcr-icon-btn" data-act="exit" title="退出阅读器（Esc）" aria-label="退出阅读器"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </header>
+    <div class="stcr-body">
+        <main class="stcr-main">
+            <div class="stcr-scroll" tabindex="-1">
+                <div id="stcr_chat"></div>
+            </div>
+            <div class="stcr-state" hidden></div>
+        </main>
+    </div>
+    <footer class="stcr-footer">
+        <button type="button" class="stcr-btn stcr-progress" data-act="jump" title="跳到第几楼（G）"></button>
+    </footer>
+    <div class="stcr-progress-line" aria-hidden="true"><span></span></div>
+</div>
