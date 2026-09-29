@@ -12,4 +12,5 @@
 |---|---|---|
 | `astra_T10-T14.md` | Codex / astra | T01（F 盘清空间）建议先做，但 M1 只用 E 盘，可先开工 |
 | `opus_T20.md` | Claude Code / Opus | 无 |
-| `opus_T21-T23.md` | Claude Code / Opus | T12 已交付；人类已在 07 里选了 T20 的 A/B |
+| `opus_T21-T23.md` | Claude Code / Opus | 已用完（T21、T22 已交付）；T23 已拆卡，改用下一行 |
+| `opus_T23a-T23b.md` | Claude Code / Opus | T22 验收通过后，粘给同一个 Opus 会话或新会话均可 |
