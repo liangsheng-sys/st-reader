@@ -5,7 +5,7 @@
 ## M0 立项
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
-| T00 | 建仓库与全部合同文档 | 规划者 | 待验收 | 人类读 `01`、`05` 后确认"是我想要的阅读器" |
+| T00 | 建仓库与全部合同文档 | 规划者 | 通过 | 人类读 `01`、`05` 后确认"是我想要的阅读器" |
 | T01 | 人类：**F 盘清出 ≥ 5 GB**（真实 ST 在 F 盘，只剩 145 MB）；E 盘保持 ≥ 3 GB | 人类 | 待开始 | 资源管理器里 F 盘可用空间 ≥ 5 GB |
 | T02 | 人类：在 `E:\st-reader` 目录能启动 `codex`（astra）与 `claude`（可切 Opus 5.5） | 人类 | 待开始 | 两个都能出现输入框 |
 
@@ -30,6 +30,6 @@
 ## M3 集成与验收
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
-| T30 | **性能与只读审计**：50 MB fixture 打开 < 3 s、翻页流畅、切换聊天内存回落；全仓库 grep 禁用接口为空；`install/link-to-my-st.cmd`（只建目录联接，路径写死为 `F:\Claude\xinllm\SillyTavern\data\default-user\extensions\st-reader`，存在则提示不覆盖）；补全 `SETUP_WINDOWS.md` 安装一节；写 `docs/M3_验收清单.md`（F1–F9 逐条勾选表） | astra | 待开始 | 人类能看懂清单 |
-| T31 | **交付前只读复查**：只读铁律、无出站请求、许可登记、`.dev` 未入库 | Fable | 待开始 | 复查报告写 `handoff/` |
+| T30 | **性能与只读审计**：50 MB fixture 打开 < 3 s、翻页流畅、切换聊天内存回落；全仓库 grep 禁用接口为空；`install/link-to-my-st.cmd`（只建目录联接，路径写死为 `F:\Claude\xinllm\SillyTavern\data\default-user\extensions\st-reader`，存在则提示不覆盖）；补全 `SETUP_WINDOWS.md` 安装一节；写 `docs/M3_验收清单.md`（F1–F9 逐条勾选表）；**另含**：修 I018①、按 06 拍板语义实现 I019、≥50 MB 合成文件实测、`unlink-from-my-st.cmd`、修 I013 反复发生、把 `main` 快进到最终提交 | astra | 待开始 | 人类能看懂清单 |
+| T31 | **交付前只读复查**：只读铁律、无出站请求、许可登记、`.dev` 未入库 | Fable | 通过（报告 `handoff/2026-09-29_fable_to_human_T31.md`；须在 T30 后再复查一次） | 复查报告写 `handoff/` |
 | T32 | 人类：双击 `install\link-to-my-st.cmd`，重启 ST，按 `M3_验收清单.md` 逐条验收，结论写 `07_FEEDBACK.md`；退回项由规划者拆新卡 | 人类 | 待开始 | 07 有记录 |
