@@ -198,6 +198,8 @@ export const DEFAULT_CARD_PREFS = Object.freeze({
     digestTitle: '一段故事',
     digestSourceOn: true,
     digestAccent: 'blue',  // 'blue' / 'theme'
+    maskAsset: null,       // 小图案默认用我导入的图片（store.assets 的 id）；null = 用 icon
+    digestCover: null,     // 书摘封面用我导入的图片；null = 强调色方块写标题
 });
 
 /** 存储里读出的卡片偏好 → 合法值。名字替换总开关故意不记：每次打开都从"开"开始。 */
@@ -212,6 +214,8 @@ export function normalizeCardPrefs(raw) {
     if (typeof input.signature === 'string') out.signature = input.signature.slice(0, 40);
     if (typeof input.digestTitle === 'string') out.digestTitle = input.digestTitle.slice(0, 40);
     if (input.digestAccent === 'blue' || input.digestAccent === 'theme') out.digestAccent = input.digestAccent;
+    // 图片 id 是否还在由工作台对照 store.assets 再查一遍
+    for (const key of ['maskAsset', 'digestCover']) if (typeof input[key] === 'string' && input[key] && input[key].length <= 300) out[key] = input[key];
     return out;
 }
 

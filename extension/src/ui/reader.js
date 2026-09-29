@@ -102,11 +102,13 @@ export async function openReader({ tab, chatKey } = {}) {
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
         onCard: range => openCardFromSelection(range),
+        getChatKey: () => (session.handle ? session.chatKey : null),
+        getAutoNames: () => (session.handle ? [session.handle.header.userName, session.handle.header.characterName].filter(Boolean) : []),
         setPopover: (el, options) => setPopover(el, options),
         closePopover: options => closePopover(session, options),
     });
     session.studio = createCardStudio({
-        root, toast: say, getDirection: () => getPrefs().direction,
+        root, toast: say, getDirection: () => getPrefs().direction, confirm: (message, ok) => confirmDialog(message, ok),
         onClose: () => { if (S === session) session.scroller.focus({ preventScroll: true }); },
     });
     session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
@@ -232,7 +234,7 @@ function wireEvents(session) {
         // 选中文字的浮层跟着选区走（选长段要滚动，T23a 验收意见②）；其余贴着按钮的小浮层收起；批注输入框留着
         const pop = session.popover;
         if (pop?._stcrFollow) { if (!pop._stcrFollow()) closePopover(session, { cancel: true }); }
-        else if (pop?.matches('.stcr-sel-pop, .stcr-swipe-list')) closePopover(session, { cancel: true });
+        else if (pop?.matches('.stcr-sel-pop, .stcr-sel-menu, .stcr-swipe-list')) closePopover(session, { cancel: true });
         session.selUi.hideBubble();
         if (frame) return;
         frame = requestAnimationFrame(() => { frame = 0; if (S === session) { ensureWindow(); updateProgress(); } });

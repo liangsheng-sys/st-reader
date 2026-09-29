@@ -31,6 +31,7 @@
     background-color: var(--stcr-panel);
     outline: none;
     overflow: hidden;
+    overflow: clip; /* 不让聚焦/滚到某元素时把整个阅读器外框推走（只有里面的滚动区能滚） */
     font-family: var(--mainFontFamily, inherit);
 }
 #stcr_root *, #stcr_root *::before, #stcr_root *::after { box-sizing: border-box; }
@@ -742,6 +743,7 @@
     background: var(--stcr-panel);
     color: var(--stcr-text);
     outline: none;
+    overflow: clip;
     animation: stcr-fade .15s ease-out;
 }
 #stcr_root .stcr-studio-head {
@@ -1108,6 +1110,82 @@
     #stcr_root .stcr-studio-sub { display: none; }
     #stcr_root .stcr-studio-title { flex: 1; }
     #stcr_root .stcr-studio-export { padding: 8px 14px; }
+}
+
+/* ── 替换规则与我的图片（T23b、02 §6.4 第二层 + §6.5） ── */
+#stcr_root .stcr-studio-side-main, #stcr_root .stcr-rules-page { display: flex; flex-direction: column; gap: 20px; }
+#stcr_root .stcr-studio-side { gap: 0; }
+#stcr_root .stcr-rules-head { display: flex; flex-direction: column; gap: 8px; }
+#stcr_root .stcr-rules-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 12.5px; }
+#stcr_root .stcr-rules-list { display: flex; flex-direction: column; gap: 4px; }
+#stcr_root .stcr-rule-item { display: flex; align-items: center; gap: 2px; padding: 6px 4px 6px 10px; border-radius: 10px; box-shadow: inset 3px 0 0 var(--stcr-accent); }
+#stcr_root .stcr-rule-item:hover { background: var(--stcr-hover); }
+#stcr_root .stcr-rule-item--edit { display: block; padding: 10px; background: var(--stcr-hover); }
+#stcr_root .stcr-rule-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#stcr_root .stcr-rule-btn { min-width: 28px; height: 28px; font-size: 12px; opacity: .6; }
+#stcr_root .stcr-rules-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 5px 14px; font-size: 12.5px; }
+#stcr_root .stcr-rule-pattern { display: inline-flex; align-items: center; gap: 4px; color: var(--stcr-accent); }
+#stcr_root .stcr-pattern-img { display: block; width: 18px; height: 18px; object-fit: contain; }
+#stcr_root .stcr-rule-pattern .stcr-pattern-img { width: 16px; height: 16px; }
+#stcr_root .stcr-pattern-missing { opacity: .4; }
+#stcr_root .stcr-pattern-import { border: 1px dashed var(--stcr-border); color: var(--stcr-faint); }
+#stcr_root .stcr-row-tag--mine { color: var(--stcr-accent); border-color: color-mix(in srgb, var(--stcr-accent) 60%, transparent); }
+#stcr_root .stcr-map-edit { flex: none; min-width: 24px; height: 24px; margin-left: 2px; font-size: 10.5px; opacity: .45; }
+#stcr_root .stcr-studio-map:hover .stcr-map-edit, #stcr_root .stcr-map-edit:focus-visible { opacity: .9; }
+#stcr_root .stcr-studio-field--top { align-items: flex-start; }
+#stcr_root .stcr-studio-field--top > span:first-child { padding-top: 8px; }
+/* 规则编辑框 */
+#stcr_root .stcr-rule-editor { display: flex; flex-direction: column; gap: 9px; margin: 0; font-size: 13px; }
+#stcr_root .stcr-rule-row > span:first-child { width: 2.6em; }
+#stcr_root .stcr-rule-target { padding-left: calc(2.6em + 10px); }
+#stcr_root .stcr-rule-kind .stcr-seg-btn { padding: 3px 12px; font-size: 12.5px; }
+#stcr_root .stcr-rule-scope { flex: 1; min-width: 0; }
+#stcr_root .stcr-rule-checks { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-left: calc(2.6em + 10px); }
+#stcr_root .stcr-rule-check { display: inline-flex; align-items: center; gap: 5px; margin: 0; font-size: 12.5px; cursor: pointer; }
+#stcr_root .stcr-rule-check input { margin: 0; accent-color: var(--stcr-accent); }
+#stcr_root .stcr-rule-error { margin: 0; color: #e06c5a; font-size: 12px; line-height: 1.5; }
+#stcr_root .stcr-rule-error:empty { display: none; }
+#stcr_root .stcr-rule-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#stcr_root .stcr-rule-actions .stcr-text-btn { padding: 4px 14px; font-size: 12.5px; }
+#stcr_root .stcr-rule-pop { width: min(360px, calc(100% - 16px)); max-width: min(360px, calc(100% - 16px)); padding: 12px 14px; }
+#stcr_root .stcr-rule-pop .stcr-mask-menu-title { margin-bottom: 8px; color: var(--stcr-text); font-weight: 600; font-size: 13px; }
+/* 选中浮层：屏蔽 ▾ */
+#stcr_root .stcr-pop-split { display: inline-flex; align-items: center; }
+#stcr_root .stcr-pop-split .stcr-pop-btn:first-child { padding-right: 4px; border-radius: 999px 0 0 999px; }
+#stcr_root .stcr-pop-caret { padding: 5px 7px 5px 3px; border-radius: 0 999px 999px 0; font-size: 11px; }
+#stcr_root .stcr-sel-menu { display: flex; flex-direction: column; min-width: 240px; }
+#stcr_root .stcr-sel-menu .stcr-swipe-item i { width: 1.2em; color: var(--stcr-accent); text-align: center; }
+/* 我的图片 */
+#stcr_root .stcr-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+#stcr_root .stcr-asset {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 8px 4px 6px;
+    border: 1px solid color-mix(in srgb, var(--stcr-border) 70%, transparent);
+    border-radius: 10px;
+}
+#stcr_root .stcr-asset-img { width: 44px; height: 44px; object-fit: contain; }
+#stcr_root .stcr-asset-name { max-width: 100%; padding: 1px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+#stcr_root .stcr-asset-name:hover { background: var(--stcr-hover); }
+#stcr_root .stcr-asset-rename { width: 100%; margin: 0; }
+#stcr_root .stcr-asset-rename input { padding: 1px 4px; font-size: 11.5px; }
+#stcr_root .stcr-asset-x { position: absolute; top: 2px; right: 2px; min-width: 22px; height: 22px; font-size: 10px; opacity: 0; }
+#stcr_root .stcr-asset:hover .stcr-asset-x, #stcr_root .stcr-asset-x:focus-visible { opacity: .75; }
+#stcr_root .stcr-asset-add { justify-content: center; border-style: dashed; color: var(--stcr-faint); font-size: 11.5px; text-align: center; line-height: 1.4; }
+#stcr_root .stcr-asset-add i { font-size: 16px; }
+/* 书摘封面选择 */
+#stcr_root .stcr-cover-default span { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 22px; border-radius: 2px; background: var(--stcr-accent); color: #fff; font-size: 11px; }
+/* 卡片里：替换成的图标 / 图片与文字等高；书摘封面图片 */
+#stcr_root .stcr-card .stcr-replacement img { display: inline-block; width: 1em; height: 1em; object-fit: contain; vertical-align: -.12em; }
+#stcr_root .stcr-card-cover--img { background-color: transparent; overflow: hidden; }
+#stcr_root .stcr-card-cover--img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 599px) {
+    #stcr_root .stcr-asset-x { opacity: .6; }
+    #stcr_root .stcr-map-edit { opacity: .7; }
 }
 
 /* ── 三档宽度（D13、02 §3） ── */

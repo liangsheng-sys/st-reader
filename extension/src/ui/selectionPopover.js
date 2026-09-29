@@ -1,19 +1,20 @@
 // 选中文字浮层（02 §1.5、F7/F2a）、点已有划线的浮层、批注输入框、批注气泡。
 // 全部挂在 #stcr_root 里（事件已在根节点截断，不会冒泡到 ST）。
-// "卡片"按钮（T23a）：可跨楼，跨楼时只有它能用。"设为替换词…"随 T23b 的替换规则一起做。
+// "卡片"按钮（T23a）：可跨楼，跨楼时只有它能用。"屏蔽 ▾ → 设为替换词…"（T23b）：把这个词加进我的替换规则。
 
 import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
 import { COLORS } from './marks.js';
+import { createRuleEditor, ruleScopes } from './rulesUi.js';
 
 const MASK_MAX = 30;
 
 /**
- * @param {{root:HTMLElement, marks:object, toast:(msg:string)=>void, onCard:(range:Range)=>void,
+ * @param {{root:HTMLElement, marks:object, toast:(msg:string)=>void, onCard:(range:Range)=>void, getChatKey:()=>string|null, getAutoNames:()=>string[],
  *   setPopover:(el:HTMLElement, opts?:{onDismiss?:()=>void})=>void, closePopover:(opts?:{cancel?:boolean})=>void}} deps
  *   onDismiss：浮层被"点外面/换别的浮层"关掉时调用；closePopover({cancel:true})（Esc、取消）不调用。
  */
-export function createSelectionUi({ root, marks, toast, onCard, setPopover, closePopover }) {
+export function createSelectionUi({ root, marks, toast, onCard, getChatKey, getAutoNames = () => [], setPopover, closePopover }) {
     let bubble = null;
 
     /** 把浮层放在一个屏幕矩形的上方（放不下就放下方）；手机贴底。 */
@@ -73,9 +74,13 @@ export function createSelectionUi({ root, marks, toast, onCard, setPopover, clos
                 h('i', { class: 'fa-solid fa-pen', 'aria-hidden': 'true' }), '批注'),
             h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', title: '用选中的文字做分享卡片（可以跨楼选）', onclick: () => card() },
                 h('i', { class: 'fa-solid fa-image', 'aria-hidden': 'true' }), '卡片'),
-            h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', disabled: !canMask,
-                title: canMask ? '加入屏蔽词（只作用于分享卡片）' : '请选一个词（30 字以内）', onclick: () => mask() },
-            h('i', { class: 'fa-solid fa-eye-slash', 'aria-hidden': 'true' }), '屏蔽'));
+            h('span', { class: 'stcr-pop-split' },
+                h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn', disabled: !canMask,
+                    title: canMask ? '加入屏蔽词（只作用于分享卡片）' : '请选一个词（30 字以内）', onclick: () => mask() },
+                h('i', { class: 'fa-solid fa-eye-slash', 'aria-hidden': 'true' }), '屏蔽'),
+                h('button', { type: 'button', class: 'stcr-btn stcr-pop-btn stcr-pop-caret', disabled: !canMask, 'aria-haspopup': 'menu',
+                    title: canMask ? '更多：设为替换词…' : '请选一个词（30 字以内）', 'aria-label': '屏蔽的更多选项', onclick: () => maskMenu() },
+                h('i', { class: 'fa-solid fa-caret-down', 'aria-hidden': 'true' }))));
         // 点浮层按钮时别把选区点没了
         pop.addEventListener('mousedown', event => event.preventDefault());
         placeForRange(pop, saved);
@@ -98,6 +103,18 @@ export function createSelectionUi({ root, marks, toast, onCard, setPopover, clos
                 toast(error instanceof RangeError ? '这里不能划线（请选正文里的文字）' : `划线没保存上：${error.message ?? error}`);
             }
         }
+        /** 屏蔽 ▾：两种处理这个词的办法。 */
+        function maskMenu() {
+            const rect = pop.getBoundingClientRect();
+            const menu = h('div', { class: 'stcr-popover stcr-sel-menu', role: 'menu', 'aria-label': '处理这个词' },
+                h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-swipe-item', onclick: () => mask() },
+                    h('i', { class: 'fa-solid fa-eye-slash', 'aria-hidden': 'true' }), h('span', { text: '屏蔽：卡片上统一遮住' })),
+                h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-swipe-item', onclick: () => { closePopover(); openRuleEditor(text, rect); } },
+                    h('i', { class: 'fa-solid fa-right-left', 'aria-hidden': 'true' }), h('span', { text: '设为替换词…：换成文字或小图案' })));
+            menu.addEventListener('mousedown', event => event.preventDefault());
+            place(menu, rect, { below: true });
+            setPopover(menu);
+        }
         function card() {
             closePopover();
             onCard(saved);
@@ -112,6 +129,25 @@ export function createSelectionUi({ root, marks, toast, onCard, setPopover, clos
                 toast(`屏蔽词没保存上：${error.message ?? error}`);
             }
         }
+    }
+
+    /** 阅读器里"设为替换词…"（02 §1.5）：同一个规则编辑框，默认作用范围 = 这个聊天的角色。 */
+    async function openRuleEditor(word, rect) {
+        let scopes, assets;
+        try { [scopes, assets] = await Promise.all([ruleScopes(getChatKey()), store.assets.list()]); }
+        catch (error) { toast(`打不开：${error.message ?? error}`); return; }
+        const editor = createRuleEditor({ rule: { from: word }, scopes, assets, host: root, toast, compact: true, autoNames: getAutoNames(),
+            onCancel: () => closePopover({ cancel: true }),
+            onSaved: saved => {
+                closePopover({ cancel: true });
+                getSelection()?.removeAllRanges();
+                toast(`已加入替换规则：${saved.from}（只作用于分享卡片）`);
+            } });
+        const pop = h('div', { class: 'stcr-popover stcr-rule-pop', role: 'dialog', 'aria-label': '设为替换词' },
+            h('div', { class: 'stcr-mask-menu-title', text: '设为替换词：分享卡片上总是换成…' }), editor.el);
+        place(pop, rect, { below: true });
+        setPopover(pop);
+        editor.focus();
     }
 
     /** 点在已有划线上：换色 / 编辑批注 / 取消划线。 */
