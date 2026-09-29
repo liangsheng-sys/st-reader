@@ -229,8 +229,10 @@ function wireEvents(session) {
 
     let frame = 0;
     scroller.addEventListener('scroll', () => {
-        // 贴着选区/按钮的小浮层跟不上滚动，直接收起；批注输入框留着
-        if (session.popover?.matches('.stcr-sel-pop, .stcr-swipe-list')) closePopover(session, { cancel: true });
+        // 选中文字的浮层跟着选区走（选长段要滚动，T23a 验收意见②）；其余贴着按钮的小浮层收起；批注输入框留着
+        const pop = session.popover;
+        if (pop?._stcrFollow) { if (!pop._stcrFollow()) closePopover(session, { cancel: true }); }
+        else if (pop?.matches('.stcr-sel-pop, .stcr-swipe-list')) closePopover(session, { cancel: true });
         session.selUi.hideBubble();
         if (frame) return;
         frame = requestAnimationFrame(() => { frame = 0; if (S === session) { ensureWindow(); updateProgress(); } });

@@ -39,10 +39,24 @@ export function createSelectionUi({ root, marks, toast, onCard, setPopover, clos
                 onclick: () => onPick(color.id) })));
     }
 
-    const selectionRect = range => {
+    /**
+     * 选区浮层放哪（T23a 验收意见②：选长段要滚动，浮层不能一滚就没）：
+     * 选区开头在屏幕里 → 放开头上方；开头滚出去了、结尾在屏幕里 → 放结尾下方；
+     * 两头都在屏幕外（选区比一屏还长、正在中间）→ 贴在正文区顶端。手机一直贴底，不用管。
+     */
+    function placeForRange(el, range) {
+        if (innerWidth < 600) { place(el, range.getBoundingClientRect()); return; }
+        const view = (root.querySelector('.stcr-scroll') ?? root).getBoundingClientRect();
         const rects = [...range.getClientRects()].filter(r => r.width || r.height);
-        return rects[0] ?? range.getBoundingClientRect();
-    };
+        const inView = r => r.bottom > view.top + 4 && r.top < view.bottom - 4;
+        const first = rects[0], last = rects.at(-1);
+        if (first && inView(first)) { place(el, first); return; }
+        if (last && inView(last)) { place(el, last, { below: true }); return; }
+        const box = root.getBoundingClientRect();
+        const x = first ? (Math.min(...rects.map(r => r.left)) + Math.max(...rects.map(r => r.right))) / 2 : view.left + view.width / 2;
+        place(el, { left: x, right: x, width: 0, top: view.top + 8, bottom: view.top + 8, height: 0 }, { below: true });
+        el.style.top = `${view.top - box.top + 8}px`;
+    }
 
     /**
      * 选中文字后调用。info: {range, el(楼), container(.mes_text/.mes_reasoning)|null, text}
@@ -64,8 +78,14 @@ export function createSelectionUi({ root, marks, toast, onCard, setPopover, clos
             h('i', { class: 'fa-solid fa-eye-slash', 'aria-hidden': 'true' }), '屏蔽'));
         // 点浮层按钮时别把选区点没了
         pop.addEventListener('mousedown', event => event.preventDefault());
-        place(pop, selectionRect(saved));
+        placeForRange(pop, saved);
         setPopover(pop);
+        // 滚动时由阅读器调用：跟着选区走；选中的楼被翻页释放了就返回 false，让阅读器收起浮层
+        pop._stcrFollow = () => {
+            if (saved.collapsed || !saved.startContainer.isConnected || !saved.endContainer.isConnected) return false;
+            placeForRange(pop, saved);
+            return true;
+        };
 
         async function mark(color, withNote = false) {
             closePopover();

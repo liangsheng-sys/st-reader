@@ -11,6 +11,8 @@ import { h, iconButton } from './dom.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardFileName, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 
 const PREFS_KEY = 'stcr:ui:card:v1';
+/** 永久屏蔽词各自的遮盖样式（T23a 验收意见①）：{词: {mask, icon}}；没有的词跟随默认。随备份导出。 */
+const WORD_STYLES_KEY = 'stcr:ui:card:wordStyles:v1';
 const CONTAINED = ['click', 'dblclick', 'auxclick', 'contextmenu', 'mousedown', 'mouseup', 'pointerdown', 'pointerup',
     'touchstart', 'touchend', 'input', 'change', 'paste', 'focusin', 'focusout', 'keydown', 'keyup', 'keypress', 'wheel'];
 const TEMPLATES = [
@@ -24,6 +26,17 @@ const DIGEST_BLUE = '#1b88ee';
 /**
  * @param {{root:HTMLElement, toast:(msg:string)=>void, getDirection:()=>string, onClose?:()=>void}} deps
  */
+/** 存储里的 {词: {mask, icon}} → 只留合法项。 */
+function cleanWordStyles(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [word, value] of Object.entries(raw)) {
+        if (!word || !MASKS.some(m => m.id === value?.mask)) continue;
+        out[word] = value.mask === 'sticker' && CARD_ICON_CHOICES.includes(value.icon) ? { mask: 'sticker', icon: value.icon } : { mask: value.mask };
+    }
+    return out;
+}
+
 export function createCardStudio({ root, toast, getDirection, onClose }) {
     let st = null; // 打开期间的状态；关掉整体丢弃
     const iconCache = new Map();
@@ -45,7 +58,8 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const mine = {
             source, els, prefs: normalizeCardPrefs(null), replaceNames: true, includeReasoning: !!source.includeReasoning,
             permanent: [], temp: [], cache: createPieceCache(), pieces: [], mappings: [], thoughts: [], card: null,
-            token: 0, exporting: false, urls: [], words: [], suppressClick: false, saveTimer: 0, resize: null, hoverMask: null, plusTimer: 0,
+            token: 0, exporting: false, urls: [], words: [], suppressClick: false, saveTimer: 0, resize: null,
+            wordStyles: {}, tempStyles: {}, menu: null,
         };
         st = mine;
         root.append(els.studio);
@@ -53,10 +67,11 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         wire(mine);
         els.sub.textContent = subtitle(source);
         try {
-            const [prefs, words] = await Promise.all([store.settings.get(PREFS_KEY, null), store.maskWords.list()]);
+            const [prefs, words, styles] = await Promise.all([store.settings.get(PREFS_KEY, null), store.maskWords.list(), store.settings.get(WORD_STYLES_KEY, {})]);
             if (st !== mine) return;
             mine.prefs = normalizeCardPrefs(prefs);
             mine.permanent = words;
+            mine.wordStyles = cleanWordStyles(styles);
         } catch (error) {
             console.warn('[st-reader] 卡片设置或屏蔽词读取失败：', error);
             showNote(mine, `屏蔽词读取失败：${error.message ?? error}。请先别导出。`, 'error');
@@ -83,12 +98,10 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const scaler = h('div', { class: 'stcr-card-scaler' });
         const slot = h('div', { class: 'stcr-card-slot' }, scaler);
         const hover = h('div', { class: 'stcr-card-hover', hidden: true, 'aria-hidden': 'true' });
-        const plus = h('button', { type: 'button', class: 'stcr-btn stcr-card-plus', hidden: true, title: '加入永久屏蔽词', 'aria-label': '加入永久屏蔽词', 'data-studio': 'plus' },
-            h('i', { class: 'fa-solid fa-plus', 'aria-hidden': 'true' }));
         const status = h('div', { class: 'stcr-studio-status', role: 'status', 'aria-live': 'polite' });
         const stage = h('div', { class: 'stcr-studio-stage' },
-            slot, hover, plus, status,
-            h('p', { class: 'stcr-studio-tip', text: '点预览里的词 = 临时遮住，再点一下取消；拖选一串字也能一次遮住。临时遮住只对这张卡有效。' }));
+            slot, hover, status,
+            h('p', { class: 'stcr-studio-tip', text: '点预览里的词 = 临时遮住（只对这张卡有效）；拖选一串字也能一次遮住。点已遮住的地方，可以单独换它的样子、取消或加入永久。' }));
 
         const tpl = h('div', { class: 'stcr-studio-tpls', role: 'group', 'aria-label': '模板' },
             ...TEMPLATES.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-tpl-btn', 'data-tpl': item.id },
@@ -130,7 +143,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '卡片设置' },
             section('模板', tpl),
             section('尺寸', sizes),
-            section('遮盖样式', masks, icons, uniform.el),
+            section('遮盖样式', masks, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
             section('名字替换', names.el, mapList, rulesBtn),
             section('显示', showNames.el, reasoning.el, signOn.el, signText),
             digest,
@@ -139,7 +152,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
             note);
         const studio = h('div', { class: 'stcr-studio', role: 'dialog', 'aria-modal': 'true', 'aria-label': '分享卡片', tabindex: '-1' },
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
-        return { studio, head, exportBtn, sub, stage, slot, scaler, hover, plus, status, side, tpl, sizes, masks, icons, uniform, names, mapList,
+        return { studio, head, exportBtn, sub, stage, slot, scaler, hover, status, side, tpl, sizes, masks, icons, uniform, names, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
             tempSec, tempChips, note };
     }
@@ -151,7 +164,9 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const alive = () => st === mine;
         els.studio.addEventListener('click', event => onClick(mine, event));
         els.studio.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); close(); }
+            if (event.key !== 'Escape' || event.isComposing) return;
+            event.preventDefault();
+            if (mine.menu) closeMenu(mine); else close();
         });
         // 工作台里的点击、按键不交给阅读器（翻页、快捷键）和 ST（委托事件、←/→ 切真实候选）。
         for (const type of CONTAINED) els.studio.addEventListener(type, event => event.stopPropagation());
@@ -192,19 +207,27 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
             if (frame) return;
             frame = requestAnimationFrame(() => { frame = 0; if (alive()) onHover(mine, lastMove); });
         });
-        els.stage.addEventListener('mouseleave', () => { els.hover.hidden = true; schedulePlusHide(mine); });
+        els.stage.addEventListener('mouseleave', () => { els.hover.hidden = true; });
         els.stage.addEventListener('mouseup', () => setTimeout(() => { if (alive()) onDragSelect(mine); }, 0));
-        els.stage.addEventListener('scroll', () => { els.hover.hidden = true; els.plus.hidden = true; }, { passive: true });
+        els.stage.addEventListener('scroll', () => { els.hover.hidden = true; closeMenu(mine); }, { passive: true });
+        els.side.addEventListener('scroll', () => closeMenu(mine), { passive: true });
         mine.resize = new ResizeObserver(() => { if (alive()) fit(mine); });
         mine.resize.observe(els.stage);
     }
 
     function onClick(mine, event) {
         const target = event.target;
+        if (!target.isConnected) return; // 菜单里点了样式，菜单已经换成新的，这次点击处理完了
+        if (mine.menu) {
+            if (mine.menu.contains(target)) return; // 菜单自己的按钮各自处理
+            closeMenu(mine);
+            if (target.closest('.stcr-mask, [data-word-style]')) return; // 点另一个遮盖：这一下只关旧菜单
+        }
+        const styleBtn = target.closest('[data-word-style]');
+        if (styleBtn) { openMenu(mine, styleBtn.dataset.wordStyle, styleBtn); return; }
         const act = target.closest('[data-studio]')?.dataset.studio;
         if (act === 'close') { close(); return; }
         if (act === 'export') { doExport(mine); return; }
-        if (act === 'plus') { const word = mine.hoverMask; if (word) addPermanent(mine, word); return; }
         if (act === 'fold-words') {
             const open = mine.els.wordBox.hidden;
             mine.els.wordBox.hidden = !open;
@@ -288,7 +311,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         mine.card = applyMasks(mine, card, colors);
         els.scaler.replaceChildren(mine.card);
         els.hover.hidden = true;
-        els.plus.hidden = true;
+        closeMenu(mine);
         els.exportBtn.disabled = empty || mine.exporting;
         if (empty) setStatus(mine, mine.pieces.some(p => p.reasoning) ? '选中的文字在思维链里：打开右边"包含思维链"就能看到。' : '这段选区里没有可以放进卡片的文字。');
         else if (!els.status.classList.contains('stcr-studio-status--error')) setStatus(mine, '');
@@ -322,8 +345,16 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         return { accent, bar: tpl === 'dark' ? '#ffffff' : '#000000' };
     }
 
-    function maskStyle(mine, colors) {
-        const { mask, uniform, icon } = mine.prefs;
+    /** 一个词实际用的遮盖：它自己的设置优先（临时词看本卡、永久词看记住的），否则默认。 */
+    const ownStyle = (mine, word) => mine.tempStyles[word] ?? mine.wordStyles[word] ?? null;
+    function styleFor(mine, word, colors) {
+        const own = ownStyle(mine, word);
+        return maskStyle(mine, colors, own ? { mask: own.mask, icon: own.icon ?? mine.prefs.icon } : null);
+    }
+
+    function maskStyle(mine, colors, own = null) {
+        const { uniform } = mine.prefs;
+        const { mask, icon } = own ?? mine.prefs;
         if (mask === 'bar') return { kind: 'bar', color: colors.bar, uniform };
         if (mask === 'block') return { kind: 'block', color: colors.accent, uniform };
         return { kind: 'sticker', color: colors.accent, uniform, icon };
@@ -340,14 +371,17 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         mine.style = style;
         let out = card;
         words.forEach((word, i) => {
-            out = wrapMaskSpans(out, [word], style);
-            for (const span of out.querySelectorAll('.stcr-mask:not([data-stcr-tw])')) span.dataset.stcrTw = String(i);
+            const own = styleFor(mine, word, colors);
+            out = wrapMaskSpans(out, [word], own);
+            for (const span of out.querySelectorAll('.stcr-mask:not([data-stcr-tw])')) {
+                span.dataset.stcrTw = String(i);
+                // 小图案：core 画图标时字体名没加引号会画成小点（06 I018），这里自己画好换成图片；导出原样复制图片。
+                for (const icon of span.querySelectorAll('[data-stcr-icon]')) {
+                    const src = iconImage(icon.dataset.stcrIcon, own.color);
+                    if (src) icon.replaceWith(h('img', { src, alt: '', class: 'stcr-mask-icon' }));
+                }
+            }
         });
-        // 小图案：core 画图标时字体名没加引号会画成小点（06 I018），这里自己画好换成图片；导出原样复制图片。
-        for (const icon of out.querySelectorAll('.stcr-mask--sticker [data-stcr-icon]')) {
-            const src = iconImage(icon.dataset.stcrIcon, style.color);
-            if (src) icon.replaceWith(h('img', { src, alt: '', class: 'stcr-mask-icon' }));
-        }
         return out;
     }
 
@@ -437,7 +471,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         if (document.activeElement !== els.digestTitle) els.digestTitle.value = prefs.digestTitle;
         els.wordCount.textContent = `${mine.permanent.length} 个`;
         els.wordChips.replaceChildren(...(mine.permanent.length ? mine.permanent.map((word, i) => h('span', { class: 'stcr-word-chip' },
-            h('span', { text: word }), iconButton('fa-xmark', `从屏蔽词里移除：${word}`, { class: 'stcr-word-x', 'data-word-remove': i })))
+            styleSwatch(mine, word), h('span', { text: word }), iconButton('fa-xmark', `从屏蔽词里移除：${word}`, { class: 'stcr-word-x', 'data-word-remove': i })))
             : [h('span', { class: 'stcr-studio-hint', text: '还没有屏蔽词。' })]));
     }
 
@@ -465,9 +499,99 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const { els } = mine;
         els.tempSec.hidden = !mine.temp.length;
         els.tempChips.replaceChildren(...mine.temp.map((word, i) => h('span', { class: 'stcr-word-chip stcr-word-chip--temp' },
-            h('span', { text: word }),
+            styleSwatch(mine, word), h('span', { text: word }),
             iconButton('fa-plus', `加入永久屏蔽词：${word}`, { class: 'stcr-word-x', 'data-temp-keep': i }),
             iconButton('fa-xmark', `不遮了：${word}`, { class: 'stcr-word-x', 'data-temp-remove': i }))));
+    }
+
+    /** 词条左边的小方块：显示这个词现在的遮盖样子，点它单独改。 */
+    function styleSwatch(mine, word) {
+        const own = ownStyle(mine, word);
+        const kind = (own ?? mine.prefs).mask;
+        const icon = (own?.icon ?? mine.prefs.icon);
+        const label = own ? `${MASKS.find(m => m.id === kind).label}（单独设置）` : '跟随默认';
+        return h('button', { type: 'button', class: `stcr-btn stcr-mask-swatch stcr-mask-swatch--${kind}${own ? ' stcr-mask-swatch--own' : ''}`,
+            'data-word-style': word, title: `这个词的遮盖：${label}。点这里单独改`, 'aria-label': `${word} 的遮盖样式：${label}` },
+        kind === 'sticker' ? h('i', { class: `fa-solid ${icon}`, 'aria-hidden': 'true' }) : null);
+    }
+
+    // ───────────── 单个词的遮盖菜单（T23a 验收意见①） ─────────────
+
+    /** 点预览里的遮盖或词条小方块：换这个词自己的样式 / 跟随默认；临时词还能取消或加入永久，永久词能移出。 */
+    function openMenu(mine, word, anchor) {
+        if (mine.exporting || word === undefined) return;
+        closeMenu(mine);
+        const own = ownStyle(mine, word);
+        const isTemp = mine.temp.includes(word);
+        const current = own?.mask ?? null;
+        const menu = h('div', { class: 'stcr-popover stcr-mask-menu', role: 'dialog', 'aria-label': `“${word}”的遮盖` },
+            h('div', { class: 'stcr-mask-menu-title' }, h('span', { text: '这个词：' }), h('b', { text: word })),
+            h('div', { class: 'stcr-seg stcr-mask-menu-seg', role: 'group' },
+                h('button', { type: 'button', class: `stcr-btn stcr-seg-btn${current === null ? ' stcr-on' : ''}`, 'data-menu-mask': '', text: '跟随默认' }),
+                ...MASKS.map(m => h('button', { type: 'button', class: `stcr-btn stcr-seg-btn${current === m.id ? ' stcr-on' : ''}`, 'data-menu-mask': m.id, text: m.label }))),
+            current === 'sticker' ? h('div', { class: 'stcr-studio-icons' },
+                ...CARD_ICON_CHOICES.map(icon => h('button', { type: 'button', class: `stcr-btn stcr-icon-pick${(own.icon ?? mine.prefs.icon) === icon ? ' stcr-on' : ''}`,
+                    'data-menu-icon': icon, title: ICON_NAMES[icon], 'aria-label': ICON_NAMES[icon] }, h('i', { class: `fa-solid ${icon}`, 'aria-hidden': 'true' })))) : null,
+            h('div', { class: 'stcr-mask-menu-actions' },
+                isTemp ? h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-menu-act': 'keep' },
+                    h('i', { class: 'fa-solid fa-plus', 'aria-hidden': 'true' }), ' 加入永久屏蔽词') : null,
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-menu-act': isTemp ? 'unmask' : 'remove' },
+                    h('i', { class: 'fa-solid fa-eye', 'aria-hidden': 'true' }), isTemp ? ' 取消遮住' : ' 移出屏蔽词')));
+        menu.addEventListener('click', event => {
+            const maskBtn = event.target.closest('[data-menu-mask]');
+            if (maskBtn) { setWordStyle(mine, word, maskBtn.dataset.menuMask || null, own?.icon); reopen(); return; }
+            const iconBtn = event.target.closest('[data-menu-icon]');
+            if (iconBtn) { setWordStyle(mine, word, 'sticker', iconBtn.dataset.menuIcon); reopen(); return; }
+            const act = event.target.closest('[data-menu-act]')?.dataset.menuAct;
+            if (!act) return;
+            closeMenu(mine);
+            if (act === 'keep') addPermanent(mine, word);
+            else if (act === 'unmask') setTemp(mine, mine.temp.filter(w => w !== word));
+            else removePermanent(mine, word);
+        });
+        // 改完样式卡片会重排：按词重新找到它的遮盖（或词条）再把菜单放回去
+        const reopen = () => {
+            const i = mine.words.indexOf(word);
+            const again = anchor.closest('.stcr-studio-side')
+                ? mine.els.side.querySelector(`[data-word-style="${CSS.escape(word)}"]`)
+                : mine.card?.querySelector(`.stcr-mask[data-stcr-tw="${i}"]`);
+            if (again) openMenu(mine, word, again);
+        };
+        mine.els.studio.append(menu);
+        const box = mine.els.studio.getBoundingClientRect(), rect = anchor.getBoundingClientRect();
+        const width = menu.offsetWidth, height = menu.offsetHeight;
+        const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2 - box.left), box.width - width - 8);
+        let top = rect.bottom - box.top + 8;
+        if (top + height > box.height - 8) top = rect.top - box.top - height - 8;
+        menu.style.left = `${left}px`;
+        menu.style.top = `${Math.max(8, top)}px`;
+        mine.menu = menu;
+    }
+
+    function closeMenu(mine) {
+        mine.menu?.remove();
+        mine.menu = null;
+    }
+
+    /** 记下一个词自己的样式（mask=null = 跟随默认）。临时词只记在这张卡；永久词存起来，下次也这样。 */
+    function setWordStyle(mine, word, mask, icon) {
+        if (mine.exporting) return;
+        const value = mask ? { mask, ...(mask === 'sticker' ? { icon: icon ?? mine.prefs.icon } : {}) } : null;
+        if (mine.temp.includes(word)) {
+            if (value) mine.tempStyles[word] = value; else delete mine.tempStyles[word];
+        } else {
+            if (value) mine.wordStyles[word] = value; else delete mine.wordStyles[word];
+            saveWordStyles(mine);
+        }
+        syncControls(mine);
+        compose(mine);
+    }
+
+    function saveWordStyles(mine) {
+        // 只留还在屏蔽词表里的词
+        const kept = Object.fromEntries(Object.entries(mine.wordStyles).filter(([word]) => mine.permanent.includes(word)));
+        mine.wordStyles = kept;
+        store.settings.set(WORD_STYLES_KEY, kept).catch(error => toast(`遮盖样式没保存上：${error.message ?? error}`));
     }
 
     function setStatus(mine, text, error = false) {
@@ -497,6 +621,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
             mine.permanent = await store.maskWords.add(word);
             if (st !== mine) return false;
             mine.temp = mine.temp.filter(w => w !== word);
+            if (mine.tempStyles[word]) { mine.wordStyles[word] = mine.tempStyles[word]; delete mine.tempStyles[word]; saveWordStyles(mine); }
             toast(`已加入屏蔽词：${word}（只作用于分享卡片）`);
             syncControls(mine);
             compose(mine);
@@ -512,6 +637,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         try {
             mine.permanent = await store.maskWords.remove(word);
             if (st !== mine) return;
+            if (mine.wordStyles[word]) saveWordStyles(mine);
             toast(`已移除屏蔽词：${word}`);
             syncControls(mine);
             compose(mine);
@@ -521,6 +647,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
     function setTemp(mine, words) {
         if (mine.exporting) return;
         mine.temp = [...new Set(words)];
+        for (const word of Object.keys(mine.tempStyles)) if (!mine.temp.includes(word)) delete mine.tempStyles[word];
         compose(mine);
     }
 
@@ -554,14 +681,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         const { els } = mine;
         if (!mine.card || mine.exporting || !event) return;
         const mask = event.target.closest?.('.stcr-mask');
-        if (mask && mine.card.contains(mask)) {
-            els.hover.hidden = true;
-            const word = mine.words[Number(mask.dataset.stcrTw)];
-            if (word !== undefined && mine.temp.includes(word)) showPlus(mine, mask, word);
-            return;
-        }
-        if (event.target.closest?.('.stcr-card-plus')) { clearTimeout(mine.plusTimer); return; }
-        schedulePlusHide(mine);
+        if (mask && mine.card.contains(mask)) { els.hover.hidden = true; return; }
         const found = !getSelection()?.toString() && mine.card.contains(event.target) ? wordUnder(mine, event.clientX, event.clientY) : null;
         if (!found) { els.hover.hidden = true; mine.card.classList.remove('stcr-card--pick'); return; }
         const box = els.stage.getBoundingClientRect();
@@ -576,30 +696,12 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         mine.card.classList.add('stcr-card--pick');
     }
 
-    function showPlus(mine, mask, word) {
-        const { els } = mine;
-        clearTimeout(mine.plusTimer);
-        mine.hoverMask = word;
-        const box = els.stage.getBoundingClientRect(), rect = mask.getBoundingClientRect();
-        els.plus.style.left = `${rect.right - box.left + els.stage.scrollLeft + 2}px`;
-        els.plus.style.top = `${rect.top - box.top + els.stage.scrollTop + rect.height / 2 - 11}px`;
-        els.plus.hidden = false;
-    }
-    function schedulePlusHide(mine) {
-        if (mine.els.plus.hidden) return;
-        clearTimeout(mine.plusTimer);
-        mine.plusTimer = setTimeout(() => { if (st === mine) mine.els.plus.hidden = true; }, 500);
-    }
-
     function onCardClick(mine, event) {
         if (mine.exporting) return;
         if (mine.suppressClick) { mine.suppressClick = false; return; }
         const mask = event.target.closest('.stcr-mask');
         if (mask) {
-            const word = mine.words[Number(mask.dataset.stcrTw)];
-            if (word === undefined) return;
-            if (mine.temp.includes(word)) setTemp(mine, mine.temp.filter(w => w !== word));
-            else toast('这是永久屏蔽词：要取消，请在右边"屏蔽词"里删掉它');
+            openMenu(mine, mine.words[Number(mask.dataset.stcrTw)], mask);
             return;
         }
         const found = wordUnder(mine, event.clientX, event.clientY);
@@ -631,7 +733,7 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         els.exportBtn.querySelector('i').className = 'fa-solid fa-spinner fa-spin';
         els.exportBtn.querySelector('.stcr-studio-export-label').textContent = '正在生成…';
         els.hover.hidden = true;
-        els.plus.hidden = true;
+        closeMenu(mine);
         showNote(mine, '');
         const warnings = [];
         try {
@@ -677,7 +779,6 @@ export function createCardStudio({ root, toast, getDirection, onClose }) {
         st = null;
         mine.token++;
         clearTimeout(mine.saveTimer);
-        clearTimeout(mine.plusTimer);
         if (mine.saveTimer) store.settings.set(PREFS_KEY, { ...mine.prefs }).catch(() => {});
         mine.resize?.disconnect();
         mine.els.studio.remove();
