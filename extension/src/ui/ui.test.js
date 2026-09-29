@@ -132,6 +132,15 @@ export async function testUiStatic() {
     rule('不调用写聊天的宿主方法（D02）', /\b(saveChat|saveChatConditional|saveChatDebounced|deleteMessage|deleteLastMessage|renameChat|clearChat|addOneMessage|updateChatMetadata|saveMetadata|openCharacterChat|openGroupChat|reloadCurrentChat)\s*\(/, '无写聊天/切聊天调用');
     rule('不改 chat / chatMetadata / swipe_id（D02）', /(\.chat\b|chatMetadata|chat_metadata|swipe_id)\s*(\[[^\]]*\])?\s*(=(?!=)|\+\+|--|\.push|\.splice|\.pop|\.shift)/, '无赋值或数组修改');
     rule('不用 ST 按钮类名（D10）', /['"`\s.](mes_button|mes_edit|swipe_right|swipe_left|swipes-counter|mes_copy|drawer-toggle|drawer-opener|interactable|menu_button)['"`\s.]/, '无 ST 委托事件类名');
+    // 按 ES 模块语法解析每个 .js（`node --check file.js` 在没有 type:module 时不按模块检查，会漏掉语法错）。
+    const { spawnSync } = await import('node:child_process');
+    const broken = sources.filter(({ file }) => file.endsWith('.js')).flatMap(({ file, text }) => {
+        const result = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: text, encoding: 'utf8' });
+        return result.status === 0 ? [] : [`${file}：${(result.stderr.match(/SyntaxError[^\n]*/) ?? ['语法错误'])[0]}`];
+    });
+    out.push({ name: '每个界面文件都是合法的 ES 模块', passed: broken.length === 0, detail: broken.length ? broken.join('；') : '全部能按模块解析' });
+    const mixed = sources.filter(({ text }) => text.includes('\r\n')).map(({ file }) => file);
+    out.push({ name: '换行统一为 LF', passed: mixed.length === 0, detail: mixed.length ? mixed.join(', ') : '无 CRLF' });
     out.push({ name: '界面文件数', passed: sources.length >= 8, detail: sources.map(s => s.file).join(', ') });
     return out;
 }

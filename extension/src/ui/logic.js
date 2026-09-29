@@ -16,6 +16,7 @@ export const DEFAULT_PREFS = Object.freeze({
     hideUser: false,
     expandAllReasoning: false,
     drawerPinned: false,
+    panelPinned: false,
 });
 
 /** 各排版方向在用户没手动改过时的默认值（02 §7 差异表）。width null = 跟随 ST 聊天宽度。 */
@@ -35,7 +36,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'expandAllReasoning', 'drawerPinned']) {
+    for (const key of ['hideUser', 'expandAllReasoning', 'drawerPinned', 'panelPinned']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;

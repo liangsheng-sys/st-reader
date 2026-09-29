@@ -1,5 +1,5 @@
-// 底部设置条（F1、F1a、02 §1.8）。平时只是右下角的 Aa 圆钮。
-// 导出/导入 JSON 依赖 T13 store，T22 接入；现在不放按不动的按钮。
+// 底部设置条（F1、F1a、F7/F8、02 §1.8）。平时只是右下角的 Aa 圆钮。
+// ⋯ 里：排版、导出/导入备份。有数据且 14 天没导出时，Aa 上亮一个小点（只提醒，不弹窗）。
 
 import { h, iconButton } from './dom.js';
 import { effectivePrefs, PREF_LIMITS } from './logic.js';
@@ -11,7 +11,8 @@ export function themeFontSize() {
     return Number.isFinite(size) ? size : 15;
 }
 
-export function createSettingsBar() {
+/** @param {{onExport:()=>void, onImport:()=>void}} actions */
+export function createSettingsBar({ onExport, onImport }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -28,7 +29,14 @@ export function createSettingsBar() {
     const dirSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '排版' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'b', text: '原样' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'a', text: '书页' }));
+    const lastExport = h('span', { class: 'stcr-set-hint stcr-last-export' });
     const more = h('div', { class: 'stcr-set-more', hidden: true },
+        h('div', { class: 'stcr-set-item stcr-set-backup' }, h('span', { class: 'stcr-set-label', text: '备份' }),
+            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onExport() },
+                h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出我的批注与收藏'),
+            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport() },
+                h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入'),
+            lastExport),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }), dirSeg,
             h('span', { class: 'stcr-set-hint', text: '原样 = 和 ST 一样；书页 = 压平聊天框、像读小说' })));
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
@@ -80,6 +88,18 @@ export function createSettingsBar() {
         hideUser.input.checked = prefs.hideUser;
         expandAll.input.checked = prefs.expandAllReasoning;
     }
+    /** 备份状态：{text:'上次导出：3 天前', remind:boolean} */
+    function setBackupStatus({ text, remind }) {
+        lastExport.textContent = text;
+        lastExport.classList.toggle('stcr-warn', remind);
+        fab.classList.toggle('stcr-fab--remind', remind);
+        fab.title = remind ? '阅读设置（有一阵子没导出备份了）' : '阅读设置';
+    }
+    function openMore() {
+        open();
+        more.hidden = false;
+        moreBtn.setAttribute('aria-expanded', 'true');
+    }
     function open() {
         sync();
         panel.hidden = false;
@@ -91,7 +111,7 @@ export function createSettingsBar() {
         moreBtn.setAttribute('aria-expanded', 'false');
         fab.setAttribute('aria-expanded', 'false');
     }
-    return { fab, panel, sync, open, close, isOpen: () => !panel.hidden };
+    return { fab, panel, sync, open, openMore, close, setBackupStatus, isOpen: () => !panel.hidden };
 }
 
 function switchInput(label) {

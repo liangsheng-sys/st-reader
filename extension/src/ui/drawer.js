@@ -1,6 +1,7 @@
 // 左侧聊天抽屉：最近 / 按角色 / 收藏 / 当前（F1、02 §1.2）。数据只经 core/chatSource（03 §5）。
 
 import { getCurrentChatKey, listByCharacter, listByGroup, listCharacters, listGroups, listRecent, parseChatKey } from '../core/chatSource.js';
+import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
 import { formatListDate, matchesFilter } from './logic.js';
 
@@ -13,7 +14,8 @@ const TABS = [
 const isAbort = error => error?.name === 'AbortError';
 
 /**
- * @param {{onPick:(chatKey:string)=>void, getActiveKey:()=>string|null, onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean}} options
+ * @param {{onPick:(chatKey:string, target?:{index:number,swipe:number|null})=>void, getActiveKey:()=>string|null,
+ *   onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean}} options
  */
 export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
     let tab = 'recent';
@@ -40,7 +42,12 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
     pin.addEventListener('click', () => { onPinChange(!isPinned()); syncPin(); });
     list.addEventListener('click', event => {
         const row = event.target.closest('[data-key]');
-        if (row) { onPick(row.dataset.key); return; }
+        if (row) {
+            // 收藏行带楼号/候选号：直接跳到那一楼那一个候选（F8）
+            const target = row.dataset.index !== undefined ? { index: Number(row.dataset.index), swipe: row.dataset.swipe === '' ? null : Number(row.dataset.swipe) } : undefined;
+            onPick(row.dataset.key, target);
+            return;
+        }
         const owner = event.target.closest('[data-owner]');
         if (owner) { toggleOwner(owner); return; }
         const kind = event.target.closest('[data-kind]');
@@ -95,8 +102,16 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
         controller = new AbortController();
         const { signal } = controller;
         try {
-            if (tab === 'favorites') { message('收藏楼层与收藏候选在下一步（T22）开放。'); return; }
             loading();
+            if (tab === 'favorites') {
+                const marks = await store.bookmarks.list();
+                if (signal.aborted) return;
+                if (!marks.length) { message('还没有收藏。读的时候鼠标移到楼上，点书签收藏整楼、点星星收藏当前候选。'); return; }
+                renderFavorites(marks);
+                markActive();
+                applyFilter();
+                return;
+            }
             await ensureLookups(signal);
             if (signal.aborted) return;
             if (tab === 'recent') {
@@ -118,6 +133,29 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
             console.error('[st-reader] 抽屉列表读取失败：', error);
             message(`列表读取失败：${error.message ?? error}`, true);
         }
+    }
+
+    /** 跨聊天收藏汇总：按聊天分组，最近收藏的聊天在前（02 §1.2）。 */
+    function renderFavorites(marks) {
+        const groups = new Map();
+        for (const mark of marks) {
+            if (!groups.has(mark.chatKey)) groups.set(mark.chatKey, []);
+            groups.get(mark.chatKey).push(mark);
+        }
+        const latest = items => items.reduce((max, item) => (item.createdAt > max ? item.createdAt : max), '');
+        const sorted = [...groups.values()].sort((a, b) => latest(b).localeCompare(latest(a)));
+        list.replaceChildren(...sorted.map(items => {
+            items.sort((a, b) => a.mesIndex - b.mesIndex || (a.swipeIndex ?? -1) - (b.swipeIndex ?? -1));
+            const title = items[0].title || parseChatKey(items[0].chatKey).fileName;
+            return h('div', { class: 'stcr-fav-group', 'data-filter': [title, ...items.map(item => item.preview)].join('\n') },
+                h('div', { class: 'stcr-fav-title', text: title }),
+                ...items.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-row stcr-fav-row', role: 'listitem',
+                    'data-key': item.chatKey, 'data-index': item.mesIndex, 'data-swipe': item.swipeIndex ?? '' },
+                h('span', { class: 'stcr-row-meta' },
+                    h('i', { class: `fa-solid ${item.swipeIndex === null ? 'fa-bookmark' : 'fa-star'} stcr-fav-icon`, 'aria-hidden': 'true' }),
+                    ` 第 ${item.mesIndex + 1} 楼${item.swipeIndex === null ? '' : ` · 第 ${item.swipeIndex + 1} 个候选`}`),
+                item.preview ? h('span', { class: 'stcr-row-preview', text: item.preview }) : null)));
+        }));
     }
 
     function renderOwners() {
@@ -190,7 +228,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
 
     function markActive() {
         const active = getActiveKey();
-        for (const row of list.querySelectorAll('[data-key]')) row.classList.toggle('stcr-row--active', row.dataset.key === active);
+        for (const row of list.querySelectorAll('[data-key]:not(.stcr-fav-row)')) row.classList.toggle('stcr-row--active', row.dataset.key === active);
     }
 
     return {
@@ -202,6 +240,8 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned }) {
             else markActive();
         },
         close() { el.classList.remove('stcr-drawer--open'); },
+        /** 收藏变了：收藏页签开着就重读。 */
+        refreshFavorites() { if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) showTab('favorites'); },
         isOpen() { return el.classList.contains('stcr-drawer--open'); },
         focusFilter() { filter.focus(); },
         markActive,

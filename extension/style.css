@@ -137,9 +137,11 @@
 #stcr_root #stcr_chat .stcr-user-hidden { display: none; }
 #stcr_root #stcr_chat .stcr-user-hidden.stcr-user-shown { display: flex; }
 
-/* 名字行右侧：◂ 2/5 ▸ 与 ⋯ */
-#stcr_root .stcr-mes-tools { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; margin-left: 8px; }
-#stcr_root .stcr-swipes { display: inline-flex; align-items: center; color: var(--stcr-faint); font-size: .82em; }
+/* 名字行：[书签角标 名字 时间] …… [悬浮工具] [◂ 2/5 ▸] [⋯] */
+#stcr_root #stcr_chat .stcr-mes .ch_name { align-items: center; gap: 2px; }
+#stcr_root .stcr-floor-flag { display: none; margin-right: 6px; font-size: .78em; color: var(--stcr-accent); }
+#stcr_root .stcr-floor-bookmarked .stcr-floor-flag { display: inline-block; }
+#stcr_root .stcr-swipes { flex: none; display: inline-flex; align-items: center; color: var(--stcr-faint); font-size: .82em; }
 #stcr_root .stcr-swipes:hover { color: var(--stcr-text); }
 #stcr_root .stcr-swipes .stcr-icon-btn { min-width: 26px; height: 26px; font-size: 12px; }
 #stcr_root .stcr-swipe-count {
@@ -157,7 +159,10 @@
     background: var(--stcr-accent);
 }
 #stcr_root .stcr-swipe-count .stcr-swipe-dot { position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); }
-#stcr_root .stcr-mes-more { min-width: 26px; height: 26px; font-size: 13px; opacity: .35; }
+#stcr_root .stcr-swipe-star { display: none; position: absolute; top: 0; right: -1px; font-size: 7px; color: var(--stcr-accent); }
+#stcr_root .stcr-swipe-bookmarked .stcr-swipes:not(.stcr-swipes--compact) .stcr-swipe-star,
+#stcr_root .stcr-follow.stcr-swipe-bookmarked .stcr-swipe-star { display: block; }
+#stcr_root .stcr-mes-more { flex: none; min-width: 26px; height: 26px; font-size: 13px; opacity: .35; }
 #stcr_root .stcr-mes:hover .stcr-mes-more, #stcr_root .stcr-toolbar-pinned .stcr-mes-more { opacity: .75; }
 
 /* 思维链：底部"收起"，长思维链读完不用滚回去（02 §5.2） */
@@ -170,29 +175,24 @@
 }
 #stcr_root .stcr-reasoning-fold:hover { color: var(--stcr-text); background: var(--stcr-hover); }
 
-/* 悬浮楼层工具条：移入 150ms 后淡入、移开 600ms 后淡出（02 §1.4） */
+/* 楼层工具：收在名字行里、排在候选切换左边；鼠标移入 150ms 后淡入、移开 600ms 后淡出（02 §1.4）。
+ * 平时透明但保留位置，出现时不挤动名字行。 */
 #stcr_root .stcr-floor-toolbar {
-    position: absolute;
-    top: -14px;
-    right: 14px;
-    z-index: 2;
+    flex: none;
     display: flex;
-    gap: 2px;
-    padding: 2px 4px;
-    border: 1px solid var(--stcr-border);
-    border-radius: 999px;
-    background: var(--stcr-panel);
-    box-shadow: 0 2px 10px var(--stcr-shadow);
+    gap: 1px;
+    margin-left: 6px;
     opacity: 0;
     pointer-events: none;
     transition: opacity .15s ease .6s;
 }
-#stcr_root .stcr-floor-toolbar .stcr-icon-btn { min-width: 30px; height: 28px; font-size: 13px; }
+#stcr_root .stcr-floor-toolbar .stcr-icon-btn { min-width: 28px; height: 26px; font-size: 13px; }
+#stcr_root .stcr-floor-toolbar .stcr-on { opacity: 1; }
 @media (hover: hover) {
-    #stcr_root .stcr-mes:hover > .stcr-floor-toolbar { opacity: 1; pointer-events: auto; transition-delay: .15s; }
+    #stcr_root .stcr-mes:hover .stcr-floor-toolbar { opacity: 1; pointer-events: auto; transition-delay: .15s; }
 }
-#stcr_root .stcr-toolbar-pinned > .stcr-floor-toolbar { opacity: 1; pointer-events: auto; transition-delay: 0s; }
-#stcr_root #stcr_chat .stcr-mes:first-child > .stcr-floor-toolbar { top: 2px; }
+#stcr_root .stcr-toolbar-pinned .stcr-floor-toolbar,
+#stcr_root .stcr-floor-toolbar:focus-within { opacity: 1; pointer-events: auto; transition-delay: 0s; }
 
 /* 代码块复制（F3） */
 #stcr_root #stcr_chat pre.stcr-pre { position: relative; }
@@ -282,7 +282,8 @@
 #stcr_root .stcr-set-label { color: var(--stcr-faint); white-space: nowrap; }
 #stcr_root .stcr-set-hint { color: var(--stcr-faint); font-size: .9em; }
 #stcr_root .stcr-set-done { display: none; }
-#stcr_root .stcr-set-more { margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
+#stcr_root .stcr-set-more { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
+#stcr_root .stcr-set-more:not([hidden]) { display: flex; }
 #stcr_root .stcr-num { min-width: 40px; padding: 4px 6px; text-align: center; font-variant-numeric: tabular-nums; }
 #stcr_root .stcr-num:hover { background: var(--stcr-hover); }
 #stcr_root .stcr-settings input[type="range"] { width: 96px; accent-color: var(--stcr-accent); margin: 0; }
@@ -484,13 +485,253 @@
     #stcr_root.stcr-dir-a .stcr-mes-more { display: none; } /* A：悬停就有工具条，不常驻 ⋯ */
 }
 
+/* ── 划线（T22）：CSS Custom Highlight API，只上色、不改正文结构 ── */
+::highlight(stcr-hl-yellow) { background-color: rgba(255, 208, 0, .34); text-decoration: underline 2px rgba(230, 180, 0, .95); }
+::highlight(stcr-hl-green)  { background-color: rgba(64, 200, 110, .30); text-decoration: underline 2px rgba(40, 170, 90, .95); }
+::highlight(stcr-hl-blue)   { background-color: rgba(70, 150, 255, .30); text-decoration: underline 2px rgba(60, 130, 240, .95); }
+::highlight(stcr-hl-pink)   { background-color: rgba(255, 100, 170, .30); text-decoration: underline 2px rgba(235, 80, 150, .95); }
+::highlight(stcr-hl-flash)  { background-color: rgba(255, 170, 0, .75); }
+#stcr_root .stcr-note-mark {
+    display: inline-block;
+    margin: 0 1px 0 2px;
+    font-size: .62em;
+    line-height: 1;
+    vertical-align: super;
+    color: var(--stcr-accent);
+    cursor: pointer;
+    user-select: none;
+    text-indent: 0;
+}
+#stcr_root .stcr-note-bubble {
+    position: absolute;
+    z-index: 9;
+    max-width: min(360px, calc(100% - 16px));
+    max-height: 40vh;
+    overflow: auto;
+    padding: 8px 12px;
+    border: 1px solid var(--stcr-border);
+    border-radius: 10px;
+    background: var(--stcr-panel);
+    box-shadow: 0 6px 24px var(--stcr-shadow);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    pointer-events: none;
+}
+
+/* 选中浮层 / 划线浮层：● ● ● ● │ ✎ 批注 │ ⊘ 屏蔽 */
+#stcr_root .stcr-sel-pop { display: flex; align-items: center; gap: 4px; padding: 5px 6px; border-radius: 999px; white-space: nowrap; }
+#stcr_root .stcr-dots { display: inline-flex; align-items: center; gap: 4px; }
+#stcr_root .stcr-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+#stcr_root .stcr-dot:not(:disabled):hover { transform: scale(1.12); }
+#stcr_root .stcr-dot.stcr-on { border-color: var(--stcr-text); }
+#stcr_root .stcr-dot--yellow { background: rgb(255, 208, 0); }
+#stcr_root .stcr-dot--green { background: rgb(64, 200, 110); }
+#stcr_root .stcr-dot--blue { background: rgb(70, 150, 255); }
+#stcr_root .stcr-dot--pink { background: rgb(255, 100, 170); }
+#stcr_root .stcr-sep { width: 1px; height: 18px; margin: 0 2px; background: var(--stcr-border); }
+#stcr_root .stcr-pop-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; font-size: 13px; }
+#stcr_root .stcr-pop-btn:not(:disabled):hover { background: var(--stcr-hover); }
+#stcr_root .stcr-popover--dock {
+    position: absolute;
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: calc(40px + env(safe-area-inset-bottom));
+    max-width: none;
+    justify-content: center;
+}
+
+/* 批注输入框 */
+#stcr_root .stcr-note-pop { width: min(420px, calc(100% - 16px)); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+#stcr_root .stcr-note-quote { color: var(--stcr-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stcr_root .stcr-note-input { width: 100%; min-height: 64px; margin: 0; resize: none; font-size: 14px; line-height: 1.6; }
+#stcr_root .stcr-note-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+#stcr_root .stcr-note-status { flex: 1; color: var(--stcr-faint); font-size: 12px; }
+#stcr_root .stcr-primary { border-color: var(--stcr-accent); color: var(--stcr-accent); }
+
+/* 楼层工具里已开启的收藏 */
+#stcr_root .stcr-floor-toolbar .stcr-icon-btn.stcr-on { color: var(--stcr-accent); }
+
+/* 候选小列表里的划线数、星标 */
+#stcr_root .stcr-swipe-item-notes { flex: none; color: var(--stcr-faint); font-size: 11px; }
+#stcr_root .stcr-swipe-item-star { flex: none; font-size: 10px; color: var(--stcr-accent); }
+
+/* 顶栏：批注面板按钮 + 数字角标；有孤立划线时一个小黄点 */
+#stcr_root .stcr-panel-btn { position: relative; }
+#stcr_root .stcr-badge:not(:empty) {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--stcr-text) 22%, transparent);
+    color: var(--stcr-text);
+    font-size: 9.5px;
+    line-height: 15px;
+    font-variant-numeric: tabular-nums;
+}
+#stcr_root .stcr-panel-btn--warn::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f5b400;
+}
+
+/* 面板开着时 Aa 圆钮让到面板左边，不压住面板底部 */
+#stcr_root:has(.stcr-panel--open) .stcr-fab { right: 334px; }
+@media (max-width: 999px) { #stcr_root:has(.stcr-panel--open) .stcr-fab { right: 374px; } }
+@media (max-width: 599px) { #stcr_root:has(.stcr-panel--open) .stcr-fab { display: none; } }
+
+/* Aa 圆钮：该导出备份了 */
+#stcr_root .stcr-fab--remind::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f5b400;
+}
+#stcr_root .stcr-set-backup { flex-wrap: wrap; }
+#stcr_root .stcr-set-backup .stcr-text-btn { padding: 4px 12px; font-size: 12.5px; }
+#stcr_root .stcr-last-export.stcr-warn { color: #f5b400; }
+
+/* ── 右侧批注面板（02 §1.6） ── */
+#stcr_root .stcr-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    width: 320px;
+    border-left: 1px solid var(--stcr-border);
+    background: var(--stcr-panel);
+    box-shadow: -4px 0 20px var(--stcr-shadow);
+    transform: translateX(102%);
+    visibility: hidden;
+    transition: transform .2s ease, visibility 0s linear .2s;
+    font-size: 13px;
+}
+#stcr_root .stcr-panel--open { transform: none; visibility: visible; transition: transform .2s ease; }
+#stcr_root.stcr-panel-pinned .stcr-panel--open { position: relative; box-shadow: none; flex: 0 0 320px; }
+#stcr_root .stcr-panel-head { display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
+#stcr_root .stcr-panel-tabs { flex: 1; display: flex; gap: 2px; }
+#stcr_root .stcr-panel-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 34px; padding: 0 4px; opacity: .6; white-space: nowrap; }
+#stcr_root .stcr-panel-tab:hover { opacity: .9; background: var(--stcr-hover); }
+#stcr_root .stcr-panel-tab[aria-selected="true"] { opacity: 1; color: var(--stcr-accent); box-shadow: inset 0 -2px 0 var(--stcr-accent); border-radius: 8px 8px 0 0; }
+#stcr_root .stcr-panel-count { font-size: 11px; opacity: .8; font-variant-numeric: tabular-nums; }
+#stcr_root .stcr-panel-tab--warn .stcr-panel-count { color: #f5b400; opacity: 1; }
+#stcr_root .stcr-panel-pin.stcr-on { opacity: 1; }
+#stcr_root .stcr-panel-close { display: none; }
+#stcr_root .stcr-panel-filters { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 6px; }
+#stcr_root .stcr-panel-filters .stcr-dot { width: 16px; height: 16px; }
+#stcr_root .stcr-chip { padding: 2px 9px; border: 1px solid var(--stcr-border); border-radius: 999px; font-size: 12px; }
+#stcr_root .stcr-chip.stcr-on { border-color: var(--stcr-accent); }
+#stcr_root .stcr-panel-check { display: inline-flex; align-items: center; gap: 5px; margin: 0; color: var(--stcr-faint); font-size: 12px; cursor: pointer; white-space: nowrap; }
+#stcr_root .stcr-panel-check input { margin: 0; accent-color: var(--stcr-accent); }
+#stcr_root .stcr-panel-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 8px 8px; }
+#stcr_root .stcr-panel-empty { padding: 28px 16px; color: var(--stcr-faint); text-align: center; line-height: 1.7; }
+#stcr_root .stcr-panel-foot { padding: 8px 12px 10px; color: var(--stcr-faint); font-size: 11.5px; text-align: center; border-radius: 0; }
+#stcr_root .stcr-panel-foot:hover { color: var(--stcr-text); }
+#stcr_root .stcr-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 2px;
+    margin: 2px 0;
+    border-radius: 10px;
+    box-shadow: inset 3px 0 0 var(--stcr-item-color, var(--stcr-border));
+    content-visibility: auto;
+    contain-intrinsic-size: auto 72px;
+}
+#stcr_root .stcr-item:hover { background: var(--stcr-hover); }
+#stcr_root .stcr-item--yellow { --stcr-item-color: rgb(255, 208, 0); }
+#stcr_root .stcr-item--green { --stcr-item-color: rgb(64, 200, 110); }
+#stcr_root .stcr-item--blue { --stcr-item-color: rgb(70, 150, 255); }
+#stcr_root .stcr-item--pink { --stcr-item-color: rgb(255, 100, 170); }
+#stcr_root .stcr-item--bookmark { --stcr-item-color: var(--stcr-accent); }
+#stcr_root .stcr-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 8px 8px 8px 14px; text-align: left; border-radius: 10px; }
+#stcr_root .stcr-item-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.55; }
+#stcr_root .stcr-item-note {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    padding-left: 8px;
+    border-left: 2px solid color-mix(in srgb, var(--stcr-text) 20%, transparent);
+    color: var(--stcr-text);
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+#stcr_root .stcr-item-meta { color: var(--stcr-faint); font-size: 11.5px; }
+#stcr_root .stcr-item-meta--top i { color: var(--stcr-accent); font-size: 10px; }
+#stcr_root .stcr-item-x { flex: none; min-width: 28px; height: 28px; margin: 6px 4px 0 0; font-size: 12px; opacity: 0; }
+#stcr_root .stcr-item:hover .stcr-item-x, #stcr_root .stcr-item-x:focus-visible { opacity: .7; }
+#stcr_root .stcr-item--orphan { opacity: .9; }
+#stcr_root .stcr-item--orphan .stcr-item-quote { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--stcr-text) 35%, transparent); }
+#stcr_root .stcr-item-actions { flex: none; display: flex; flex-direction: column; padding: 4px 4px 0 0; }
+#stcr_root .stcr-item-actions .stcr-icon-btn { min-width: 30px; height: 30px; font-size: 12px; }
+
+/* ── 抽屉"收藏"页签：按聊天分组 ── */
+#stcr_root .stcr-fav-group { margin: 4px 0 10px; }
+#stcr_root .stcr-fav-title { padding: 6px 12px 2px; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stcr_root .stcr-fav-row { padding-left: 18px; }
+#stcr_root .stcr-fav-icon { font-size: 10px; color: var(--stcr-accent); }
+
+/* ── 跟随条：长楼的名字行滚出去以后浮在正文右上角 ── */
+#stcr_root .stcr-follow {
+    position: absolute;
+    top: 8px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    max-width: calc(100% - 16px);
+    padding: 2px 4px 2px 12px;
+    border: 1px solid var(--stcr-border);
+    border-radius: 999px;
+    background: var(--stcr-panel);
+    box-shadow: 0 3px 14px var(--stcr-shadow);
+    font-size: 13px;
+    animation: stcr-fade .15s ease-out;
+}
+#stcr_root .stcr-follow-name { max-width: 12em; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--stcr-faint); }
+#stcr_root .stcr-follow .stcr-icon-btn { min-width: 28px; height: 28px; font-size: 12px; }
+#stcr_root.stcr-chrome-hidden .stcr-follow { opacity: .35; }
+#stcr_root.stcr-chrome-hidden .stcr-follow:hover { opacity: 1; }
+
+/* 导入确认（显示在 ST 自己的弹窗里，不在 #stcr_root 内） */
+.stcr-import-preview { text-align: left; line-height: 1.7; }
+.stcr-import-preview h3 { margin: 0 0 6px; }
+.stcr-import-preview ul { margin: 6px 0; padding-left: 1.4em; }
+.stcr-import-preview .stcr-import-hint { opacity: .75; font-size: .92em; }
+.stcr-confirm-text { margin: 0; line-height: 1.7; }
+
 /* ── 三档宽度（D13、02 §3） ── */
 @media (max-width: 999px) {
     #stcr_root #stcr_chat { max-width: 100%; }
     #stcr_root .stcr-drawer { width: 320px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35), 4px 0 20px var(--stcr-shadow); }
     #stcr_root.stcr-drawer-pinned .stcr-drawer--open { position: absolute; flex: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35); }
-    #stcr_root .stcr-drawer-pin { display: none; }
-    #stcr_root .stcr-floor-toolbar { right: 8px; }
+    #stcr_root .stcr-drawer-pin, #stcr_root .stcr-panel-pin { display: none; }
+    #stcr_root .stcr-panel { width: 360px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35), -4px 0 20px var(--stcr-shadow); }
+    #stcr_root.stcr-panel-pinned .stcr-panel--open { position: absolute; flex: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35); }
 }
 @media (max-width: 599px) {
     #stcr_root { --stcr-topbar: 48px; }
@@ -502,9 +743,35 @@
     #stcr_root .stcr-drawer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 7; box-shadow: none; border-right: 0; }
     #stcr_root.stcr-drawer-pinned .stcr-drawer--open { position: fixed; box-shadow: none; }
     #stcr_root .stcr-drawer-close { display: inline-flex; }
+    /* 批注面板 = 底部上拉半屏（02 §3.3） */
+    /* 不用 bottom:0：ST 窄屏给 <html> 加了 transform，fixed 以 0 高的 <html> 为参照（见 #stcr_root 注释），只能用 top 定位 */
+    #stcr_root .stcr-panel, #stcr_root.stcr-panel-pinned .stcr-panel--open {
+        position: fixed;
+        top: 30vh;
+        top: 30dvh;
+        left: 0;
+        right: auto;
+        bottom: auto;
+        width: 100vw;
+        height: 70vh;
+        height: 70dvh;
+        z-index: 7;
+        border-left: 0;
+        border-top: 1px solid var(--stcr-border);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -6px 24px var(--stcr-shadow);
+        transform: translateY(102%);
+    }
+    #stcr_root .stcr-panel--open, #stcr_root.stcr-panel-pinned .stcr-panel--open { transform: none; }
+    #stcr_root .stcr-panel-close { display: inline-flex; }
+    #stcr_root .stcr-item-x { opacity: .6; }
+    #stcr_root .stcr-follow-name { max-width: 6em; }
     #stcr_root .stcr-drawer-tab-label { display: inline; }
-    /* 工具条贴在名字行下方，点 ⋯ 才出现 */
-    #stcr_root .stcr-floor-toolbar { top: 40px; right: 6px; }
+    /* 手机：名字行放不下，工具条点 ⋯ 后换到名字行下面单独一行 */
+    #stcr_root #stcr_chat .stcr-mes .ch_name { flex-wrap: wrap; }
+    #stcr_root .stcr-floor-toolbar { display: none; order: 10; flex-basis: 100%; justify-content: flex-end; margin: 2px 0 0; }
+    #stcr_root .stcr-toolbar-pinned .stcr-floor-toolbar { display: flex; }
+    #stcr_root .stcr-floor-toolbar .stcr-icon-btn { min-width: 40px; height: 36px; }
     /* 设置条 = 底部半屏抽屉 */
     #stcr_root .stcr-settings {
         left: 0;
