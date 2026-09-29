@@ -160,6 +160,9 @@ export function createCssScope({ document = globalThis.document, eventSource, se
             }
         }
         if (variables.length) collected.cssText += `#stcr_chat:where(#stcr_root *){${variables.join('')}}\n`;
+        // D12 的正文放在 UI 自己的翻页/滚动容器里，不能再套宿主的视口高度与滚动框。
+        // 只解除这两项普通容器布局，正文、边框、字体等主题规则继续沿用。
+        collected.cssText += '#stcr_root #stcr_chat{max-height:none;overflow:visible;}\n';
         const changed = style.textContent !== collected.cssText;
         if (changed) style.textContent = collected.cssText;
         if (!style.isConnected || style !== document.head.lastElementChild) document.head.append(style);

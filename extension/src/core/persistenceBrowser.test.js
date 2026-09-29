@@ -49,6 +49,8 @@ export async function testPersistenceBrowser() {
             const sourceQuote = document.querySelector('#chat .mes_text q');
             if (sourceQuote) assert(getComputedStyle(body.querySelector('q')).color === getComputedStyle(sourceQuote).color, '主题引号色未克隆');
             assert(scope.stats.rules > 0, '没有生成克隆规则');
+            const container = getComputedStyle(root.querySelector('#stcr_chat'));
+            assert(container.maxHeight === 'none' && container.overflowY === 'visible', '宿主滚动框导致阅读器出现双滚动条');
         });
         await test('T13 字体：真实 Ny 已加载字体及 important 在阅读器生效', async () => {
             await document.fonts.ready;

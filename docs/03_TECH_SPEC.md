@@ -311,6 +311,8 @@ rawText 必须传对应候选的原正文或原思维链；part 默认 body。�
 
 UI 只需满足 `#stcr_root` 内含 `#stcr_chat` 及 D12 类名；样式克隆自动生效，无须把宿主 CSS 复制到 UI 文件。未克隆全局字体/变量，它们仍由宿主管理。具体监听范围与显式 refresh 场景见 §4.2。`createCssScope/collectScopedCss/rewriteChatSelector` 为测试内部接口，不作为 UI 合同。
 
+I015 集成约定：UI 的外层负责滚动/翻页；cssScope 副本末尾为 `#stcr_root #stcr_chat` 解除宿主普通 `max-height/overflow` 限制（设为 none/visible），防止双滚动条。此处不加 important，不改变正文主题声明。T21 的 src/ui 未改；后续 UI 继续使用自己的外层滚动容器。
+
 ### 5.8 T13 接入示例与 I012 设置迁移
 
 ```js
