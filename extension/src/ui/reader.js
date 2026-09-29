@@ -86,6 +86,7 @@ export async function openReader({ tab, chatKey } = {}) {
     session.panel = createPanel({
         marks: session.marks,
         getHandle: () => session.handle,
+        getChatKey: () => (session.handle ? session.chatKey : null),
         onJump: target => jumpToMark(target),
         isPinned: () => getPrefs().panelPinned,
         onPinChange: pinned => setPrefs({ panelPinned: pinned }),
@@ -509,11 +510,17 @@ async function toggleBookmark(mes, forSwipe) {
     }
 }
 
-/** 从面板/抽屉跳到某楼某候选；是划线就滚到那段并闪两下。 */
-function jumpToMark({ index, swipe, annotationId, part }) {
+/** 从面板/抽屉跳到某楼某候选；是划线就滚到那段并闪两下。别的聊天：先打开它再跳。 */
+async function jumpToMark({ chatKey, index, swipe, annotationId, part }) {
     const session = S;
-    if (!session?.handle) return;
+    if (!session) return;
     if (!getPrefs().panelPinned || !wide()) session.panel.close();
+    if (chatKey && (chatKey !== session.chatKey || !session.handle)) {
+        await loadChat(chatKey, { index, swipe: swipe ?? null });
+        if (S !== session || session.chatKey !== chatKey || !session.handle) return; // 打开失败或又换了聊天
+        session.panel.refresh();
+    }
+    if (!session.handle) return;
     if (part === 'reasoning') session.reasoning.set(index, true);
     const el = floorEl(index);
     const sameView = el && isShown(el) && (swipe === null || swipe === undefined || Number(el.dataset.swipe) === swipe)

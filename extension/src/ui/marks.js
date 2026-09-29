@@ -223,6 +223,13 @@ export function createMarks({ getHandle, getChatKey, getTitle, onChange }) {
             changed();
         },
 
+        /** 按 ID 取消收藏（面板"全部聊天"里也能删别的聊天的收藏）。 */
+        async removeBookmark(id) {
+            await store.bookmarks.remove(id);
+            bookmarks.delete(id);
+            changed();
+        },
+
         isBookmarked(index, swipe) {
             const chatKey = getChatKey();
             return !!chatKey && bookmarks.has(bookmarkId({ chatKey, mesIndex: index, swipeIndex: swipe }));

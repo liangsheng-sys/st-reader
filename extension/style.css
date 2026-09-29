@@ -639,6 +639,14 @@
 #stcr_root .stcr-panel-tab--warn .stcr-panel-count { color: #f5b400; opacity: 1; }
 #stcr_root .stcr-panel-pin.stcr-on { opacity: 1; }
 #stcr_root .stcr-panel-close { display: none; }
+#stcr_root .stcr-panel-scope-row { padding: 10px 12px 0; }
+#stcr_root .stcr-panel-scope { width: 100%; }
+#stcr_root .stcr-panel-scope .stcr-seg-btn { flex: 1; padding: 4px 10px; font-size: 12.5px; }
+#stcr_root .stcr-panel-scope .stcr-seg-btn:disabled { opacity: .35; }
+#stcr_root .stcr-panel-group { margin: 6px 0 12px; }
+#stcr_root .stcr-panel-group-title { display: flex; align-items: baseline; gap: 6px; padding: 4px 6px 4px 4px; font-weight: 600; font-size: 12.5px; }
+#stcr_root .stcr-panel-group-title > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stcr_root .stcr-panel-group-count { margin-left: auto; color: var(--stcr-faint); font-weight: 400; font-variant-numeric: tabular-nums; }
 #stcr_root .stcr-panel-filters { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 6px; }
 #stcr_root .stcr-panel-filters .stcr-dot { width: 16px; height: 16px; }
 #stcr_root .stcr-chip { padding: 2px 9px; border: 1px solid var(--stcr-border); border-radius: 999px; font-size: 12px; }
