@@ -77,6 +77,19 @@ export async function testCardExportBrowser() {
             assert(copy.querySelectorAll('img').length === 3 && !copy.textContent, '图片遮盖错误');
             let failed = false; try { wrapMaskSpans(el, ['秘密'], { kind: 'sticker', assetId: 'absent' }, assets); } catch { failed = true; }
             assert(failed, '悬空素材未拒绝');
+            failed = false;
+            try { wrapMaskSpans(el, ['秘密'], { kind: 'sticker', assetId: 'remote' }, new Map([['remote', { dataUrl: 'https://invalid.example/image.png' }]])); } catch { failed = true; }
+            assert(failed, 'DOM 适配器允许了非本地素材');
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><script>bad()</script><image href="https://invalid.example/x"/><rect width="12" height="12" fill="#2468ac"/></svg>';
+            const svgAssets = await prepareCardAssets([{ id: 'svg', dataUrl: `data:image/svg+xml;base64,${btoa(svg)}` }]);
+            const sanitized = atob(svgAssets.get('svg').dataUrl.split(',')[1]);
+            assert(!sanitized.includes('script') && !sanitized.includes('invalid.example'), 'SVG 未去掉可执行内容和外部资源');
+            const svgCopy = wrapMaskSpans(el, ['秘密'], { kind: 'sticker', assetId: 'svg' }, svgAssets); chat.append(svgCopy);
+            try {
+                await Promise.all([...svgCopy.querySelectorAll('img')].map(image => image.decode()));
+                const png = await exportCard(svgCopy, { ...cleanOptions, replaceNames: false });
+                assert(png.type === 'image/png' && png.size > 100, 'SVG 图案未进入 PNG');
+            } finally { svgCopy.remove(); }
         });
         await test('Ny 字体从只读 IndexedDB 嵌入，PNG 可解码且含主题边线', async () => {
             assert(floor, '前置楼层渲染失败');
