@@ -176,6 +176,9 @@
     color: var(--stcr-faint);
 }
 #stcr_root .stcr-reasoning-fold:hover { color: var(--stcr-text); background: var(--stcr-hover); }
+/* 隐藏思维链（F15②）：整行"思考了 x 秒"和楼层工具条的 🧠 都不出现；只是不显示，划线记录不受影响 */
+#stcr_root.stcr-hide-reasoning #stcr_chat .mes_reasoning_details,
+#stcr_root.stcr-hide-reasoning .stcr-floor-toolbar [data-act="reasoning"] { display: none !important; }
 
 /* 楼层工具：收在名字行里、排在候选切换左边；鼠标移入 150ms 后淡入、移开 600ms 后淡出（02 §1.4）。
  * 平时透明但保留位置，出现时不挤动名字行。 */
@@ -270,25 +273,37 @@
     bottom: 92px;
     z-index: 6;
     transform: translateX(-50%);
-    width: max-content;
+    width: 420px;
     max-width: calc(100% - 24px);
-    padding: 10px 14px;
+    padding: 16px 18px 10px;
     border: 1px solid var(--stcr-border);
     border-radius: 16px;
     background: var(--stcr-panel);
     box-shadow: 0 6px 24px var(--stcr-shadow);
     font-size: 13px;
 }
-#stcr_root .stcr-settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-#stcr_root .stcr-set-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: default; }
-#stcr_root .stcr-set-label { color: var(--stcr-faint); white-space: nowrap; }
+/* T42 栅格：左列标签右对齐、右列控件左对齐，每一行的控件都从同一条竖线开始（F15①） */
+#stcr_root .stcr-settings-grid, #stcr_root .stcr-set-more {
+    display: grid;
+    grid-template-columns: 4.5em minmax(0, 1fr);
+    column-gap: 14px;
+    row-gap: 10px;
+    align-items: center;
+}
+#stcr_root .stcr-set-item { display: contents; }
+#stcr_root .stcr-set-label { color: var(--stcr-faint); white-space: nowrap; text-align: right; }
+#stcr_root .stcr-set-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; min-height: 30px; }
+#stcr_root .stcr-set-stepper { gap: 2px; }
 #stcr_root .stcr-set-hint { color: var(--stcr-faint); font-size: .9em; }
+#stcr_root .stcr-set-switch { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+#stcr_root .stcr-set-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 #stcr_root .stcr-set-done { display: none; }
-#stcr_root .stcr-set-more { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
-#stcr_root .stcr-set-more:not([hidden]) { display: flex; }
-#stcr_root .stcr-num { min-width: 40px; padding: 4px 6px; text-align: center; font-variant-numeric: tabular-nums; }
+#stcr_root .stcr-set-more { margin-top: 12px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
+#stcr_root .stcr-num { min-width: 52px; padding: 4px 6px; text-align: center; font-variant-numeric: tabular-nums; }
 #stcr_root .stcr-num:hover { background: var(--stcr-hover); }
-#stcr_root .stcr-settings input[type="range"] { width: 96px; accent-color: var(--stcr-accent); margin: 0; }
+#stcr_root .stcr-settings input[type="range"] { flex: 1; min-width: 120px; width: auto; accent-color: var(--stcr-accent); margin: 0; }
+#stcr_root .stcr-settings .stcr-seg-btn { min-width: 3.6em; }
+#stcr_root .stcr-settings input[type="range"] + .stcr-num { width: 4.8em; flex: none; } /* 两条滑杆等长：数值格定宽 */
 #stcr_root .stcr-seg { display: inline-flex; padding: 2px; border: 1px solid var(--stcr-border); border-radius: 999px; }
 #stcr_root .stcr-seg-btn { padding: 4px 12px; border-radius: 999px; }
 #stcr_root .stcr-seg-btn.stcr-on { background: color-mix(in srgb, var(--stcr-accent) 22%, transparent); color: var(--stcr-text); }
@@ -608,8 +623,7 @@
     border-radius: 50%;
     background: #f5b400;
 }
-#stcr_root .stcr-set-backup { flex-wrap: wrap; }
-#stcr_root .stcr-set-backup .stcr-text-btn { padding: 4px 12px; font-size: 12.5px; }
+#stcr_root .stcr-set-more .stcr-text-btn { padding: 4px 12px; font-size: 12.5px; }
 #stcr_root .stcr-last-export.stcr-warn { color: #f5b400; }
 
 /* ── 右侧批注面板（02 §1.6） ── */
@@ -1150,6 +1164,27 @@
 #stcr_root .stcr-rule-actions .stcr-text-btn { padding: 4px 14px; font-size: 12.5px; }
 #stcr_root .stcr-rule-pop { width: min(360px, calc(100% - 16px)); max-width: min(360px, calc(100% - 16px)); padding: 12px 14px; }
 #stcr_root .stcr-rule-pop .stcr-mask-menu-title { margin-bottom: 8px; color: var(--stcr-text); font-weight: 600; font-size: 13px; }
+/* 颜色选择条（T42）：8 个预设圆点 + 自定义（调色盘 + 色号框）。替换文字底色与色块遮盖共用 */
+#stcr_root .stcr-color-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+#stcr_root .stcr-color-pick { width: 26px; height: 26px; min-width: 0; padding: 0; border: 1px solid transparent; border-radius: 50%; }
+#stcr_root .stcr-color-pick:hover { background-color: var(--stcr-hover); }
+#stcr_root .stcr-color-pick.stcr-on, #stcr_root .stcr-color-custom.stcr-on .stcr-color-dot { border-color: var(--stcr-accent); box-shadow: 0 0 0 1px var(--stcr-accent); }
+#stcr_root .stcr-color-dot { display: block; width: 18px; height: 18px; margin: auto; border-radius: 50%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stcr-text) 18%, transparent); }
+/* "无 / 跟随"一格：空心圆加一道斜线；给了跟随色时画成那个颜色 */
+#stcr_root .stcr-color-pick--none .stcr-color-dot:not([style]) { background-image: linear-gradient(135deg, transparent 45%, #e06c5a 45%, #e06c5a 55%, transparent 55%); }
+#stcr_root .stcr-color-custom { display: flex; flex-basis: 100%; align-items: center; gap: 6px; margin: 4px 0 0; padding-left: 4px; cursor: pointer; }
+#stcr_root .stcr-color-custom-label { color: var(--stcr-faint); font-size: 12px; }
+#stcr_root .stcr-color-dot--custom { flex: none; margin: 0 1px 0 4px; position: relative; overflow: hidden; border: 1px solid transparent; background-image: conic-gradient(#f5b8c8, #f3dd7a, #9bd8bf, #93c8ec, #c3b1e6, #f5b8c8); }
+#stcr_root .stcr-color-dot--custom[style] { background-image: none; }
+#stcr_root .stcr-color-native { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+#stcr_root .stcr-color-hex { width: 6.2em; min-width: 0; margin: 0; padding: 2px 6px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+#stcr_root .stcr-color-hex--bad { border-color: #e06c5a; }
+#stcr_root .stcr-studio-color-box:not([hidden]) { display: block; margin-top: 2px; }
+#stcr_root .stcr-rule-bg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+#stcr_root .stcr-rule-bg-label { color: var(--stcr-faint); font-size: 12px; }
+#stcr_root .stcr-rule-bg-sample { padding: 1px 6px; border-radius: 3px; color: #1f2329; font-weight: 600; font-size: 12.5px; }
+#stcr_root .stcr-map-to--bg { padding: 0 5px; border-radius: 3px; color: #1f2329; }
+#stcr_root .stcr-studio-skip { color: #e0a23a; }
 /* 选中浮层：屏蔽 ▾ */
 #stcr_root .stcr-pop-split { display: inline-flex; align-items: center; }
 #stcr_root .stcr-pop-split .stcr-pop-btn:first-child { padding-right: 4px; border-radius: 999px 0 0 999px; }
@@ -1249,11 +1284,9 @@
         border-radius: 16px 16px 0 0;
         padding-bottom: calc(14px + env(safe-area-inset-bottom));
     }
-    #stcr_root .stcr-settings-row { flex-direction: column; align-items: stretch; gap: 14px; }
-    #stcr_root .stcr-set-item { justify-content: space-between; }
-    #stcr_root .stcr-settings input[type="range"] { flex: 1; width: auto; }
-    #stcr_root .stcr-set-more-btn { margin-left: 0; align-self: flex-end; }
-    #stcr_root .stcr-set-done { display: block; align-self: stretch; margin-top: 4px; }
+    #stcr_root .stcr-settings-grid, #stcr_root .stcr-set-more { row-gap: 14px; grid-template-columns: 4em minmax(0, 1fr); }
+    #stcr_root .stcr-set-foot { justify-content: space-between; }
+    #stcr_root .stcr-set-done { display: block; flex: 1; }
     #stcr_root .stcr-fab[aria-expanded="true"] { display: none; }
     #stcr_root .stcr-footer { padding: 0 60px 0 12px; }
     #stcr_root .stcr-fab { bottom: 40px; right: 10px; }

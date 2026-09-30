@@ -407,7 +407,7 @@ function handleKey(event) {
         case 'End': if (session.handle?.total) jumpTo(session.handle.total - 1); break;
         case '[': { const mes = keyTarget(); if (mes) stepSwipe(mes, -1); break; }
         case ']': { const mes = keyTarget(); if (mes) stepSwipe(mes, 1); break; }
-        case 'r': case 'R': { const mes = keyTarget(); if (mes) toggleReasoning(mes); break; }
+        case 'r': case 'R': { const mes = getPrefs().hideReasoning ? null : keyTarget(); if (mes) toggleReasoning(mes); break; }
         case 'b': case 'B': { const mes = keyTarget(); if (mes && !mes.classList.contains('stcr-mes--system')) toggleBookmark(mes, false); break; }
         case 'g': case 'G': openJump(); break;
         case '\\': toggleDrawer(); break;
@@ -470,6 +470,7 @@ function applyPrefs(prefs) {
     root.classList.toggle('stcr-mode-paged', shown.mode === 'paged');
     root.classList.toggle('stcr-mode-scroll', shown.mode !== 'paged');
     root.classList.toggle('stcr-hide-user', prefs.hideUser);
+    root.classList.toggle('stcr-hide-reasoning', prefs.hideReasoning);
     root.classList.toggle('stcr-drawer-pinned', prefs.drawerPinned);
     root.classList.toggle('stcr-panel-pinned', prefs.panelPinned);
     root.classList.toggle('stcr-lh-custom', prefs.lineHeight !== null);
@@ -543,7 +544,10 @@ async function jumpToMark({ chatKey, index, swipe, annotationId, part }) {
         session.panel.refresh();
     }
     if (!session.handle) return;
-    if (part === 'reasoning') session.reasoning.set(index, true);
+    if (part === 'reasoning') {
+        session.reasoning.set(index, true);
+        if (getPrefs().hideReasoning) say('这条划线在思维链里；思维链现在是"隐藏"，到 Aa 里改成"折叠"或"展开"就能看到');
+    }
     const el = floorEl(index);
     const sameView = el && isShown(el) && (swipe === null || swipe === undefined || Number(el.dataset.swipe) === swipe)
         && (part !== 'reasoning' || el.querySelector('.mes_reasoning_details')?.open);

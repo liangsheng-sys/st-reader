@@ -123,15 +123,17 @@ const hasContent = fragment => !!fragment && (fragment.textContent.trim() !== ''
  * mappings 是这些楼实际命中的名字替换（只给工作台私有列表用，不进卡片）。
  * @param {object} handle 阅读器的聊天句柄，导出完成前不能关闭
  * @param {{index:number,swipe:number,body:object|'all'|null,reasoning:object|'all'|null}[]} floors
- * @param {{replaceNames:boolean, rules?:object[], assets?:object[]}} options
+ * @param {{autoReplaceNames:boolean, applyReplaceRules:boolean, rules?:object[], assets?:object[]}} options 两个名字开关各自独立（I021、03 §5.9）
  */
 export async function buildPieces(handle, floors, options, cache) {
     const pieces = [], mappings = [];
+    const auto = options.autoReplaceNames !== false, mine = options.applyReplaceRules !== false;
     for (const floor of floors) {
-        const key = `${floor.index}:${floor.swipe}:${options.replaceNames ? 1 : 0}`;
+        const key = `${floor.index}:${floor.swipe}:${auto ? 1 : 0}${mine ? 1 : 0}`;
         if (!cache.cards.has(key)) {
             cache.cards.set(key, await createCardMessage(handle, floor.index, {
-                swipeIndex: floor.swipe, replaceNames: options.replaceNames, rules: options.rules ?? [], assets: options.assets ?? [],
+                swipeIndex: floor.swipe, replaceNames: auto || mine, autoReplaceNames: auto, applyReplaceRules: mine,
+                rules: options.rules ?? [], assets: options.assets ?? [],
             }));
         }
         const made = cache.cards.get(key);
@@ -186,14 +188,15 @@ export async function findThoughts(handle, floors, annotations, cache) {
 }
 
 /**
- * 批注是用户自己写的字，可能带着真名：名字替换开着时，按本卡命中的替换和自动规则（{{user}}→user、角色→char）换掉。
+ * 批注是用户自己写的字，可能带着真名：按本卡实际命中的替换（mappings 只含真的执行了的）换掉；
+ * 自动名字开着时再补上自动规则（{{user}}→user、角色→char），批注里提到而正文没出现的名字也换掉。
  * 批注不经过正则前原文，所以只做字面替换；屏蔽词之后会在整张卡上统一遮盖。
  */
-export function scrubNote(note, handle, mappings, replaceNames) {
-    if (!replaceNames) return note;
+export function scrubNote(note, handle, mappings, { autoNames = true } = {}) {
     const pairs = [];
     const add = (from, to) => { if (from && !pairs.some(pair => pair.from === from)) pairs.push({ from, to }); };
     for (const item of mappings) if (item.to?.kind === 'text') add(item.from, item.to.value);
-    for (const rule of automaticNameRules({ userName: handle.header.userName, characterName: handle.header.characterName, isGroup: handle.isGroup })) add(rule.from, rule.to.value);
+    if (autoNames) for (const rule of automaticNameRules({ userName: handle.header.userName, characterName: handle.header.characterName, isGroup: handle.isGroup })) add(rule.from, rule.to.value);
+    if (!pairs.length) return note;
     return replaceLiteralNames(note, pairs);
 }

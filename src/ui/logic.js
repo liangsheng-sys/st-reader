@@ -16,6 +16,7 @@ export const DEFAULT_PREFS = Object.freeze({
     width: null,           // 正文栏最大宽度 px；null = 跟随方向默认
     hideUser: false,
     expandAllReasoning: false,
+    hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
     drawerPinned: false,
     panelPinned: false,
 });
@@ -37,7 +38,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'expandAllReasoning', 'drawerPinned', 'panelPinned']) {
+    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'drawerPinned', 'panelPinned']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
@@ -201,9 +202,27 @@ export const DEFAULT_CARD_PREFS = Object.freeze({
     digestAccent: 'blue',  // 'blue' / 'theme'
     maskAsset: null,       // 小图案默认用我导入的图片（store.assets 的 id）；null = 用 icon
     digestCover: null,     // 书摘封面用我导入的图片；null = 强调色方块写标题
+    maskColor: null,       // 色块 / 小图案的颜色（T42）；null = 跟随模板强调色
 });
 
-/** 存储里读出的卡片偏好 → 合法值。名字替换总开关故意不记：每次打开都从"开"开始。 */
+/**
+ * 颜色选择器的 8 个预设（T42：替换文字背景色与色块遮盖共用一套）。
+ * 都是中等明度的柔和色：做文字底色时深色字仍看得清，做色块遮盖时也够实。
+ */
+export const COLOR_PRESETS = Object.freeze([
+    { value: '#f5b8c8', label: '樱粉' }, { value: '#f7b381', label: '杏橙' }, { value: '#f3dd7a', label: '柠黄' },
+    { value: '#9bd8bf', label: '薄荷' }, { value: '#93c8ec', label: '天青' }, { value: '#c3b1e6', label: '丁香' },
+    { value: '#8f969e', label: '灰岩' }, { value: '#34466b', label: '夜蓝' },
+]);
+
+/** 用户输入的色号 → 小写 #rrggbb（core 只收六位实色，03 §5.12）；"#abc"、"abc123" 也认；不合法返回 null。 */
+export function cleanHexColor(value) {
+    const raw = String(value ?? '').trim().replace(/^#/, '');
+    if (/^[0-9a-f]{3}$/i.test(raw)) return `#${[...raw].map(c => c + c).join('')}`.toLowerCase();
+    return /^[0-9a-f]{6}$/i.test(raw) ? `#${raw.toLowerCase()}` : null;
+}
+
+/** 存储里读出的卡片偏好 → 合法值。名字替换的两个开关故意不记：每次打开都从"开"开始（先保护再说）。 */
 export function normalizeCardPrefs(raw) {
     const input = raw && typeof raw === 'object' ? raw : {};
     const out = { ...DEFAULT_CARD_PREFS };
@@ -217,6 +236,7 @@ export function normalizeCardPrefs(raw) {
     if (input.digestAccent === 'blue' || input.digestAccent === 'theme') out.digestAccent = input.digestAccent;
     // 图片 id 是否还在由工作台对照 store.assets 再查一遍
     for (const key of ['maskAsset', 'digestCover']) if (typeof input[key] === 'string' && input[key] && input[key].length <= 300) out[key] = input[key];
+    if (typeof input.maskColor === 'string') out.maskColor = cleanHexColor(input.maskColor);
     return out;
 }
 

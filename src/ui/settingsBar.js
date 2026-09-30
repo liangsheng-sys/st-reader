@@ -1,5 +1,6 @@
 // ST Reader — AGPL-3.0
-// 底部设置条（F1、F1a、F7/F8、02 §1.8）。平时只是右下角的 Aa 圆钮。
+// 底部设置条（F1、F1a、F7/F8、F15、02 §1.8）。平时只是右下角的 Aa 圆钮。
+// T42：两列栅格（左标签右控件），每行控件从同一条竖线起步；思维链"折叠 / 展开 / 隐藏"一组三选一。
 // ⋯ 里：排版、导出/导入备份。有数据且 14 天没导出时，Aa 上亮一个小点（只提醒，不弹窗）。
 
 import { h, iconButton } from './dom.js';
@@ -20,35 +21,45 @@ export function createSettingsBar({ onExport, onImport }) {
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'paged', text: '分页' }));
     const fontValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复主题字号' });
     const font = h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '字号' }),
-        iconButton('fa-minus', '字号减小', { 'data-font': '-1' }), fontValue, iconButton('fa-plus', '字号增大', { 'data-font': '1' }));
+        h('div', { class: 'stcr-set-ctl stcr-set-stepper' },
+            iconButton('fa-minus', '字号减小', { 'data-font': '-1' }), fontValue, iconButton('fa-plus', '字号增大', { 'data-font': '1' })));
     const lineRange = h('input', { type: 'range', min: PREF_LIMITS.lineHeight.min, max: PREF_LIMITS.lineHeight.max, step: '0.1', 'aria-label': '行距' });
     const lineValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复主题行距' });
     const widthRange = h('input', { type: 'range', min: PREF_LIMITS.width.min, max: PREF_LIMITS.width.max, step: '10', 'aria-label': '正文宽度' });
     const widthValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复默认宽度' });
     const hideUser = switchInput('隐藏用户楼');
-    const expandAll = switchInput('思维链全部展开');
+    // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
+    const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'open', text: '展开', title: '全部展开' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'hide', text: '隐藏', title: '整行不显示，读得更沉浸' }));
     const dirSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '排版' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'b', text: '原样' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'a', text: '书页' }));
     const lastExport = h('span', { class: 'stcr-set-hint stcr-last-export' });
     const more = h('div', { class: 'stcr-set-more', hidden: true },
+        h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
+            h('div', { class: 'stcr-set-ctl' }, dirSeg, h('span', { class: 'stcr-set-hint', text: '原样 = 和 ST 一样；书页 = 压平聊天框、像读小说' }))),
         h('div', { class: 'stcr-set-item stcr-set-backup' }, h('span', { class: 'stcr-set-label', text: '备份' }),
-            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onExport() },
-                h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出我的批注与收藏'),
-            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport() },
-                h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入'),
-            lastExport),
-        h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }), dirSeg,
-            h('span', { class: 'stcr-set-hint', text: '原样 = 和 ST 一样；书页 = 压平聊天框、像读小说' })));
+            h('div', { class: 'stcr-set-ctl' },
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onExport() },
+                    h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出我的批注与收藏'),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport() },
+                    h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入'),
+                lastExport)));
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
+    const row = (label, ...controls) => h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: label }), h('div', { class: 'stcr-set-ctl' }, ...controls));
     const panel = h('div', { class: 'stcr-settings', role: 'dialog', 'aria-label': '阅读设置', hidden: true },
-        h('div', { class: 'stcr-settings-row' },
-            modeSeg, font,
-            h('label', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '行距' }), lineRange, lineValue),
-            h('label', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '宽度' }), widthRange, widthValue),
-            hideUser.el, expandAll.el, moreBtn),
+        h('div', { class: 'stcr-settings-grid' },
+            row('翻页', modeSeg),
+            font,
+            row('行距', lineRange, lineValue),
+            row('宽度', widthRange, widthValue),
+            row('思维链', reasoningSeg),
+            row('显示', hideUser.el)),
         more,
-        h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' }));
+        h('div', { class: 'stcr-set-foot' }, moreBtn,
+            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
 
     modeSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-mode]')?.dataset.mode;
@@ -68,7 +79,11 @@ export function createSettingsBar({ onExport, onImport }) {
     widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value) }));
     widthValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ width: null }); });
     hideUser.input.addEventListener('change', () => setPrefs({ hideUser: hideUser.input.checked }));
-    expandAll.input.addEventListener('change', () => setPrefs({ expandAllReasoning: expandAll.input.checked }));
+    reasoningSeg.addEventListener('click', event => {
+        const mode = event.target.closest('[data-reasoning]')?.dataset.reasoning;
+        if (mode === 'hide') setPrefs({ hideReasoning: true });
+        else if (mode) setPrefs({ hideReasoning: false, expandAllReasoning: mode === 'open' });
+    });
     moreBtn.addEventListener('click', () => {
         more.hidden = !more.hidden;
         moreBtn.setAttribute('aria-expanded', String(!more.hidden));
@@ -87,7 +102,8 @@ export function createSettingsBar({ onExport, onImport }) {
         widthRange.value = String(shown.width ?? 800);
         widthValue.textContent = shown.width === null ? '跟随 ST' : String(shown.width);
         hideUser.input.checked = prefs.hideUser;
-        expandAll.input.checked = prefs.expandAllReasoning;
+        const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
+        for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
     }
     /** 备份状态：{text:'上次导出：3 天前', remind:boolean} */
     function setBackupStatus({ text, remind }) {
@@ -117,6 +133,6 @@ export function createSettingsBar({ onExport, onImport }) {
 
 function switchInput(label) {
     const input = h('input', { type: 'checkbox', role: 'switch', class: 'stcr-switch-input' });
-    const el = h('label', { class: 'stcr-set-item stcr-switch' }, input, h('span', { class: 'stcr-switch-track', 'aria-hidden': 'true' }), h('span', { class: 'stcr-set-label', text: label }));
+    const el = h('label', { class: 'stcr-switch stcr-set-switch' }, input, h('span', { class: 'stcr-switch-track', 'aria-hidden': 'true' }), h('span', { class: 'stcr-set-switch-label', text: label }));
     return { el, input };
 }

@@ -9,29 +9,31 @@
 import { exportCard, wrapMaskSpans } from '../core/cardExport.js';
 import { store } from '../core/store.js';
 import { buildPieces, createPieceCache, findThoughts, scrubNote } from './cardPieces.js';
+import { colorPicker, readableOn } from './colorPicker.js';
 import { h, iconButton } from './dom.js';
-import { CARD_ICON_CHOICES, CARD_SIZES, cardFileName, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
-import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes } from './rulesUi.js';
+import { CARD_ICON_CHOICES, CARD_SIZES, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
+import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
 
 const PREFS_KEY = 'stcr:ui:card:v1';
-/** 永久屏蔽词各自的遮盖样式（T23a 验收意见①）：{词: {mask, icon}}；没有的词跟随默认。随备份导出。 */
+/** 永久屏蔽词各自的遮盖样式（T23a 验收意见①）：{词: {mask, icon|asset|color}}；没有的词跟随默认。随备份导出。 */
 const WORD_STYLES_KEY = 'stcr:ui:card:wordStyles:v1';
 const CONTAINED = ['click', 'dblclick', 'auxclick', 'contextmenu', 'mousedown', 'mouseup', 'pointerdown', 'pointerup',
     'touchstart', 'touchend', 'input', 'change', 'paste', 'focusin', 'focusout', 'keydown', 'keyup', 'keypress', 'wheel'];
 const TEMPLATES = [
     { id: 'theme', label: '继承主题' }, { id: 'paper', label: '纸张' }, { id: 'dark', label: '深色' }, { id: 'digest', label: '书摘' },
 ];
-const MASKS = [{ id: 'bar', label: '涂黑' }, { id: 'block', label: '主题色块' }, { id: 'sticker', label: '小图案' }];
+const MASKS = [{ id: 'bar', label: '涂黑' }, { id: 'block', label: '色块' }, { id: 'sticker', label: '小图案' }];
 const PAPER_RED = '#8a3a2e';
 const DIGEST_BLUE = '#1b88ee';
 
-/** 存储里的 {词: {mask, icon|asset}} → 只留合法项；用到的图片已被删掉就退回默认图案。 */
+/** 存储里的 {词: {mask, icon|asset|color}} → 只留合法项；用到的图片已被删掉就退回默认图案。 */
 function cleanWordStyles(raw, assets) {
     const out = {};
     if (!raw || typeof raw !== 'object') return out;
     for (const [word, value] of Object.entries(raw)) {
         if (!word || !MASKS.some(m => m.id === value?.mask)) continue;
-        if (value.mask !== 'sticker') out[word] = { mask: value.mask };
+        if (value.mask === 'block') out[word] = cleanHexColor(value.color) ? { mask: 'block', color: cleanHexColor(value.color) } : { mask: 'block' };
+        else if (value.mask !== 'sticker') out[word] = { mask: value.mask };
         else if (typeof value.asset === 'string' && assets.some(a => a.id === value.asset)) out[word] = { mask: 'sticker', asset: value.asset };
         else out[word] = CARD_ICON_CHOICES.includes(value.icon) ? { mask: 'sticker', icon: value.icon } : { mask: 'sticker' };
     }
@@ -63,7 +65,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         if (st) close();
         const els = buildDom();
         const mine = {
-            source, els, prefs: normalizeCardPrefs(null), replaceNames: true, includeReasoning: !!source.includeReasoning,
+            // 名字替换两个开关（I021）：自动名字 / 我的规则，各自独立；每次打开都从"开"开始，不记住关掉的状态
+            source, els, prefs: normalizeCardPrefs(null), autoNames: true, myRules: true, includeReasoning: !!source.includeReasoning,
             permanent: [], temp: [], cache: createPieceCache(), pieces: [], mappings: [], thoughts: [], card: null,
             token: 0, exporting: false, urls: [], words: [], suppressClick: false, saveTimer: 0, resize: null,
             wordStyles: {}, tempStyles: {}, menu: null, rules: [], assets: [], scopes: null, rulesPage: null,
@@ -145,9 +148,11 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                 h('span', { class: `stcr-tpl-swatch stcr-tpl-swatch--${item.id}`, 'aria-hidden': 'true' }, h('i'), h('i')), h('span', { text: item.label }))));
         const sizes = seg(Object.entries(CARD_SIZES).map(([id, size]) => ({ id, label: size.label })), 'size');
         const masks = seg(MASKS, 'mask');
+        const maskColor = h('div', { class: 'stcr-studio-color-box' }); // 色块 / 图标颜色，syncControls 里重画
         const icons = h('div', { class: 'stcr-studio-icon-box' }); // 图案选择条，syncControls 里按当前图片重画
         const uniform = switchRow('统一长度', { hint: '无论遮几个字都一样长，长度也不泄密' });
-        const names = switchRow('名字替换');
+        const autoNames = switchRow('自动名字', { hint: '角色名、你的名字换成 char / user' });
+        const myRules = switchRow('我的规则', { hint: '比如"灯塔 → 某地"' });
         const mapList = h('ul', { class: 'stcr-studio-maps', 'aria-label': '这张卡上的名字替换' });
         const rulesBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-studio-rules', 'data-studio': 'rules', title: '自己定"某个词总是换成什么"，也能管理导入的图片' },
             h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理替换规则…');
@@ -180,9 +185,9 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const sideMain = h('div', { class: 'stcr-studio-side-main' },
             section('模板', tpl),
             section('尺寸', sizes),
-            section('遮盖样式', masks, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
-            section('名字替换', names.el, mapList,
-                h('p', { class: 'stcr-studio-hint', text: '优先级：我的规则 > 自动 > 屏蔽词；长词先换。点一行右边的笔可以改它。' }), rulesBtn),
+            section('遮盖样式', masks, maskColor, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
+            section('名字替换', autoNames.el, myRules.el, mapList,
+                h('p', { class: 'stcr-studio-hint', text: '优先级：我的规则 > 自动 > 屏蔽词；长词先换，但不会把一个名字拆开。点一行右边的笔可以改它。' }), rulesBtn),
             section('显示', showNames.el, reasoning.el, signOn.el, signText),
             digest,
             h('section', { class: 'stcr-studio-sec' }, wordToggle, wordBox),
@@ -192,7 +197,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '卡片设置' }, sideMain, rulesHost);
         const studio = h('div', { class: 'stcr-studio', role: 'dialog', 'aria-modal': 'true', 'aria-label': '分享卡片', tabindex: '-1' },
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
-        return { studio, head, exportBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, sizes, masks, icons, uniform, names, mapList,
+        return { studio, head, exportBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
             tempSec, tempChips, note };
     }
@@ -229,10 +234,16 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             mine.includeReasoning = els.reasoning.input.checked;
             compose(mine);
         });
-        els.names.input.addEventListener('change', () => {
+        // 名字开关变了：从原文重建副本（03 §5.9：预览、缓存键、选段、名字行、批注、映射列表一起变）
+        els.autoNames.input.addEventListener('change', () => {
             if (!alive() || mine.exporting) return;
-            mine.replaceNames = els.names.input.checked;
-            rebuild(mine); // 名字开关变了：从原文重建副本（03 §5.9）
+            mine.autoNames = els.autoNames.input.checked;
+            rebuild(mine);
+        });
+        els.myRules.input.addEventListener('change', () => {
+            if (!alive() || mine.exporting) return;
+            mine.myRules = els.myRules.input.checked;
+            rebuild(mine);
         });
         els.studio.querySelector('[data-studio="add-word"]').addEventListener('submit', event => {
             event.preventDefault();
@@ -311,7 +322,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const { source } = mine;
         setStatus(mine, mine.card ? '' : '正在生成预览…');
         try {
-            const built = await buildPieces(source.handle, source.floors, { replaceNames: mine.replaceNames, rules: mine.rules, assets: mine.assets }, mine.cache);
+            const built = await buildPieces(source.handle, source.floors, { autoReplaceNames: mine.autoNames, applyReplaceRules: mine.myRules, rules: mine.rules, assets: mine.assets }, mine.cache);
             const thoughts = await findThoughts(source.handle, source.floors, source.annotations ?? [], mine.cache);
             if (st !== mine || current !== mine.token) return;
             mine.pieces = built.pieces;
@@ -361,15 +372,21 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         if (tpl === 'digest' && mine.thoughts.length) {
             page.append(h('div', { class: 'stcr-card-thoughts' },
                 h('div', { class: 'stcr-card-thoughts-label', text: '我的想法' }),
-                ...mine.thoughts.map(item => h('p', { class: 'stcr-card-thought', text: scrubNote(item.note, mine.source.handle, mine.mappings, mine.replaceNames) }))));
+                ...mine.thoughts.map(item => h('p', { class: 'stcr-card-thought', text: scrubNote(item.note, mine.source.handle, mine.mappings, { autoNames: mine.autoNames }) }))));
         }
         const foot = footer(mine, tpl);
         if (foot) page.append(foot);
         card.append(page);
 
         const empty = !chat.childElementCount;
+        // I026：遮盖宽度要在 1:1、已排版的卡片上量（core 按原词实际像素写宽度），量完再缩放放进预览。
+        // 这一段是同步的，浏览器不会在中间画出未缩放的样子。
+        els.scaler.style.transform = 'none';
+        els.scaler.replaceChildren(card);
+        mine.colors = colors;
         mine.card = applyMasks(mine, card, colors);
-        els.scaler.replaceChildren(mine.card);
+        fitMaskHeights(mine.card);
+        contrastReplacements(mine.card);
         rasterizeReplacementIcons(mine);
         els.hover.hidden = true;
         closeMenu(mine);
@@ -379,6 +396,10 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         syncMappings(mine);
         syncTemp(mine);
         fit(mine);
+        // 字体（含 Ny 字体）还在加载时量到的是后备字体的宽度：加载完再排一次
+        if (document.fonts?.status === 'loading' && !mine.fontWait) {
+            mine.fontWait = document.fonts.ready.then(() => { mine.fontWait = null; if (st === mine && !mine.exporting) compose(mine); });
+        }
     }
 
     function footer(mine, tpl) {
@@ -408,6 +429,18 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
      * 替换成内置图标的名字：core 导出时画图标的字体名没加引号会画成小点（06 I018①），
      * 这里按它在卡片上的实际颜色自己画成图片（导出原样复制图片）。要在卡片放进页面后调用，才拿得到颜色。
      */
+    /** 加了底色的替换文字：字色按底色深浅换成深字或白字（不然主题的浅色字压在浅底上看不清）。导出副本原样复制。 */
+    function contrastReplacements(card) {
+        for (const span of card.querySelectorAll('.stcr-replacement[style*="background"]')) {
+            const [r, g, b] = (getComputedStyle(span).backgroundColor.match(/\d+/g) ?? []).map(Number);
+            const ink = readableOn(`#${[r, g, b].map(v => (v ?? 0).toString(16).padStart(2, '0')).join('')}`);
+            if (!ink) continue;
+            span.style.setProperty('color', ink, 'important');
+            span.style.setProperty('padding', '0 .15em', 'important');
+            span.style.setProperty('border-radius', '.2em', 'important');
+        }
+    }
+
     function rasterizeReplacementIcons(mine) {
         for (const icon of mine.card.querySelectorAll('.stcr-replacement [data-stcr-icon]')) {
             const src = iconImage(icon.dataset.stcrIcon, solidColor(getComputedStyle(icon).color));
@@ -433,16 +466,20 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
 
     function styleFor(mine, word, colors) {
         const own = ownStyle(mine, word);
-        return maskStyle(mine, colors, own ? own.mask : mine.prefs.mask, wordPattern(mine, word));
+        return maskStyle(mine, colors, own ? own.mask : mine.prefs.mask, wordPattern(mine, word), own?.color);
     }
 
-    function maskStyle(mine, colors, mask = mine.prefs.mask, pattern = defaultPattern(mine)) {
+    /** 色块 / 小图标的颜色：这个词自己选的 > 默认选的 > 模板强调色。涂黑只有黑（深色模板为白）。 */
+    const blockColor = (mine, colors, own) => own ?? mine.prefs.maskColor ?? colors.accent;
+
+    function maskStyle(mine, colors, mask = mine.prefs.mask, pattern = defaultPattern(mine), ownColor = null) {
         const { uniform } = mine.prefs;
+        const color = blockColor(mine, colors, ownColor);
         if (mask === 'bar') return { kind: 'bar', color: colors.bar, uniform };
-        if (mask === 'block') return { kind: 'block', color: colors.accent, uniform };
+        if (mask === 'block') return { kind: 'block', color, uniform };
         return pattern.kind === 'asset'
-            ? { kind: 'sticker', color: colors.accent, uniform, assetId: pattern.value }
-            : { kind: 'sticker', color: colors.accent, uniform, icon: pattern.value };
+            ? { kind: 'sticker', color, uniform, assetId: pattern.value }
+            : { kind: 'sticker', color, uniform, icon: pattern.value };
     }
 
     /**
@@ -457,7 +494,10 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         let out = card;
         words.forEach((word, i) => {
             const own = styleFor(mine, word, colors);
-            out = wrapMaskSpans(out, [word], own, mine.assetMap);
+            // wrapMaskSpans 在"已挂在页面上的"输入上量宽度、返回新副本：换进页面，下一个词才量得到（I026）
+            const next = wrapMaskSpans(out, [word], own, mine.assetMap);
+            if (out.isConnected) out.replaceWith(next);
+            out = next;
             for (const span of out.querySelectorAll('.stcr-mask:not([data-stcr-tw])')) {
                 span.dataset.stcrTw = String(i);
                 // 小图案：core 画图标时字体名没加引号会画成小点（06 I018），这里自己画好换成图片；导出原样复制图片。
@@ -468,6 +508,21 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             }
         });
         return out;
+    }
+
+    /**
+     * 涂黑、色块的高度 = 所在行的行高（F14③，T42）：上下正好填满一行，连着几行遮盖时也齐整。
+     * core 给的是 0.8em（03 §5.12 把高度留给 UI）；这里按所在元素的实际行高写成像素，导出副本原样复制。
+     */
+    function fitMaskHeights(card) {
+        for (const span of card.querySelectorAll('.stcr-mask--bar, .stcr-mask--block')) {
+            const style = getComputedStyle(span.parentElement ?? span);
+            let lineHeight = parseFloat(style.lineHeight);
+            if (!Number.isFinite(lineHeight)) lineHeight = parseFloat(style.fontSize) * 1.2; // line-height: normal
+            if (!Number.isFinite(lineHeight) || lineHeight <= 0) continue;
+            span.style.setProperty('height', `${lineHeight.toFixed(2)}px`, 'important');
+            span.style.setProperty('vertical-align', 'top', 'important');
+        }
     }
 
     /** 用 ST 已加载的 Font Awesome 实心字形画一张 128px 小图（不下载任何东西）。 */
@@ -538,6 +593,11 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         for (const b of els.masks.children) b.classList.toggle('stcr-on', b.dataset.mask === prefs.mask);
         for (const b of els.accent.children) b.classList.toggle('stcr-on', b.dataset.accent === prefs.digestAccent);
         els.icons.hidden = prefs.mask !== 'sticker';
+        // 色块、内置图标可以换颜色；涂黑只有黑（深色模板为白），用自己图片的小图案不需要颜色
+        const colorable = prefs.mask === 'block' || (prefs.mask === 'sticker' && !prefs.maskAsset);
+        els.maskColor.hidden = !colorable;
+        els.maskColor.replaceChildren(...(colorable ? [colorPicker({ value: prefs.maskColor, noneLabel: '跟随模板强调色', noneSwatch: mine.colors?.accent,
+            label: prefs.mask === 'block' ? '色块颜色' : '图案颜色', onPick: color => changePrefs(mine, { maskColor: color }) })] : []));
         els.icons.replaceChildren(patternPicker({ value: defaultPattern(mine), assets: mine.assets,
             onPick: v => changePrefs(mine, v.kind === 'asset' ? { maskAsset: v.value } : { icon: v.value, maskAsset: null }),
             onImport: () => importAndUse(mine, asset => changePrefs(mine, { maskAsset: asset.id })) }));
@@ -554,7 +614,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             if (pick) changePrefs(mine, { digestCover: pick.dataset.cover || null });
         };
         els.uniform.input.checked = prefs.uniform;
-        els.names.input.checked = mine.replaceNames;
+        els.autoNames.input.checked = mine.autoNames;
+        els.myRules.input.checked = mine.myRules;
         els.showNames.input.checked = prefs.showNames;
         els.showNames.input.disabled = tpl === 'digest';
         els.showNames.el.title = tpl === 'digest' ? '书摘模板不显示名字行' : '';
@@ -577,8 +638,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     /** "名字替换"下实时列出本卡实际命中的映射（原词只出现在这里，不进卡片）。 */
     function syncMappings(mine) {
         const { els } = mine;
-        if (!mine.replaceNames) {
-            els.mapList.replaceChildren(h('li', { class: 'stcr-studio-warn-line', text: '已关闭：卡片上会显示真名，请自己确认。' }));
+        if (!mine.autoNames && !mine.myRules) {
+            els.mapList.replaceChildren(h('li', { class: 'stcr-studio-warn-line', text: '两个都关了：卡片上会显示真名和原词，请自己确认。' }));
             return;
         }
         // 只列这张卡（裁剪后）上真的出现的替换：文字按内容、内置图标按名字；图片替换只要卡上有图片替换就列
@@ -594,12 +655,16 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         }
         rows.sort((a, b) => (a.source === 'mine' ? 0 : 1) - (b.source === 'mine' ? 0 : 1) || b.from.length - a.from.length);
         mine.mapRows = rows;
-        els.mapList.replaceChildren(...(rows.length ? rows.map((row, i) => h('li', { class: 'stcr-studio-map' },
+        const skipped = [...new Set(rows.flatMap(row => (row.skippedOverlap ? row.skippedRules ?? [] : []).map(rule => rule.from)))];
+        els.mapList.replaceChildren(
+            !mine.autoNames ? h('li', { class: 'stcr-studio-warn-line', text: '自动名字已关闭：角色名和你的名字会原样显示。' }) : '',
+            ...(rows.length ? rows.map((row, i) => h('li', { class: 'stcr-studio-map' },
             h('span', { class: 'stcr-map-from', text: row.from, title: row.from }), h('i', { class: 'fa-solid fa-arrow-right', 'aria-hidden': 'true' }),
-            row.to.kind === 'text' ? h('span', { class: 'stcr-map-to', text: row.to.value || '（删掉）' }) : h('span', { class: 'stcr-rule-pattern' }, patternGlyph(row.to, mine.assets)),
+            row.to.kind === 'text' ? (row.to.value ? textTarget(row.to) : h('span', { class: 'stcr-map-to', text: '（删掉）' })) : h('span', { class: 'stcr-rule-pattern' }, patternGlyph(row.to, mine.assets)),
             h('small', { class: `stcr-row-tag${row.source === 'mine' ? ' stcr-row-tag--mine' : ''}`, text: row.source === 'mine' ? '我的规则' : '自动' }),
             iconButton('fa-pen', row.source === 'mine' ? `改这条规则：${row.from}` : `给"${row.from}"定自己的替换`, { class: 'stcr-map-edit', 'data-map-edit': i })))
-            : [h('li', { class: 'stcr-studio-hint', text: '这张卡上没有需要替换的名字。' })]));
+            : [h('li', { class: 'stcr-studio-hint', text: '这张卡上没有需要替换的名字。' })]),
+            skipped.length ? h('li', { class: 'stcr-studio-hint stcr-studio-skip', text: `为保护完整名字，这些规则在名字里没有生效：${skipped.join('、')}` }) : '');
     }
 
     function syncTemp(mine) {
@@ -616,7 +681,9 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const own = ownStyle(mine, word);
         const kind = (own ?? mine.prefs).mask;
         const label = own ? `${MASKS.find(m => m.id === kind).label}（单独设置）` : '跟随默认';
+        const fill = kind === 'block' ? blockColor(mine, mine.colors ?? { accent: null }, own?.color) : null;
         return h('button', { type: 'button', class: `stcr-btn stcr-mask-swatch stcr-mask-swatch--${kind}${own ? ' stcr-mask-swatch--own' : ''}`,
+            style: fill ? `background-color:${fill}` : null,
             'data-word-style': word, title: `这个词的遮盖：${label}。点这里单独改`, 'aria-label': `${word} 的遮盖样式：${label}` },
         kind === 'sticker' ? patternGlyph(wordPattern(mine, word), mine.assets) : null);
     }
@@ -638,6 +705,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             current === 'sticker' ? patternPicker({ value: wordPattern(mine, word), assets: mine.assets,
                 onPick: v => { setWordStyle(mine, word, 'sticker', v); reopen(); },
                 onImport: () => importAndUse(mine, asset => { setWordStyle(mine, word, 'sticker', { kind: 'asset', value: asset.id }); reopen(); }) }) : null,
+            current === 'block' ? colorPicker({ value: own?.color ?? null, noneLabel: '跟随默认颜色', noneSwatch: blockColor(mine, mine.colors ?? { accent: null }, null),
+                label: '这个词的色块颜色', onPick: color => { setWordStyle(mine, word, 'block', null, color); reopen(); } }) : null,
             h('div', { class: 'stcr-mask-menu-actions' },
                 h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-menu-act': 'rule', title: '以后所有卡片上，这个词都换成你定的文字或小图案' },
                     h('i', { class: 'fa-solid fa-right-left', 'aria-hidden': 'true' }), ' 总是替换为…'),
@@ -647,7 +716,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                     h('i', { class: 'fa-solid fa-eye', 'aria-hidden': 'true' }), isTemp ? ' 取消遮住' : ' 移出屏蔽词')));
         menu.addEventListener('click', event => {
             const maskBtn = event.target.closest('[data-menu-mask]');
-            if (maskBtn) { setWordStyle(mine, word, maskBtn.dataset.menuMask || null, patternOf(own, null)); reopen(); return; }
+            if (maskBtn) { setWordStyle(mine, word, maskBtn.dataset.menuMask || null, patternOf(own, null), own?.color); reopen(); return; }
             const act = event.target.closest('[data-menu-act]')?.dataset.menuAct;
             if (!act) return;
             if (act === 'rule') { openRuleMenu(mine, { from: word }, anchor); return; }
@@ -703,6 +772,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
 
     /** 会被自动换成 char/user 的名字（给规则编辑框做"只是名字的一部分"的提醒）。 */
     function autoNames(mine) {
+        if (!mine.autoNames) return []; // 自动名字关了就没有整名保护，不必提醒
         const { header } = mine.source.handle;
         return [...new Set([header.userName, header.characterName, ...mine.mappings.filter(m => m.source === 'automatic').map(m => m.from)])]
             .filter(name => name && !/^\{\{/.test(name));
@@ -742,10 +812,11 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     }
 
     /** 记下一个词自己的样式（mask=null = 跟随默认）。临时词只记在这张卡；永久词存起来，下次也这样。 */
-    function setWordStyle(mine, word, mask, pattern) {
+    function setWordStyle(mine, word, mask, pattern, color = null) {
         if (mine.exporting) return;
         const p = pattern ?? defaultPattern(mine);
-        const value = mask ? { mask, ...(mask === 'sticker' ? (p.kind === 'asset' ? { asset: p.value } : { icon: p.value }) : {}) } : null;
+        const value = mask ? { mask, ...(mask === 'sticker' ? (p.kind === 'asset' ? { asset: p.value } : { icon: p.value }) : {}),
+            ...(mask === 'block' && color ? { color } : {}) } : null;
         if (mine.temp.includes(word)) {
             if (value) mine.tempStyles[word] = value; else delete mine.tempStyles[word];
         } else {

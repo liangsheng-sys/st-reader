@@ -6,6 +6,7 @@
 
 import { listCharacters, listGroups, parseChatKey } from '../core/chatSource.js';
 import { store } from '../core/store.js';
+import { colorPicker } from './colorPicker.js';
 import { h, iconButton } from './dom.js';
 import { CARD_ICON_CHOICES } from './logic.js';
 
@@ -121,6 +122,12 @@ export function patternPicker({ value, assets, onPick, onImport }) {
     return el;
 }
 
+/** 替换成的文字（带底色时照卡片上的样子画出底色）。 */
+export function textTarget(to) {
+    return h('span', { class: `stcr-map-to${to.background ? ' stcr-map-to--bg' : ''}`, style: to.background ? `background-color:${to.background}` : null,
+        title: to.background ? `底色 ${to.background}` : null, text: to.value });
+}
+
 // ───────────── 规则编辑框 ─────────────
 
 /**
@@ -137,6 +144,8 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
         from: rule.from ?? '',
         kind: rule.to?.kind === 'icon' || rule.to?.kind === 'asset' ? 'pattern' : 'text',
         text: rule.to?.kind === 'text' ? rule.to.value : '',
+        // 文字的背景色（T42、F14①）；null = 没有背景。换成图案时不带，改回文字时还在
+        background: rule.to?.kind === 'text' ? rule.to.background ?? null : null,
         pattern: rule.to?.kind === 'icon' || rule.to?.kind === 'asset' ? { ...rule.to } : { kind: 'icon', value: 'fa-star' },
         scope: rule.scope ?? scopes.defaultScope,
         caseSensitive: rule.caseSensitive ?? false,
@@ -150,10 +159,12 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
     fromInput.value = state.from;
     const textInput = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '60', placeholder: '比如：路人甲（留空 = 直接删掉这个词）', 'aria-label': '替换成的文字' });
     textInput.value = state.text;
+    textInput.addEventListener('input', () => { const sample = backgroundBox.querySelector('.stcr-rule-bg-sample'); if (sample) sample.textContent = textInput.value.trim() || '示例'; });
     const kindSeg = h('div', { class: 'stcr-seg stcr-rule-kind', role: 'group', 'aria-label': '替换成' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-kind': 'text', text: '文字' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-kind': 'pattern', text: '图案' }));
     const pickerBox = h('div', { class: 'stcr-rule-picker' });
+    const backgroundBox = h('div', { class: 'stcr-rule-bg' });
     const scopeSelect = h('select', { class: 'text_pole stcr-studio-input stcr-rule-scope', 'aria-label': '作用范围' },
         ...scopeOptions.map(o => h('option', { value: o.value, text: o.label })));
     scopeSelect.value = state.scope;
@@ -168,7 +179,7 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
     const form = h('form', { class: `stcr-rule-editor${compact ? ' stcr-rule-editor--compact' : ''}` },
         h('label', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '原词' }), fromInput),
         h('div', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '换成' }), kindSeg),
-        h('div', { class: 'stcr-rule-target' }, textInput, pickerBox),
+        h('div', { class: 'stcr-rule-target' }, textInput, backgroundBox, pickerBox),
         h('label', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '范围' }), scopeSelect),
         h('div', { class: 'stcr-rule-checks' },
             check('区分大小写', 'caseSensitive', '打开后 Bob 和 bob 算两个词'),
@@ -180,6 +191,10 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
     function sync() {
         for (const b of kindSeg.children) b.classList.toggle('stcr-on', b.dataset.kind === state.kind);
         textInput.hidden = state.kind !== 'text';
+        backgroundBox.hidden = state.kind !== 'text';
+        backgroundBox.replaceChildren(h('span', { class: 'stcr-rule-bg-label', text: '文字底色' }),
+            colorPicker({ value: state.background, noneLabel: '不加底色', label: '文字底色', onPick: color => { state.background = color; sync(); } }),
+            state.background ? h('span', { class: 'stcr-rule-bg-sample', style: `background-color:${state.background}`, text: textInput.value.trim() || '示例' }) : null);
         pickerBox.hidden = state.kind !== 'pattern';
         pickerBox.replaceChildren(patternPicker({ value: state.pattern, assets, onPick: v => { state.pattern = v; sync(); }, onImport: () => doImport() }));
     }
@@ -201,14 +216,15 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
         event.preventDefault();
         const from = fromInput.value.trim();
         if (!from) { error.textContent = '请填原词'; fromInput.focus(); return; }
-        const to = state.kind === 'text' ? { kind: 'text', value: textInput.value.trim() } : { ...state.pattern };
+        // 背景色只在文字上有；不要背景就不带这个字段（03 §5.12：空值不合法）
+        const to = state.kind === 'text' ? { kind: 'text', value: textInput.value.trim(), ...(state.background ? { background: state.background } : {}) } : { ...state.pattern };
         if (to.kind === 'asset' && !assets.some(a => a.id === to.value)) { error.textContent = '这张图片已经不在了，请换一个图案'; return; }
         // 我的规则优先于自动名字：原词若只是某个名字的一部分，那个名字会只换掉这一段，其余真名露在卡片上
         const norm = text => (state.caseSensitive ? text : text.toLowerCase());
         const host_ = autoNames.find(name => name && name !== from && norm(name).includes(norm(from)));
         if (host_ && warnedFor !== from) {
             warnedFor = from;
-            error.textContent = `注意："${from}"是名字"${host_}"的一部分。我的规则优先，卡片上这个名字会只换掉"${from}"，其余部分露出来。建议原词填完整的名字；确定就这样，再点一次保存。`;
+            error.textContent = `注意："${from}"是名字"${host_}"的一部分。为了不把名字拆开露出一半，卡片上"${host_}"会整体按自动规则替换，这条规则只在名字以外的地方生效。确定就再点一次保存。`;
             return;
         }
         saveBtn.disabled = true;
@@ -263,7 +279,7 @@ export function createRulesManager({ host, chatKey, toast, confirm, onChange, on
     }
 
     function targetLabel(rule) {
-        if (rule.to.kind === 'text') return rule.to.value ? h('span', { class: 'stcr-map-to', text: rule.to.value }) : h('span', { class: 'stcr-studio-hint', text: '（删掉，不显示）' });
+        if (rule.to.kind === 'text') return rule.to.value ? textTarget(rule.to) : h('span', { class: 'stcr-studio-hint', text: '（删掉，不显示）' });
         const name = rule.to.kind === 'asset' ? assets.find(a => a.id === rule.to.value)?.name ?? '（图片不在了）' : ICON_NAMES[rule.to.value] ?? rule.to.value;
         return h('span', { class: 'stcr-rule-pattern', title: name }, patternGlyph(rule.to, assets));
     }

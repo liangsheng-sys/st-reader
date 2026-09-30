@@ -2,7 +2,7 @@
 // 阅读器界面自测（T21）。纯 Node 运行，无依赖：node src/ui/ui.test.js
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
-import { alignTexts, cardFileName, cleanMaskWord, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
+import { alignTexts, cardFileName, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
     mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt } from './logic.js';
 
@@ -137,6 +137,18 @@ export async function testUiLogic() {
         equal(normalizeCardPrefs({ template: 'digest', mask: 'sticker', icon: 'fa-cat', digestAccent: 'theme' }).digestAccent, 'theme');
         const img = normalizeCardPrefs({ maskAsset: 'stcr:assets:1', digestCover: 42 });
         equal([img.maskAsset, img.digestCover], ['stcr:assets:1', null], '图片设置：');
+    });
+    check('颜色（T42）：8 个预设都是六位色号；色号输入宽松读、严格出；卡片默认颜色跟随模板', () => {
+        equal(COLOR_PRESETS.length, 8);
+        equal(COLOR_PRESETS.every(p => /^#[0-9a-f]{6}$/.test(p.value)), true, '预设：');
+        equal([cleanHexColor('#F5B8C8'), cleanHexColor('abc'), cleanHexColor(' #1a2b3c '), cleanHexColor('red'), cleanHexColor('#12345'), cleanHexColor('')],
+            ['#f5b8c8', '#aabbcc', '#1a2b3c', null, null, null]);
+        equal([normalizeCardPrefs(null).maskColor, normalizeCardPrefs({ maskColor: '#93C8EC' }).maskColor, normalizeCardPrefs({ maskColor: 'blue' }).maskColor], [null, '#93c8ec', null]);
+    });
+    check('隐藏思维链（T42）：默认关，只收布尔值', () => {
+        equal(normalizePrefs(null).hideReasoning, false);
+        equal(normalizePrefs({ hideReasoning: true }).hideReasoning, true);
+        equal(normalizePrefs({ hideReasoning: 'yes' }).hideReasoning, false);
     });
     check('卡片文件名：不含聊天名与角色名', () => {
         equal(cardFileName(new Date(2026, 8, 28, 21, 4)), 'st-reader-card-20260928-2104.png');
