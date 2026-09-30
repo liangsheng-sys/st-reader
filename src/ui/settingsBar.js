@@ -37,11 +37,19 @@ export function createSettingsBar({ onExport, onImport }) {
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'open', text: '展开', title: '全部展开' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'hide', text: '隐藏', title: '整行不显示，读得更沉浸' }));
+    // HTML 楼层（T44b）：默认渲染还是看原文；外链默认允许（人类定），这里整体关掉
+    const htmlSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': 'HTML 楼层' },
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-html-mode': 'render', text: '渲染', title: '模型写的网页 / 小游戏直接显示出来' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-html-mode': 'source', text: '原文', title: '默认只看代码' }));
+    const htmlNet = switchInput('允许外链');
+    htmlNet.el.title = '让 HTML 能加载网上的字体、图片等。地址来自模型写的代码，阅读器自己不访问任何网站。关掉后所有 HTML 都断网';
     const dirSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '排版' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'b', text: '原样' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'a', text: '书页' }));
     const lastExport = h('span', { class: 'stcr-set-hint stcr-last-export' });
     const more = h('div', { class: 'stcr-set-more', hidden: true },
+        h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
+            h('div', { class: 'stcr-set-ctl' }, htmlSeg, htmlNet.el)),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
             h('div', { class: 'stcr-set-ctl' }, dirSeg, h('span', { class: 'stcr-set-hint', text: '原样 = 和 ST 一样；书页 = 压平聊天框、像读小说' }))),
         h('div', { class: 'stcr-set-item stcr-set-backup' }, h('span', { class: 'stcr-set-label', text: '备份' }),
@@ -84,6 +92,11 @@ export function createSettingsBar({ onExport, onImport }) {
     widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value) }));
     widthValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ width: null }); });
     hideUser.input.addEventListener('change', () => setPrefs({ hideUser: hideUser.input.checked }));
+    htmlSeg.addEventListener('click', event => {
+        const mode = event.target.closest('[data-html-mode]')?.dataset.htmlMode;
+        if (mode) setPrefs({ htmlMode: mode });
+    });
+    htmlNet.input.addEventListener('change', () => setPrefs({ htmlNetwork: htmlNet.input.checked }));
     redact.input.addEventListener('change', () => setPrefs({ redact: redact.input.checked }));
     reasoningSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-reasoning]')?.dataset.reasoning;
@@ -115,6 +128,8 @@ export function createSettingsBar({ onExport, onImport }) {
         widthRange.value = String(shown.width ?? 800);
         widthValue.textContent = shown.width === null ? '跟随 ST' : String(shown.width);
         hideUser.input.checked = prefs.hideUser;
+        for (const button of htmlSeg.children) button.classList.toggle('stcr-on', button.dataset.htmlMode === prefs.htmlMode);
+        htmlNet.input.checked = prefs.htmlNetwork;
         redact.input.checked = prefs.redact;
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);

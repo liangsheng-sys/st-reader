@@ -6,6 +6,7 @@
 import { renderMessage } from '../core/formatter.js';
 import { h, iconButton } from './dom.js';
 import { formatStamp, reasoningTitle } from './logic.js';
+import { findHtmlBlocks } from './htmlBlocks.js';
 import { redactElement, visibleText } from './redact.js';
 
 /**
@@ -15,6 +16,7 @@ import { redactElement, visibleText } from './redact.js';
  * @property {(index:number)=>boolean} isReasoningOpen 这一楼的思维链此刻是否展开
  * @property {(index:number, swipe:number|null)=>boolean} isBookmarked 整楼（swipe=null）或某候选是否已收藏
  * @property {(model:object)=>import('./redact.js').RedactOptions|null} [redactFor] 脱敏显示开着时给这一楼的屏蔽词 / 规则（T45）
+ * @property {(textEl:HTMLElement, blocks:object[], where:object)=>void} [attachHtml] 楼里有 HTML 时接上沙箱渲染（T44b）
  */
 
 /** 建一楼。swipeIndex 是阅读器要显示的候选（可能与 ST 当前候选不同）。 */
@@ -72,8 +74,11 @@ export function fillFloor(ctx, el, model, swipeIndex) {
 
     const text = h('div', { class: 'mes_text' });
     text.innerHTML = rendered.html; // core 已清洗（DOMPurify）
+    // HTML 块要在脱敏显示改动正文之前认出来：沙箱 / 截图 / 复制脱敏版都从原文出发（T44b）
+    const htmlBlocks = ctx.attachHtml ? findHtmlBlocks(text, swipe.text) : [];
     if (redact) redactElement(text, redact); // 在加复制按钮之前：按钮文字不参与
     addCodeCopyButtons(text);
+    if (htmlBlocks.length) ctx.attachHtml(text, htmlBlocks, { index: model.index, swipe: rendered.swipeIndex, model });
     block.append(text);
     syncBookmarkMarks(ctx, el);
     return rendered;
@@ -132,12 +137,17 @@ function buildToolbar(model, hasReasoning) {
         iconButton('fa-image', '用这一楼生成分享卡片', { 'data-act': 'card' }));
 }
 
-/** 代码块右上角的复制钮（F3）。自有 stcr- 类，复制 code.textContent（03 §5.3）。 */
+/**
+ * 代码块右上角的复制钮（F3）。自有 stcr- 类，复制 code.textContent（03 §5.3）。
+ * 旁边一个"复制脱敏版"（F10b）：屏蔽词、替换规则、名字换好再复制；HTML 只换文字，不碰标签和属性。
+ */
 function addCodeCopyButtons(container) {
     for (const pre of container.querySelectorAll('pre')) {
         if (!pre.querySelector('code')) continue;
         pre.classList.add('stcr-pre');
-        pre.append(iconButton('fa-copy', '复制代码', { class: 'stcr-code-copy', 'data-act': 'copy-code' }));
+        pre.append(h('div', { class: 'stcr-code-tools', 'data-stcr-ignore-anchor': '' },
+            iconButton('fa-user-secret', '复制脱敏版（屏蔽词、替换规则、名字换好）', { class: 'stcr-code-copy stcr-code-copy-masked', 'data-act': 'copy-code-masked' }),
+            iconButton('fa-copy', '复制代码', { class: 'stcr-code-copy', 'data-act': 'copy-code' })));
     }
 }
 

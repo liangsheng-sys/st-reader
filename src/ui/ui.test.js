@@ -171,6 +171,12 @@ export async function testUiLogic() {
         equal(normalizePrefs(null).aaLayout, 'bar');
         equal(normalizePrefs({ aaLayout: 'panel' }).aaLayout, 'panel');
         equal(normalizePrefs({ aaLayout: 'side' }).aaLayout, 'bar');
+        equal(normalizePrefs(null).htmlMode, 'render');
+        equal(normalizePrefs(null).htmlNetwork, true);
+        equal(normalizePrefs({ htmlNetwork: false }).htmlNetwork, false);
+        equal(normalizePrefs({ htmlMode: 'source', htmlWidth: 'fit' }).htmlWidth, 'fit');
+        equal(normalizePrefs({ htmlMode: 'x', htmlWidth: 500 }).htmlMode, 'render');
+        equal(normalizePrefs({ htmlWidth: 500 }).htmlWidth, 390);
     });
     check('卡片文件名：不含聊天名与角色名', () => {
         equal(cardFileName(new Date(2026, 8, 28, 21, 4)), 'st-reader-card-20260928-2104.png');

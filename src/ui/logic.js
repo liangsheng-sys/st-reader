@@ -19,6 +19,9 @@ export const DEFAULT_PREFS = Object.freeze({
     hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
     redact: false,         // T45：脱敏显示（屏蔽词与我的替换规则套到正文显示上）
     aaLayout: 'bar',       // T45 验收后：Aa 设置的样子，'bar' 底部长条（一行横排）/ 'panel' 两列面板
+    htmlMode: 'render',    // T44b：楼里的 HTML 默认"渲染"还是"原文"
+    htmlNetwork: true,     // T44b：HTML 默认允许加载外链（人类 2026-09-30 定，修订 D16）；可在 Aa 关掉
+    htmlWidth: 390,        // T44b：HTML 渲染宽度，390 / 768 / 1200 / 'fit'；最近一次选的记成默认
     drawerPinned: false,
     panelPinned: false,
 });
@@ -38,10 +41,12 @@ export function normalizePrefs(raw) {
     if (input.direction === 'a' || input.direction === 'b') out.direction = input.direction;
     if (input.mode === 'scroll' || input.mode === 'paged') out.mode = input.mode;
     if (input.aaLayout === 'bar' || input.aaLayout === 'panel') out.aaLayout = input.aaLayout;
+    if (input.htmlMode === 'render' || input.htmlMode === 'source') out.htmlMode = input.htmlMode;
+    if ([390, 768, 1200, 'fit'].includes(input.htmlWidth)) out.htmlWidth = input.htmlWidth;
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'redact', 'drawerPinned', 'panelPinned']) {
+    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'drawerPinned', 'panelPinned']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;

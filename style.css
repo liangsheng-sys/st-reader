@@ -217,18 +217,64 @@
 
 /* 代码块复制（F3） */
 #stcr_root #stcr_chat pre.stcr-pre { position: relative; }
-#stcr_root .stcr-code-copy {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    min-width: 28px;
-    height: 28px;
-    font-size: 12px;
-    background: var(--stcr-panel);
-    opacity: 0;
+#stcr_root .stcr-code-tools { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+#stcr_root .stcr-code-copy { min-width: 28px; height: 28px; font-size: 12px; background: var(--stcr-panel); }
+#stcr_root pre.stcr-pre:hover > .stcr-code-tools, #stcr_root .stcr-code-tools:focus-within { opacity: .85; }
+@media (hover: none) { #stcr_root .stcr-code-tools { opacity: .6; } }
+
+/* HTML 渲染（T44b、F10）：一条细工具条 + 沙箱。原文仍在下面（隐藏），划线锚点不受影响 */
+#stcr_root .stcr-html { margin: .6em 0; }
+#stcr_root .stcr-html-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    padding: 4px 4px 6px; font-size: 12.5px; line-height: 1.4; color: var(--stcr-faint);
+    font-family: var(--stcr-ui-font, inherit); text-indent: 0; letter-spacing: normal;
 }
-#stcr_root pre.stcr-pre:hover > .stcr-code-copy, #stcr_root .stcr-code-copy:focus-visible { opacity: .85; }
-@media (hover: none) { #stcr_root .stcr-code-copy { opacity: .6; } }
+#stcr_root .stcr-html-tag { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; letter-spacing: .04em; opacity: .8; }
+#stcr_root .stcr-html-bar .stcr-seg-btn { padding: 2px 10px; font-size: 12px; }
+#stcr_root .stcr-html-bar .stcr-icon-btn { min-width: 28px; height: 28px; font-size: 12.5px; }
+#stcr_root .stcr-html-gap { flex: 1; }
+#stcr_root .stcr-html-status { font-size: 12px; }
+#stcr_root .stcr-html-net:not(.stcr-on) { color: var(--stcr-faint); }
+#stcr_root .stcr-html-net.stcr-on { color: var(--stcr-accent); }
+/* 看原文时宽度与外链、截图都用不上，收起来，只留切换 */
+#stcr_root .stcr-html--source .stcr-html-widths,
+#stcr_root .stcr-html--source .stcr-html-net,
+#stcr_root .stcr-html--source .stcr-html-stage { display: none; }
+#stcr_root .stcr-html-stage {
+    position: relative; max-width: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    border-radius: 10px; background: color-mix(in srgb, var(--stcr-text) 5%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stcr-border) 60%, transparent);
+}
+#stcr_root .stcr-html-frame { display: flex; justify-content: center; min-width: max-content; }
+#stcr_root .stcr-html-frame > iframe { background: #fff; color-scheme: normal; }
+#stcr_root .stcr-html-fail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 18px; color: var(--stcr-faint); font-size: 13px; }
+#stcr_root .stcr-html-src--hidden { display: none !important; }
+#stcr_root.stcr-mode-paged .stcr-html-stage { max-width: 100%; }
+
+/* HTML 截图（F10a）：沿用卡片工作台的外框，左边一列设置，右边预览 + 框选 */
+#stcr_root .stcr-shot-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+#stcr_root .stcr-shot-tools {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+    padding: 22px 20px; border-right: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); font-size: 13px; overflow-y: auto;
+}
+#stcr_root .stcr-shot-tools .stcr-set-label { margin-top: 6px; }
+#stcr_root .stcr-shot-tools .stcr-seg { flex-wrap: nowrap; }
+#stcr_root .stcr-shot-tools .stcr-seg-btn { padding: 4px 11px; font-size: 12.5px; }
+#stcr_root .stcr-shot-tools .stcr-set-switch { margin-top: 6px; }
+#stcr_root .stcr-shot-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; overflow: auto; padding: 22px 24px 48px; }
+#stcr_root .stcr-shot-tip { max-width: 720px; margin: 0; color: var(--stcr-faint); font-size: 12.5px; line-height: 1.6; text-align: center; }
+#stcr_root .stcr-shot-status { min-height: 1.2em; color: var(--stcr-faint); font-size: 13px; }
+#stcr_root .stcr-shot-status--error { color: var(--stcr-danger, #e06c6c); }
+#stcr_root .stcr-shot-slot { max-width: 100%; }
+#stcr_root .stcr-shot-surface { box-shadow: 0 6px 30px var(--stcr-shadow); border-radius: 4px; }
+#stcr_root .stcr-shot-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; color: var(--stcr-faint); font-size: 12.5px; }
+#stcr_root .stcr-shot .stcr-studio-export + .stcr-studio-export { margin-left: 4px; }
+#stcr_root .stcr-shot .stcr-studio-export:disabled { opacity: .45; cursor: default; }
+@media (max-width: 999px) {
+    #stcr_root .stcr-shot-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    #stcr_root .stcr-shot-tools { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px 14px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
+    #stcr_root .stcr-shot-tools .stcr-set-label, #stcr_root .stcr-shot-tools .stcr-set-switch { margin-top: 0; }
+}
 
 /* 隐藏用户楼后的细线："— 你 · 3 条 —" */
 #stcr_root .stcr-fold {

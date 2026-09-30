@@ -3,6 +3,7 @@
 // 只读（D02）：只调 03 §5 的读取接口；候选/思维链/进度/划线/收藏都是阅读器自己的状态，绝不写回 ST。
 
 import { getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js';
+import { maskHtmlString } from '../core/cardExport.js';
 import { initFormatter } from '../core/formatter.js';
 import { store } from '../core/store.js';
 import { createPanel } from './annotationsPanel.js';
@@ -12,6 +13,8 @@ import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
 import { isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, toggleFavoriteChat } from './chatFavorites.js';
 import { createDrawer } from './drawer.js';
+import { createHtmlManager } from './htmlBlocks.js';
+import { createHtmlShot } from './htmlShot.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
 import { effectivePrefs, formatStamp, hiddenUserRuns, parseJumpInput, pickSwipe, progressText, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
@@ -120,6 +123,23 @@ export async function openReader({ tab, chatKey } = {}) {
             if (getPrefs().redact) loadRedaction(session).then(() => { if (S === session) { refreshSideTexts(session); rerender(captureAnchor()); } });
         },
     });
+    // HTML 楼层（T44b）：楼内沙箱渲染 + 截图分享
+    session.html = createHtmlManager({
+        scroller: session.scroller, chat: session.chat, toast: say, isPaged: () => isPaged(),
+        defaults: () => { const p = getPrefs(); return { mode: p.htmlMode, network: p.htmlNetwork, width: p.htmlWidth }; },
+        rememberWidth: width => setPrefs({ htmlWidth: width }),
+        // 脱敏显示开着：沙箱里跑的也是换过词的 HTML（只换文字，不碰标签和属性）
+        prepare: (html, where) => {
+            const data = getPrefs().redact ? session.redact : null;
+            if (!hasRedaction(data)) return html;
+            return maskHtmlString(html, { ...htmlMaskBase(session, where.model), maskWords: data.words, rules: data.rules, autoReplaceNames: false, applyReplaceRules: true });
+        },
+    });
+    session.htmlShot = createHtmlShot({
+        root, toast: say,
+        maskOptions: (where, flags) => htmlMaskOptions(session, where.model, flags),
+        onClose: () => { if (S === session) session.scroller.focus({ preventScroll: true }); },
+    });
     session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
     root.querySelector('.stcr-body').prepend(session.drawer.el);
     root.querySelector('.stcr-body').append(session.panel.el);
@@ -157,6 +177,8 @@ export function closeReader() {
     const session = S;
     closePopover(session); // 批注输入框点外面=保存，这里同理：先保存再关
     session.studio.close(); // 先关卡片工作台：它可能借用着这个聊天的句柄
+    session.htmlShot.close();
+    session.html.destroy(); // 所有 HTML 沙箱一起销毁
     S = null;
     session.token++;
     session.controller?.abort();
@@ -355,6 +377,9 @@ function onClick(event) {
             case 'reasoning': if (mes) toggleReasoning(mes); return;
             case 'copy': if (mes) copyFloor(mes); return;
             case 'copy-code': copyCode(actEl); return;
+            case 'copy-code-masked': copyCodeMasked(actEl); return;
+            case 'copy-html-masked': copyHtmlBlockMasked(actEl); return;
+            case 'html-shot': openHtmlShot(actEl); return;
             case 'fold': toggleFold(actEl); return;
             case 'bookmark-floor': if (mes) toggleBookmark(mes, false); return;
             case 'bookmark-swipe': if (mes) toggleBookmark(mes, true); return;
@@ -392,6 +417,10 @@ function handleKey(event) {
     if (session.studio.isOpen()) {
         // 卡片工作台开着：阅读器快捷键一律不响应，Esc 关工作台（工作台里的按键它自己处理）
         if (event.key === 'Escape') { session.studio.close(); event.preventDefault(); }
+        return;
+    }
+    if (session.htmlShot.isOpen()) {
+        if (event.key === 'Escape') { session.htmlShot.close(); event.preventDefault(); }
         return;
     }
     if (isTypingTarget(event.target)) {
@@ -515,6 +544,9 @@ function onPrefs(next, previous) {
         });
         return;
     }
+    // HTML 默认改了：清掉逐块的这一项，全部按新默认（T44b）
+    const htmlReset = [next.htmlMode !== previous.htmlMode ? 'mode' : null, next.htmlNetwork !== previous.htmlNetwork ? 'network' : null].filter(Boolean);
+    if (htmlReset.length) S.html.resetAll(htmlReset);
     if (next.expandAllReasoning !== previous.expandAllReasoning) {
         S.reasoning.clear(); // "全部展开/折叠"清掉逐楼记忆（02 §5.2）
         for (const details of S.chat.querySelectorAll('.mes_reasoning_details')) details.open = next.expandAllReasoning;
@@ -862,6 +894,7 @@ function floorContext() {
         },
         isReasoningOpen: index => session.reasoning.has(index) ? session.reasoning.get(index) : getPrefs().expandAllReasoning,
         isBookmarked: (index, swipe) => session.marks.isBookmarked(index, swipe),
+        attachHtml: (text, blocks, where) => session.html.attach(text, blocks, where),
         redactFor: model => {
             const data = getPrefs().redact ? session.redact : null;
             if (!hasRedaction(data)) return null;
@@ -1178,6 +1211,82 @@ async function copyCode(button) {
         icon.className = 'fa-solid fa-check';
         setTimeout(() => { icon.className = 'fa-solid fa-copy'; }, 1500);
     } else if (!ok) say('复制失败，请手动选中复制');
+}
+
+// ───────────────────────── HTML 与代码的脱敏复制、截图（T44b） ─────────────────────────
+
+/** 名字与规则作用范围：单聊 = 这个角色；群聊 = 这一楼的发言成员。 */
+function htmlMaskBase(session, model) {
+    const header = session.handle?.header ?? {};
+    const key = session.chatKey ? parseChatKey(session.chatKey) : null;
+    const group = !!session.handle?.isGroup;
+    return {
+        userName: header.userName ?? '',
+        characterName: group ? (model && !model.isUser ? model.name : '') : header.characterName ?? '',
+        isGroup: group,
+        avatarUrl: group ? (model && !model.isUser ? model.originalAvatar ?? undefined : undefined) : key?.avatarUrl ?? undefined,
+    };
+}
+
+/** 截图 / 复制脱敏版用：每次现读屏蔽词、规则、图片（工作台里可能刚改过）。遮盖按字数（和阅读器里的涂黑一样）。 */
+async function htmlMaskOptions(session, model, { autoNames = true, myRules = true } = {}) {
+    const [words, rules, assets] = await Promise.all([store.maskWords.list(), store.replaceRules.list(), store.assets.list()]);
+    return { ...htmlMaskBase(session, model), maskWords: words, rules, assets,
+        autoReplaceNames: autoNames, applyReplaceRules: myRules, maskStyle: { kind: 'bar', uniform: false } };
+}
+
+/** 代码块的原文（脱敏显示开着时，正文里是换过的显示段；复制脱敏版要从原文出发）。 */
+function originalCode(code) {
+    const clone = code.cloneNode(true);
+    for (const node of clone.querySelectorAll('.stcr-rd, .stcr-code-tools')) node.remove();
+    return clone.textContent ?? '';
+}
+
+/**
+ * 一段代码的脱敏版（F10b）：像 HTML 的只换文字节点、不碰标签和属性（core maskHtmlString）；其余当纯文本换。
+ * maskHtmlString 会补成完整文档：原文不是完整文档时，只取回 head + body 里的内容，保持原来的片段样子。
+ */
+async function maskedCodeText(text, model) {
+    const options = await htmlMaskOptions(S, model);
+    if (!/<[a-z!][^>]*>/i.test(text)) {
+        const { maskCodeText } = await import('../core/cardExport.js');
+        return maskCodeText(text, options);
+    }
+    const masked = await maskHtmlString(text, options);
+    if (/<(html|body|!doctype)\b/i.test(text)) return masked;
+    const doc = new DOMParser().parseFromString(masked, 'text/html'); // 惰性文档：不执行脚本、不加载资源，只用来取回片段
+    return doc.head.innerHTML + doc.body.innerHTML;
+}
+
+async function copyMasked(text, mes, button) {
+    const session = S;
+    try {
+        const model = mes && session.handle ? session.handle.getMessage(Number(mes.getAttribute('mesid'))) : null;
+        const masked = await maskedCodeText(text, model);
+        if (S !== session) return;
+        const ok = await copyText(masked);
+        say(ok ? '已复制脱敏版：屏蔽词遮住了，名字和替换规则都换好了' : '复制失败，请手动选中复制');
+        const icon = button?.querySelector('i');
+        if (ok && icon) { icon.className = 'fa-solid fa-check'; setTimeout(() => { icon.className = 'fa-solid fa-user-secret'; }, 1500); }
+    } catch (error) {
+        console.error('[st-reader] 复制脱敏版失败', error);
+        say(`复制脱敏版失败：${describeStoreError(error)}`);
+    }
+}
+
+function copyCodeMasked(button) {
+    const code = button.closest('pre')?.querySelector('code');
+    if (code) copyMasked(originalCode(code), button.closest('.mes'), button);
+}
+
+function copyHtmlBlockMasked(button) {
+    const info = S.html.entryFor(button);
+    if (info) copyMasked(info.html, button.closest('.mes'), button);
+}
+
+function openHtmlShot(button) {
+    const info = S.html.entryFor(button);
+    if (info) S.htmlShot.open(info);
 }
 
 function toggleFold(button) {
