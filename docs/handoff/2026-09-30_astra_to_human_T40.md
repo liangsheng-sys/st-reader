@@ -8,7 +8,7 @@
 - vendor 原始字节与迁移前完全相同，MIT 全文保留。43 个扩展 JS/CSS 文件逐个去掉新增首行后与原路径内容核对，仅 UI 自测说明中的命令路径另有更新，业务逻辑无变化。
 - 开发启动器的扩展目标改为 `E:\st-reader`；只自动迁移已知旧开发联接。真实安装的新 link 同样指向根目录，unlink 同时认可根目录和旧 `E:\st-reader\extension`，旧目标悬空时也能卸下。普通文件夹及未知目标均拒绝操作，不递归删除。
 - Node 自测导入、只读审计范围、工程师规则里的路径、03 §3、Windows 手册与各 README 已同步；历史交接与 D04/D08/D09 原始决定保留，由 03 说明 D18 对旧布局的替代。§5 合同未改。
-- `dev/test-core.cmd` 现在依次运行 core 与 UI 两套检查，失败返回非零。源码固定 LF，cmd 保留 CRLF，避免迁移后 Git 重新检出使 UI 换行检查失败。
+- `dev/test-core.cmd` 现在依次运行 core 与 UI 两套检查，失败返回非零。源码、HTML 模板及 LICENSE 固定 LF，cmd 保留 CRLF，避免迁移后 Git 重新检出使 UI 换行检查失败。
 - `.gitignore` 原本已有 `docs/*.png`，本卡确认两张截图均被忽略，当前索引与全部分支历史均未跟踪；未打开截图内容。反馈 txt 已在 `docs/feedback/`，无需重复搬动。I023 标记本卡处理完毕，T47 仍需发布前复查。
 
 ## 改动文件
@@ -29,6 +29,7 @@
 | 开发服务实际启动 + HTTP 静态资源核对 | 服务固定 `.dev/data`、8100；46/46 个 manifest、JS、CSS、模板与 vendor 资源均 HTTP 200，字节与仓库一致 |
 | 版权与第三方内容检查 | 60/60 首行正确；vendor 字节不变；完整 LICENSE 34,523 字节 |
 | `git diff --check` | 无空白错误 |
+| 切换分支后复核 | 首次发现 Windows 自动将 HTML 模板改为 CRLF，补齐 HTML/LICENSE 的 LF 规则后重验；不放宽 UI 检查 |
 
 本卡没有重跑整套浏览器交互/PNG/性能测试；上述 HTTP 检查证明新联接路径能提供全部扩展资源，不冒充浏览器交互验收。开发服务已停止，本次创建的 `.tmp/stcr-runtime-EL2bc3` 已清理，其他任务原有临时目录未动。
 
@@ -68,7 +69,7 @@ rg --no-ignore -n '\b(saveChat|deleteMessage|deleteLastMessage|renameChat|clearC
 rg --no-ignore -n '(swipe_id|chatMetadata|chat_metadata)\s*(=(?!=)|\+=|\?\?=)|getContext\(\)\.chat.*(=(?!=)|\.push\(|\.splice\()' --pcre2 index.js src style.css vendor
 ```
 
-以上两项均 **0 命中**（rg 无匹配退出码 1 是正常结果）。`node dev/audit-readonly.mjs` 通过：禁用路径 7 行（仅防护名单）、禁用调用 0、宿主状态赋值 0；运行文件含 LICENSE 为 **665,838 字节**，小于 3 MiB。网络字符串 34 行为现有只读取数、命名空间、拒绝/测试用例、vendor 通用能力及新增 manifest 的 homePage 元数据；本卡没有新增运行时请求。
+以上两项均 **0 命中**（rg 无匹配退出码 1 是正常结果）。`node dev/audit-readonly.mjs` 通过：禁用路径 7 行（仅防护名单）、禁用调用 0、宿主状态赋值 0；运行文件含 LICENSE **不到 0.7 MiB**，小于 3 MiB。网络字符串 34 行为现有只读取数、命名空间、拒绝/测试用例、vendor 通用能力及新增 manifest 的 homePage 元数据；本卡没有新增运行时请求。
 
 ```powershell
 git ls-files -- 'docs/*.png' .dev .tmp
