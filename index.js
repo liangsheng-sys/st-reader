@@ -1,12 +1,13 @@
 // ST Reader — AGPL-3.0
 import { installReadonlyGuard, isDevInstance, isReadonlyGuardInstalled } from './src/core/readonlyGuard.js';
+import { createSelfTestRunner } from './src/core/selfTestRunner.js';
 
 // ST Reader 入口。遵循 D02；数据与格式化已交付，阅读器界面由 T21 接入。
 // 在模块加载时立即启用保护，不等 APP_READY，避免留下初始化空窗。
 if (isDevInstance(window.location)) {
     installReadonlyGuard(window);
     console.log('[st-reader] 开发实例只读保护已开启。');
-    window.stcrSelfTest = async (options = {}) => {
+    window.stcrSelfTest = createSelfTestRunner(async (options = {}) => {
         const runCore = options.core ?? (!options.fixtures && !options.performance);
         if (!isReadonlyGuardInstalled(window)) throw new Error('开发实例的 fetch 只读保护已失效。');
         const { testReadonlyGuard } = await import('./src/core/readonlyGuard.test.js');
@@ -42,7 +43,7 @@ if (isDevInstance(window.location)) {
         console.table(results);
         console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
         return results;
-    };
+    });
     window.stcrStorageProbe = async phase => {
         const { testStorageProbe } = await import('./src/core/persistenceBrowser.test.js');
         return testStorageProbe(phase);

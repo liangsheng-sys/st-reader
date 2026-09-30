@@ -18,4 +18,4 @@ T30 验证入口：
 
 T40 后审计的扩展范围为根目录 `manifest.json / index.js / style.css / LICENSE` 与 `src/ / vendor/`；另外阻止 `.dev/`、`.tmp/` 和 `docs/*.png` 进入 Git。安装脚本只用内存替身测试，绝不运行 `install/run-junction.mjs`。
 
-T41：`test-core.cmd` 依次通过 Node 102 项、UI 27 项。启动开发实例后，控制台输入 `await window.stcrSelfTest({core:false,coreFixes:true})` 可单独跑 33 项（13 保护 + 11 纯逻辑 + 9 浏览器），无需选角色或导入字体；完整默认浏览器检查现为 130 项，仍需原 T14 的雾岚与 Ny 字体准备。T41 包含实际 PNG 的遮盖像素宽度/替换背景、HTML 属性与脚本保持、禁网解析和独立 IndexedDB 往返。工作台测量时机尚需 Opus 接入，见 I026。
+T41：`test-core.cmd` 依次通过 Node 103 项、UI 27 项。启动开发实例后，控制台输入 `await window.stcrSelfTest({core:false,coreFixes:true})` 可单独跑 35 项（13 保护 + 12 纯逻辑 + 10 浏览器），无需选角色或导入字体；完整默认浏览器检查现为 132 项，仍需原 T14 的雾岚与 Ny 字体准备。T41 包含实际 PNG 的遮盖像素宽度/替换背景、HTML 属性与脚本保持、禁网解析和独立 IndexedDB 往返。I027 返修补上内联样式 CSP、重复自测串行与节点清理反例；Ctrl+F5 后重验。工作台测量时机尚需 Opus 接入，见 I026。

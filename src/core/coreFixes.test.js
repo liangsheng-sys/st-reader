@@ -3,6 +3,7 @@ import { replaceNamesInRaw, maskText } from './cardTransforms.js';
 import { maskCodeText, maskHtmlString } from './codeTransforms.js';
 import { createStore, bookmarkId } from './store.js';
 import { memoryStorage } from './persistence.test.js';
+import { createSelfTestRunner } from './selfTestRunner.js';
 
 const assert = (value, message = '断言失败') => { if (!value) throw new Error(message); };
 const sorted = value => Array.isArray(value) ? value.map(sorted) : value && typeof value === 'object'
@@ -16,6 +17,22 @@ const rule = { from: '灯塔', to: { kind: 'text', value: '某地', background: 
 export async function testCoreFixesLogic() {
     const results = [];
     const test = async (name, run) => { await run(); results.push({ name: `T41 ${name}`, passed: true }); };
+    await test('重复自测按顺序执行，保留各次选项，失败后仍可重跑', async () => {
+        let release, active = 0, maxActive = 0;
+        const gate = new Promise(resolve => { release = resolve; }), seen = [];
+        const run = createSelfTestRunner(async options => {
+            maxActive = Math.max(maxActive, ++active); seen.push(options.id);
+            try {
+                if (options.id === 1) { await gate; throw new Error('合成的自测失败'); }
+                return options.id;
+            } finally { active--; }
+        });
+        const first = rejects(() => run({ id: 1 })), options = { id: 2 }, second = run(options);
+        options.id = 99;
+        await Promise.resolve(); equal(seen, [1]); release();
+        await first; equal(await second, 2); equal(await run({ id: 3 }), 3);
+        equal(seen, [1, 2, 3]); equal(maxActive, 1);
+    });
     await test('无 DOM 遮盖仍按码点回退，emoji 不按 UTF-16 拆分', () => {
         const parts = maskText('Wi😀界', ['Wi😀界'], { kind: 'bar', uniform: false });
         equal(parts[0].width, 4); assert(!Object.hasOwn(parts[0], 'text'));

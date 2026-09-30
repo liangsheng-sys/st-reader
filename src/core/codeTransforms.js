@@ -35,7 +35,8 @@ export async function maskHtmlString(html, options = {}) {
         timer = setTimeout(() => reject(new Error('HTML 脱敏解析环境加载超时')), 10000);
         frame.onload = resolve; frame.onerror = () => reject(new Error('HTML 脱敏解析环境加载失败'));
     });
-    frame.srcdoc = '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; form-action \'none\';"><body></body>';
+    // DOMParser 也会检查内联样式。允许保留它们，不开放 CSS 外链、图片、字体或脚本。
+    frame.srcdoc = '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\';"><body></body>';
     try {
         document.body.append(frame);
         await loaded;

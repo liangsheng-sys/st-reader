@@ -481,7 +481,7 @@ opts 接受与 `replaceNamesInRaw` 相同的名字上下文、avatarUrl、rules�
 
 字符串出口将遮盖转为实心方块：统一长度 `███`，关闭统一长度时按原词码点数重复 `█`。text 规则直接写文字；六种 icon 分别用 `★ / ♥ / 🐈 / ☁ / ☾ / 🛡`，asset 用 `[图片]` 纯文本占位。字符串接口不嵌入图片或背景 CSS，也不读取 assets；background 仍校验但没有文字之外的效果。这保持了“只改文本节点”的边界。
 
-HTML 解析在临时、禁脚本且 `default-src 'none'` 的同源沙箱解析环境中进行；用**该环境的 DOMParser**继承禁网策略。用户 HTML 从不放到活动页面。遍历 Text.data，包括 title、模板内容与 SVG 文本；跳过 script/style 全部内容，不改现有标签、属性、注释。匹配限于每个独立文本节点，不跨标签拼接名字。DOMParser 会规范化引号、实体与隐含 html/head/body，并修复无效 HTML，因此不承诺源字符串字节相同。解析环境在成功、失败时都移除。
+HTML 解析在临时、禁脚本且 `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` 的同源沙箱解析环境中进行；用**该环境的 DOMParser**继承禁网策略。允许内联样式以保留 style 属性和 style 内容，避免解析器对它们报 CSP 错误；没有开放任何网络协议、CSS 外链、图片、字体或脚本。用户 HTML 从不放到活动页面。遍历 Text.data，包括 title、模板内容与 SVG 文本；跳过 script/style 全部内容，不改现有标签、属性、注释。匹配限于每个独立文本节点，不跨标签拼接名字。DOMParser 会规范化引号、实体与隐含 html/head/body，并修复无效 HTML，因此不承诺源字符串字节相同。解析环境在成功、失败时都移除。
 
 这不是 HTML 安全清洗器：输出按要求仍保留原属性和 script/style，不能直接注入宿主 `innerHTML`。复制代码时作为字符串交给剪贴板；显示/导出交给 T44a 沙箱或静态清洗管线。T44a 调用必须 `await maskHtmlString(...)`。
 
@@ -507,3 +507,5 @@ T43 抽屉仅取 `list({kind:'chat'})`；批注面板应明确筛选 floor/swipe
 #### 验证入口
 
 Node 纯逻辑纳入 `node dev/selftest.mjs`；浏览器完整 `await window.stcrSelfTest()` 默认包含 T41。只验 T41 可用 `await window.stcrSelfTest({core:false,coreFixes:true})`，无需切角色或导入字体。网址入口：`http://localhost:8100/?stcrSelfTest=1&core=0&coreFixes=1`，按 F12 在控制台查看结果。
+
+T41 验收返修（I027）：网址自动触发和手动调用经过同一个串行队列；每次调用保留自己的选项和结果，前一轮失败不妨碍后一轮。T41 临时 DOM 审计按测试前的节点身份集合核对新增残留，既有节点不算成本轮泄漏，也不删除它们；真正新增的残留仍使测试失败，报出数量和标记类型，不输出聊天内容。专项包含“保留既有节点”和“刻意新增残留仍能检出”的反例验证。

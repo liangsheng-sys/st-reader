@@ -5,6 +5,15 @@ import { createStore } from './store.js';
 
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const cleanOptions = { rules: [], assets: [], maskWords: [], replaceNames: false, scale: 1 };
+const temporarySelector = '[data-stcr-export-frame],[data-stcr-parse-frame],[data-stcr-t41-test]';
+const temporaryNodes = () => new Set(document.querySelectorAll(temporarySelector));
+const addedTemporaryNodes = baseline => [...temporaryNodes()].filter(node => !baseline.has(node));
+function assertTemporaryCleanup(baseline) {
+    const leaked = addedTemporaryNodes(baseline);
+    // 仅记录节点种类，不把聊天文字、HTML 内容或已有页面节点放进日志。
+    const labels = leaked.map(node => `${node.localName}[${node.getAttributeNames().filter(name => /^data-stcr-(export-frame|parse-frame|t41-test)$/.test(name)).join(',')}]`);
+    assert(!leaked.length, `本轮临时 DOM 泄漏 ${leaked.length} 个：${labels.join('、')}`);
+}
 const hostState = () => {
     const context = SillyTavern.getContext();
     return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: context.extensionSettings,
@@ -25,7 +34,7 @@ const fakeHandle = {
 
 /** 可单独通过 stcrSelfTest({core:false,coreFixes:true}) 运行，不需要选择角色或安装字体。 */
 export async function testCoreFixesBrowser() {
-    const before = hostState(), results = [], root = document.createElement('div');
+    const before = hostState(), baseline = temporaryNodes(), results = [], root = document.createElement('div');
     root.dataset.stcrT41Test = '1';
     root.style.cssText = 'position:fixed;left:-20000px;top:0;width:700px;pointer-events:none;';
     document.body.append(root);
@@ -39,6 +48,20 @@ export async function testCoreFixesBrowser() {
         root.append(element); return element;
     };
     try {
+        await test('清理检查保留已有节点，仍能识别本轮新增残留', () => {
+            const existing = document.createElement('div'), leaked = document.createElement('div');
+            existing.dataset.stcrExportFrame = '1'; leaked.dataset.stcrParseFrame = '1';
+            try {
+                root.append(existing); const initial = temporaryNodes(); root.append(leaked);
+                const added = addedTemporaryNodes(initial);
+                assert(added.length === 1 && added[0] === leaked, '新增节点判定错误');
+                let detected = false;
+                try { assertTemporaryCleanup(initial); } catch (error) { detected = error.message.includes('data-stcr-parse-frame'); }
+                assert(detected, '检查漏掉真正新增的残留');
+                leaked.remove(); assertTemporaryCleanup(initial);
+                assert(existing.isConnected, '误删已有节点');
+            } finally { existing.remove(); leaked.remove(); }
+        });
         await test('英文、中文、emoji 与跨内联节点按 Range 像素测量，输入不变', () => {
             for (const html of ['Wi', '中文', 'Wi😀界', 'W<em style="font-size:22px">i</em>界']) {
                 const original = sample(html), range = document.createRange(); range.selectNodeContents(original);
@@ -91,11 +114,12 @@ export async function testCoreFixesBrowser() {
             assert(colored > 150, `PNG 背景色像素不足：${colored}`); assert(element.outerHTML === raw, '导出修改原节点'); element.remove();
         });
         await test('HTML 只改文本，标签/属性/script/style/注释保持原意，替换文字不执行', async () => {
-            const html = '<!doctype html><!--秘密--><html lang="秘密"><head data-note="秘密"><title>秘密</title><style>.秘密{color:red}/*秘密*/</style></head><body data-name="秘密"><b title="灯塔">灯塔与秘密</b><script>const x="秘密";</script><template><i>秘密</i></template></body></html>';
+            const html = '<!doctype html><!--秘密--><html lang="秘密"><head data-note="秘密"><title>秘密</title><style>.秘密{color:red}/*秘密*/</style></head><body data-name="秘密"><b title="灯塔" style="color:red">灯塔与秘密</b><script>const x="秘密";</script><template><i>秘密</i></template></body></html>';
             const output = await maskHtmlString(html, { maskWords: ['秘密'], rules: [{ from: '灯塔', to: { kind: 'text', value: '<img src=x onerror=bad()>' } }] });
             const doc = new DOMParser().parseFromString(output, 'text/html');
             assert(doc.documentElement.lang === '秘密' && doc.head.dataset.note === '秘密' && doc.body.dataset.name === '秘密', '修改了属性');
             assert(doc.querySelector('b').title === '灯塔' && doc.querySelector('b').textContent === '<img src=x onerror=bad()>与███', '文字替换或转义错误');
+            assert(doc.querySelector('b').getAttribute('style') === 'color:red', '内联样式被改');
             assert(!doc.querySelector('img'), '替换内容变成 HTML');
             assert(doc.querySelector('script').textContent === 'const x="秘密";' && doc.querySelector('style').textContent === '.秘密{color:red}/*秘密*/', '脚本或样式被改');
             assert(doc.title === '███' && doc.querySelector('template').content.textContent === '███', '标题或模板文本漏处理');
@@ -110,7 +134,7 @@ export async function testCoreFixesBrowser() {
             assert((await maskHtmlString('秘密', { maskWords: ['秘密'] })).includes('███'), '重复调用失败');
         });
         await test('HTML 带外链 img/iframe/CSS 时解析零外链条目、不执行脚本并清理', async () => {
-            const start = performance.now(), marker = crypto.randomUUID();
+            const start = performance.now(), marker = crypto.randomUUID(), initial = temporaryNodes();
             const url = `https://stcr-t41.invalid/${marker}`;
             const source = `<html><head><link rel="stylesheet" href="${url}.css"><style>@import "${url}-import.css";</style></head><body><img src="${url}.png"><iframe src="${url}.html"></iframe><script>globalThis.STCR_T41_UNEXPECTED = 1;</script><p>秘密</p></body></html>`;
             const output = await maskHtmlString(source, { maskWords: ['秘密'] });
@@ -118,7 +142,7 @@ export async function testCoreFixesBrowser() {
             await new Promise(resolve => setTimeout(resolve, 120));
             assert(!performance.getEntriesByType('resource').some(entry => entry.startTime >= start && entry.name.includes(marker)), '解析触发外链资源');
             assert(!Object.hasOwn(globalThis, 'STCR_T41_UNEXPECTED'), '执行了用户脚本');
-            assert(!document.querySelector('[data-stcr-parse-frame]'), '解析 iframe 未清理');
+            assertTemporaryCleanup(initial);
         });
         await test('聊天收藏与背景色使用真实 IndexedDB 往返，不碰使用者存储', async () => {
             const name = `stcr-t41-test-${crypto.randomUUID()}`, adapter = SillyTavern.libs.localforage.createInstance({ name, storeName: 'test' });
@@ -136,7 +160,7 @@ export async function testCoreFixesBrowser() {
         root.remove();
         await test('宿主聊天/候选/设置不变，导出与解析临时节点清理', () => {
             assert(before === hostState(), '宿主快照发生变化');
-            assert(!document.querySelector('[data-stcr-export-frame],[data-stcr-parse-frame],[data-stcr-t41-test]'), '临时 DOM 泄漏');
+            assertTemporaryCleanup(baseline);
         });
     }
     console.table(results);
