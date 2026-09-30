@@ -5,6 +5,7 @@ import { normalizeMaskStyle } from './cardTransforms.js';
 import { getCardSource, applyCardParts, renderCardParts, prepareCardAssets, maskTextNodesInPlace } from './cardContent.js';
 import { buildCardFontCss } from './cardFonts.js';
 import { createCardSnapshot, finishCardSnapshot, waitForCardFonts } from './cardSnapshot.js';
+import { offlineCaptureGuard } from './offlineCapture.js';
 
 export { createCardMessage, bindCardSource, wrapMaskSpans } from './cardContent.js';
 export { replaceNamesInRaw, maskText, automaticNameRules } from './cardTransforms.js';
@@ -47,14 +48,12 @@ export async function exportCard(rootEl, opts = {}) {
         maskTextNodesInPlace(snapshot.copy, options.maskWords, options.maskStyle, options.assetMap);
         await finishCardSnapshot(snapshot);
         if (snapshot.width * snapshot.height * scale * scale > 32_000_000) throw new RangeError('导出超过 3200 万像素，请减少选段或倍率');
-        let networkAttempt = false;
         const blob = await domToBlob(snapshot.copy, {
             type: 'image/png', width: Math.ceil(snapshot.width), height: snapshot.height, scale,
             timeout: 15000, maximumCanvasSize: 32768, workerNumber: 0,
             font: { cssText: font.cssText }, features: { copyScrollbar: false },
             // 只提供内嵌资源；即使依赖尝试补取图片，也绝不回退到 fetch。
-            fetchFn: async () => { networkAttempt = true; throw new Error('导出禁止请求外部资源'); },
-            onCreateForeignObjectSvg: () => { if (networkAttempt) throw new Error('卡片存在无法离线读取的资源'); },
+            ...offlineCaptureGuard(),
         });
         if (!blob || blob.type !== 'image/png' || !blob.size) throw new Error('浏览器未生成 PNG，请减少选段后重试');
         return blob;

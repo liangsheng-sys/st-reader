@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 // 全部角色、故事、日期、对白和“思维链”均为人工构造的虚构测试样本。
 // 思维链字段只放测试说明，不含任何模型的真实内部推理。
+import { HTML_MESSAGES } from './html.mjs';
 export const FIXTURE_ID = 'stcr-t11-v1';
 export const USER_NAME = '测试旅人（虚构）';
 export const THEME_NAME = 'STCR T11 · 雾岛纸页';
@@ -98,6 +99,7 @@ export function makeSmallChats() {
         makeMessage(paper.name, `超长楼开始\n\n${longText}\n\n超长楼结束`, 3),
         makeMessage(paper.name, '这一楼刻意没有 swipes 与 reasoning 字段。', 4),
         makeMessage(paper.name, '这一楼提供思维链缺失的候选边界用例。', 5, { swipeCount: 3, swipeId: 1 }),
+        ...HTML_MESSAGES.map((html, index) => makeMessage(paper.name, html, index + 6)),
     ];
     delete second[5].swipe_info[0].extra.reasoning;
     // 当前候选允许使用楼层 extra 的思维链；其他候选缺失时不应串用。

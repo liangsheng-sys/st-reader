@@ -651,7 +651,7 @@
 
 ### 9.6 T43 实现记录（2026-09-30）
 
-- `src/ui/drawer.js` 重写"按角色"与"收藏"；`src/ui/ownerMeta.js`（排序字段 / 标签 / ST 当前排序，临时读宿主内存，06 I029）；`src/ui/chatFavorites.js`（kind:'chat' 收藏的读写与变更通知）；`logic.js` 的 `OWNER_SORTS / stOwnerSort / sortOwners / filterOwners / parseStDate`（Node 测试覆盖三种 create_date 格式、收藏在前、同值按名字、多标签）。
+- `src/ui/drawer.js` 重写"按角色"与"收藏"；`src/ui/ownerMeta.js`（排序字段 / 标签 / ST 当前排序，临时读宿主内存，06 I030）；`src/ui/chatFavorites.js`（kind:'chat' 收藏的读写与变更通知）；`logic.js` 的 `OWNER_SORTS / stOwnerSort / sortOwners / filterOwners / parseStDate`（Node 测试覆盖三种 create_date 格式、收藏在前、同值按名字、多标签）。
 - 楼层收藏读取（marks.js）与批注面板"全部聊天"都排除 kind:'chat'，两处收藏不重复。
 - 实测（8101 合成 404 个角色 + 7 个标签）：打开按角色约 1 秒内出列表，DOM 里 25 行；搜索 7 ms；从顶滚到底 32 帧、始终约 24 行；标签多选、排序切换、展开、☆ 收藏、收藏页、顶栏 ☆ 均通过。
 

@@ -32,6 +32,11 @@ if (isDevInstance(window.location)) {
             const { testCoreFixesBrowser } = await import('./src/core/coreFixesBrowser.test.js');
             results.push(...await testCoreFixesLogic(), ...await testCoreFixesBrowser());
         }
+        if (options.htmlRenderer ?? runCore) {
+            const { testHtmlRendererLogic } = await import('./src/core/htmlRenderer.test.js');
+            const { testHtmlRendererBrowser } = await import('./src/core/htmlRendererBrowser.test.js');
+            results.push(...testHtmlRendererLogic(), ...await testHtmlRendererBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
@@ -51,6 +56,10 @@ if (isDevInstance(window.location)) {
     window.stcrExportDemo = async () => {
         const { showCardExportDemo } = await import('./src/core/cardExportBrowser.test.js');
         return showCardExportDemo();
+    };
+    window.stcrHtmlDemo = async () => {
+        const { showHtmlRendererDemo } = await import('./src/core/htmlRendererDemo.js');
+        return showHtmlRendererDemo();
     };
 }
 
@@ -79,6 +88,7 @@ eventSource.on(event_types.APP_READY, async () => {
     const probe = new URLSearchParams(window.location.search).get('stcrStorageProbe');
     if (isDevInstance(window.location) && probe) window.stcrStorageProbe(probe).catch(error => console.error('[st-reader] 刷新验证失败：', error));
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrExportDemo') === '1') window.stcrExportDemo().catch(error => console.error('[st-reader] PNG 演示失败：', error));
+    if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrHtmlDemo') === '1') window.stcrHtmlDemo().catch(error => console.error('[st-reader] HTML 演示失败：', error));
     // 开发验收也可用网址参数触发；与控制台的一行命令运行同一套测试。
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrSelfTest') === '1') {
         const params = new URLSearchParams(window.location.search);
@@ -86,6 +96,7 @@ eventSource.on(event_types.APP_READY, async () => {
         if (params.has('persistence')) options.persistence = params.get('persistence') !== '0';
         if (params.has('cardExport')) options.cardExport = params.get('cardExport') !== '0';
         if (params.has('coreFixes')) options.coreFixes = params.get('coreFixes') !== '0';
+        if (params.has('htmlRenderer')) options.htmlRenderer = params.get('htmlRenderer') !== '0';
         const run = () => window.stcrSelfTest(options).catch(error => console.error('[st-reader] 自测失败：', error));
         const waitAvatar = options.rendered ? 'STCR_T11_Aster.png' : params.get('coreWhenChat') === '1' ? 'STCR_T11_Mist.png' : null;
         if (waitAvatar) {
