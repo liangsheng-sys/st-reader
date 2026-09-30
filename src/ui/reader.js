@@ -10,6 +10,7 @@ import { backupStatus, describeStoreError, exportBackup, pickAndImport } from '.
 import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
 import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
+import { isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, toggleFavoriteChat } from './chatFavorites.js';
 import { createDrawer } from './drawer.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
 import { effectivePrefs, formatStamp, hiddenUserRuns, parseJumpInput, pickSwipe, progressText, swipePreviews } from './logic.js';
@@ -64,7 +65,7 @@ export async function openReader({ tab, chatKey } = {}) {
         stateBox: root.querySelector('.stcr-state'), progressBtn: root.querySelector('.stcr-progress'),
         progressLine: root.querySelector('.stcr-progress-line > span'), topPercent: root.querySelector('.stcr-top-percent'),
         titleOwner: root.querySelector('.stcr-title-owner'), titleFile: root.querySelector('.stcr-title-file'),
-        panelBtn: root.querySelector('.stcr-panel-btn'),
+        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
@@ -86,6 +87,7 @@ export async function openReader({ tab, chatKey } = {}) {
         getActiveKey: () => S?.chatKey ?? null,
         isPinned: () => getPrefs().drawerPinned,
         onPinChange: pinned => setPrefs({ drawerPinned: pinned }),
+        toast: say,
     });
     session.panel = createPanel({
         marks: session.marks,
@@ -124,6 +126,7 @@ export async function openReader({ tab, chatKey } = {}) {
     wireEvents(session);
     applyPrefs(getPrefs());
     session.cleanup.push(onPrefsChange(onPrefs));
+    session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
     document.body.append(root);
     document.body.classList.add('stcr-reader-open');
     session.scroller.focus({ preventScroll: true });
@@ -321,6 +324,7 @@ function onClick(event) {
             case 'drawer': toggleDrawer(); return;
             case 'close-drawer': session.drawer.close(); return;
             case 'panel': togglePanel(); return;
+            case 'fav-chat': toggleChatFav(); return;
             case 'close-panel': session.panel.close(); return;
             case 'jump': openJump(); return;
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
@@ -509,7 +513,6 @@ function onMarksChange(session) {
     session.panelBtn.classList.toggle('stcr-panel-btn--warn', orphans > 0);
     session.panelBtn.title = orphans ? `划线、批注与收藏（有 ${orphans} 条孤立的划线）` : '划线、批注与收藏（/）';
     session.panel.refresh();
-    session.drawer.refreshFavorites();
     if (session.handle) {
         const ctx = floorContext();
         for (const el of renderedFloors()) if (!el.classList.contains('stcr-mes--broken')) syncBookmarkMarks(ctx, el);
@@ -530,6 +533,35 @@ async function toggleBookmark(mes, forSwipe) {
     } catch (error) {
         console.error('[st-reader] 收藏失败：', error);
         say(`收藏没保存上：${describeStoreError(error)}`);
+    }
+}
+
+/** 顶栏 ☆：收藏整个聊天（D19）。楼 / 候选的收藏在楼层工具条和右侧面板。 */
+async function syncChatFav(session) {
+    const button = session.favBtn;
+    if (!session.handle || !session.chatKey) { button.hidden = true; return; }
+    try { await loadFavoriteChats(); } catch { button.hidden = true; return; }
+    if (S !== session) return;
+    const on = isFavoriteChat(session.chatKey);
+    button.hidden = false;
+    button.classList.toggle('stcr-on', on);
+    button.setAttribute('aria-pressed', String(on));
+    button.title = on ? '取消收藏此聊天' : '收藏此聊天（在左侧"收藏"页里能找到）';
+    button.setAttribute('aria-label', on ? '取消收藏此聊天' : '收藏此聊天');
+    const icon = button.querySelector('i');
+    icon.classList.toggle('fa-solid', on);
+    icon.classList.toggle('fa-regular', !on);
+}
+
+async function toggleChatFav() {
+    const session = S;
+    if (!session?.handle) return;
+    try {
+        const on = await toggleFavoriteChat(session.chatKey, [session.owner, session.handle.title].filter(Boolean).join(' · '));
+        say(on ? '已收藏此聊天（左侧抽屉"收藏"页）' : '已取消收藏此聊天');
+    } catch (error) {
+        console.error('[st-reader] 收藏聊天失败：', error);
+        say(`没收藏上：${describeStoreError(error)}`);
     }
 }
 
@@ -638,6 +670,8 @@ function doImport() {
         if (session.handle && await session.marks.loadChat(session.chatKey)) {
             for (const el of renderedFloors()) session.marks.paintFloor(el);
         }
+        resetFavoriteChats(); // 备份里可能带进收藏的聊天
+        if (session.chatKey) syncChatFav(session);
         session.drawer.refreshFavorites();
         refreshBackupStatus();
     } });
@@ -676,6 +710,7 @@ async function loadChat(chatKey, { index = null, swipe = null } = {}) {
         session.titleOwner.textContent = session.owner || '阅读器';
         session.titleFile.textContent = handle.title;
         session.root.setAttribute('aria-label', `阅读器：${session.owner} · ${handle.title}`);
+        syncChatFav(session);
         try {
             if (!await session.marks.loadChat(chatKey)) return;
         } catch (error) {
@@ -711,6 +746,7 @@ function releaseChat(session) {
     session.handle = null;
     session.titleOwner.textContent = '阅读器';
     session.titleFile.textContent = '';
+    session.favBtn.hidden = true;
     session.follow.hidden = true;
     session.follow.dataset.key = '';
 }

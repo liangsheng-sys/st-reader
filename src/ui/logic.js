@@ -347,3 +347,65 @@ export function cleanMaskWord(value, max = 40) {
     const word = String(value ?? '').replace(/\s*\n\s*/g, ' ').trim();
     return word && word.length <= max ? word : null;
 }
+
+// ───────────────────────── 抽屉"按角色"（T43、F12、D20） ─────────────────────────
+
+/**
+ * 与 ST 角色面板排序下拉一一对应（public/index.html #character_sort_order），"跟随 ST"时按 ST 当前那一项排。
+ * data_size（内容多少）ST 也有，一起支持；ST 选"随机"或"搜索"时跟随失败，退回 A-Z。
+ */
+export const OWNER_SORTS = Object.freeze([
+    { id: 'name:asc', field: 'name', order: 'asc', label: 'A-Z' },
+    { id: 'name:desc', field: 'name', order: 'desc', label: 'Z-A' },
+    { id: 'create_date:desc', field: 'create_date', order: 'desc', label: '最新创建' },
+    { id: 'create_date:asc', field: 'create_date', order: 'asc', label: '最早创建' },
+    { id: 'fav:desc', field: 'fav', order: 'desc', label: '收藏的在前' },
+    { id: 'date_last_chat:desc', field: 'date_last_chat', order: 'desc', label: '最近聊过' },
+    { id: 'chat_size:desc', field: 'chat_size', order: 'desc', label: '聊天最多' },
+    { id: 'chat_size:asc', field: 'chat_size', order: 'asc', label: '聊天最少' },
+    { id: 'data_size:desc', field: 'data_size', order: 'desc', label: '内容最多' },
+    { id: 'data_size:asc', field: 'data_size', order: 'asc', label: '内容最少' },
+]);
+
+/** ST 的 power_user.sort_field / sort_order → 上表的一项；认不出（随机、搜索、缺失）时返回 A-Z。 */
+export function stOwnerSort(field, order) {
+    return OWNER_SORTS.find(s => s.field === field && s.order === order) ?? OWNER_SORTS[0];
+}
+
+/** ST 的 create_date 可能是毫秒数、ISO 字符串，或 "2024-5-3 @13h 20m 11s 123ms" 这种旧格式。认不出返回 0。 */
+export function parseStDate(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const text = String(value ?? '').trim();
+    if (!text) return 0;
+    if (/^\d+$/.test(text)) return Number(text);
+    const old = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s*@(\d{1,2})h\s*(\d{1,2})m\s*(\d{1,2})s(?:\s*(\d{1,3})ms)?/);
+    if (old) return new Date(+old[1], +old[2] - 1, +old[3], +old[4], +old[5], +old[6], +(old[7] ?? 0)).getTime();
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * 按角色列表排序（不改入参）。字段名与 ST 一致：name / create_date / fav / date_last_chat / chat_size / data_size。
+ * 与 ST 相同：收藏排序时收藏的在前；同值按名字，保证每次顺序一样。
+ * @param {readonly {name:string, [key:string]:any}[]} owners
+ */
+export function sortOwners(owners, sort) {
+    const { field, order } = sort ?? OWNER_SORTS[0];
+    // 和 ST 一样用浏览器默认语言比较名字（ST 的 compareFunc 是 a.localeCompare(b)），顺序才和 ST 角色列表一致
+    const byName = (a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''));
+    const value = owner => {
+        const raw = owner[field];
+        if (field === 'create_date') return parseStDate(raw);
+        if (field === 'fav') return raw === true || raw === 'true' ? 1 : 0;
+        return Number.isFinite(Number(raw)) ? Number(raw) : 0;
+    };
+    const compare = field === 'name' ? byName : (a, b) => value(a) - value(b) || 0;
+    const sign = order === 'desc' ? -1 : 1;
+    return [...owners].sort((a, b) => sign * compare(a, b) || byName(a, b));
+}
+
+/** 名字搜索 + 标签筛选（选了多个标签 = 都要有，和 ST 的标签筛选一样）。 */
+export function filterOwners(owners, { query = '', tags = [] } = {}) {
+    const wanted = [...tags];
+    return owners.filter(owner => matchesFilter(query, owner.name) && wanted.every(tag => owner.tags?.includes(tag)));
+}

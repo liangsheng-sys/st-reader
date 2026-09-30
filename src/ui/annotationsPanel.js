@@ -140,7 +140,7 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPi
     async function collect(all) {
         if (!all) return { annotations: marks.records(), bookmarks: marks.bookmarks() };
         const [annotations, bookmarks] = await Promise.all([store.annotations.list(), store.bookmarks.list()]);
-        return { annotations, bookmarks };
+        return { annotations, bookmarks: bookmarks.filter(r => r.kind !== 'chat') }; // 收藏整个聊天在左侧抽屉（D19）
     }
 
     async function render() {

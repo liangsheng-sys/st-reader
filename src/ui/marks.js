@@ -186,7 +186,7 @@ export function createMarks({ getHandle, getChatKey, getTitle, onChange }) {
             const [annotations, marks] = await Promise.all([store.annotations.list({ chatKey }), store.bookmarks.list({ chatKey })]);
             if (current !== token) return false;
             records = new Map(annotations.map(r => [r.id, r]));
-            bookmarks = new Map(marks.map(r => [r.id, r]));
+            bookmarks = new Map(marks.filter(r => r.kind !== 'chat').map(r => [r.id, r])); // 收藏整个聊天不算楼层收藏（D19）
             changed();
             return true;
         },

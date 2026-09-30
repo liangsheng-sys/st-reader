@@ -385,7 +385,6 @@
 #stcr_root .stcr-row-tag { flex: none; padding: 0 5px; border: 1px solid var(--stcr-border); border-radius: 6px; color: var(--stcr-faint); font-size: 10px; font-weight: 400; }
 #stcr_root .stcr-row-meta { color: var(--stcr-faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #stcr_root .stcr-row-preview { color: var(--stcr-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
-#stcr_root .stcr-owner { content-visibility: auto; contain-intrinsic-size: auto 46px; }
 #stcr_root .stcr-owner-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; text-align: left; border-radius: 10px; }
 #stcr_root .stcr-owner-row:hover { background: var(--stcr-hover); }
 #stcr_root .stcr-owner-thumb { flex: none; width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
@@ -393,7 +392,35 @@
 #stcr_root .stcr-owner-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 #stcr_root .stcr-owner-arrow { font-size: 11px; opacity: .5; transition: transform .15s; }
 #stcr_root .stcr-owner-row[aria-expanded="true"] .stcr-owner-arrow { transform: rotate(90deg); }
-#stcr_root .stcr-owner-chats { padding-left: 20px; }
+/* T43：按角色页的工具条（角色/群组、排序、个数；标签一行可横向滚动）与虚拟列表（行高固定，见 drawer.js ROW） */
+#stcr_root .stcr-owner-bar { display: flex; flex-direction: column; gap: 6px; padding: 0 10px 8px; }
+#stcr_root .stcr-owner-bar-row { display: flex; align-items: center; gap: 8px; }
+#stcr_root .stcr-owner-bar .stcr-seg-btn { padding: 3px 10px; font-size: 12.5px; }
+#stcr_root .stcr-owner-sort { flex: 1; min-width: 0; margin: 0; padding: 3px 6px; font-size: 12.5px; }
+#stcr_root .stcr-owner-tags { display: flex; flex-wrap: wrap; gap: 5px; max-height: 50px; overflow: hidden; }
+#stcr_root .stcr-owner-tags--open { max-height: 40vh; overflow-y: auto; }
+#stcr_root .stcr-tag-more { align-self: flex-start; padding: 0 4px; color: var(--stcr-faint); font-size: 11.5px; }
+#stcr_root .stcr-tag-more:hover { color: var(--stcr-text); }
+#stcr_root .stcr-tag-chip, #stcr_root .stcr-tag-clear { flex: none; padding: 2px 9px; border: 1px solid var(--stcr-border); border-radius: 999px; font-size: 12px; white-space: nowrap; }
+#stcr_root .stcr-tag-chip { box-shadow: inset 3px 0 0 var(--stcr-tag-color, transparent); }
+#stcr_root .stcr-tag-chip.stcr-on { border-color: var(--stcr-accent); background-color: color-mix(in srgb, var(--stcr-accent) 22%, transparent); color: var(--stcr-text); }
+#stcr_root .stcr-tag-clear { color: var(--stcr-faint); }
+#stcr_root .stcr-vlist { position: relative; }
+#stcr_root .stcr-vrow { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; }
+#stcr_root .stcr-vrow--chat { padding-left: 20px; }
+#stcr_root .stcr-vrow--status { padding-left: 20px; }
+#stcr_root .stcr-vrow .stcr-owner-row { height: 100%; }
+#stcr_root .stcr-vrow--chat .stcr-row-wrap, #stcr_root .stcr-vrow--chat .stcr-row { height: 100%; }
+#stcr_root .stcr-owner-fav { flex: none; color: #f5b400; font-size: 10px; }
+/* 聊天行右上角的 ☆（收藏整个聊天，D19）：悬停出现，收藏了常亮 */
+#stcr_root .stcr-row-wrap { position: relative; }
+#stcr_root .stcr-row-wrap > .stcr-row { padding-right: 34px; }
+#stcr_root .stcr-row-fav { position: absolute; top: 4px; right: 4px; min-width: 28px; height: 28px; font-size: 12px; opacity: 0; }
+#stcr_root .stcr-row-wrap:hover .stcr-row-fav, #stcr_root .stcr-row-fav:focus-visible { opacity: .6; }
+#stcr_root .stcr-row-fav:hover { opacity: 1; }
+#stcr_root .stcr-row-fav.stcr-on { opacity: 1; color: #f5b400; }
+#stcr_root .stcr-chat-fav.stcr-on { color: #f5b400; }
+@media (pointer: coarse) { #stcr_root .stcr-row-fav { opacity: .45; } }
 
 /* ── 状态：加载 / 空 / 出错 ── */
 #stcr_root .stcr-state {
@@ -714,10 +741,6 @@
 #stcr_root .stcr-item-actions .stcr-icon-btn { min-width: 30px; height: 30px; font-size: 12px; }
 
 /* ── 抽屉"收藏"页签：按聊天分组 ── */
-#stcr_root .stcr-fav-group { margin: 4px 0 10px; }
-#stcr_root .stcr-fav-title { padding: 6px 12px 2px; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#stcr_root .stcr-fav-row { padding-left: 18px; }
-#stcr_root .stcr-fav-icon { font-size: 10px; color: var(--stcr-accent); }
 
 /* ── 跟随条：长楼的名字行滚出去以后浮在正文右上角 ── */
 #stcr_root .stcr-follow {

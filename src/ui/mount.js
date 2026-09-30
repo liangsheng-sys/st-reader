@@ -52,7 +52,7 @@ function registerSlashCommand() {
             return '';
         },
         unnamedArgumentList: [SlashCommandArgument.fromProps({
-            description: '可选：recent（最近）/ owners（按角色）/ favorites（收藏）/ current（当前）',
+            description: '可选：recent（最近）/ owners（按角色）/ favorites（收藏的聊天）/ current（当前）',
             typeList: [ARGUMENT_TYPE.STRING], isRequired: false, enumList: ['recent', 'owners', 'favorites', 'current'],
         })],
         helpString: '打开阅读器（只读，不会修改聊天）。例：<code>/reader</code>、<code>/reader recent</code>',

@@ -2,7 +2,7 @@
 // 阅读器界面自测（T21）。纯 Node 运行，无依赖：node src/ui/ui.test.js
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
-import { alignTexts, cardFileName, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
+import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
     mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt } from './logic.js';
 
@@ -144,6 +144,25 @@ export async function testUiLogic() {
         equal([cleanHexColor('#F5B8C8'), cleanHexColor('abc'), cleanHexColor(' #1a2b3c '), cleanHexColor('red'), cleanHexColor('#12345'), cleanHexColor('')],
             ['#f5b8c8', '#aabbcc', '#1a2b3c', null, null, null]);
         equal([normalizeCardPrefs(null).maskColor, normalizeCardPrefs({ maskColor: '#93C8EC' }).maskColor, normalizeCardPrefs({ maskColor: 'blue' }).maskColor], [null, '#93c8ec', null]);
+    });
+    check('按角色排序（T43）：跟随 ST 的字段与方向；收藏在前；同值按名字；认不出退回 A-Z', () => {
+        const list = [
+            { name: '乙', create_date: '2024-5-3 @13h 20m 11s 123ms', fav: false, date_last_chat: 30, chat_size: 5, tags: ['a'] },
+            { name: 'Ann', create_date: 1714700000000, fav: 'true', date_last_chat: 10, chat_size: 50, tags: ['a', 'b'] },
+            { name: '甲', create_date: '2025-01-01T00:00:00Z', fav: true, date_last_chat: 20, chat_size: 5, tags: [] },
+        ];
+        const names = sort => sortOwners(list, sort).map(o => o.name);
+        equal(stOwnerSort('name', 'asc').id, 'name:asc');
+        equal(stOwnerSort('name', 'random').id, 'name:asc', '随机：');
+        equal(stOwnerSort('chat_size', 'desc').label, '聊天最多');
+        equal(names(stOwnerSort('date_last_chat', 'desc')), ['乙', '甲', 'Ann']);
+        equal(names(stOwnerSort('fav', 'desc')).at(-1), '乙', '收藏：');
+        equal(names(stOwnerSort('chat_size', 'desc')), ['Ann', '甲', '乙'], '同值按名字：');
+        equal(names(stOwnerSort('create_date', 'desc')), ['甲', '乙', 'Ann'], '三种日期格式：');
+        equal(parseStDate('胡说'), 0);
+        equal(OWNER_SORTS.length, 10);
+        equal(filterOwners(list, { query: 'an', tags: ['a'] }).map(o => o.name), ['Ann']);
+        equal(filterOwners(list, { tags: ['a', 'b'] }).map(o => o.name), ['Ann'], '多标签 = 都要有：');
     });
     check('隐藏思维链（T42）：默认关，只收布尔值', () => {
         equal(normalizePrefs(null).hideReasoning, false);
