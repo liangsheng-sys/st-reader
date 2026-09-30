@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 import { parseChatKey } from './chatSource.js';
 import { MAX_ASSETS, normalizeAssetImage } from './assetCodec.js';
+import { validReplacementBackground } from './cardTransforms.js';
 
 const STATE_KEY = 'stcr:state:v1';
 const CATEGORIES = ['annotations', 'bookmarks', 'maskWords', 'settings', 'replaceRules', 'assets'];
@@ -47,9 +48,26 @@ function validateAnchor(anchor) {
     string(anchor.quote.prefix, '前文', 200000); string(anchor.quote.suffix, '后文', 200000);
     if (!/^sha256:[a-f0-9]{64}$/.test(anchor.rawHash)) fail('INVALID_DATA', '锚点原文哈希无效');
 }
-/** 收藏一楼与收藏某候选使用不同的稳定键。 */
-export function bookmarkId({ chatKey: key, mesIndex, swipeIndex = null }) {
-    chatKey(key); index(mesIndex); if (swipeIndex !== null) index(swipeIndex);
+/** 旧记录按候选编号推断类型；聊天收藏不携带楼层或候选编号。 */
+function bookmarkKind(record) {
+    const kind = record.kind ?? (record.swipeIndex == null ? 'floor' : 'swipe');
+    if (!['chat', 'floor', 'swipe'].includes(kind)) fail('INVALID_DATA', '收藏类型需为 chat / floor / swipe');
+    if (kind === 'chat') {
+        if (Object.hasOwn(record, 'mesIndex') || Object.hasOwn(record, 'swipeIndex')) fail('INVALID_DATA', '聊天收藏不能携带楼层或候选编号');
+    } else if ((record.swipeIndex != null) !== (kind === 'swipe')) fail('INVALID_DATA', '收藏类型与候选编号不一致');
+    return kind;
+}
+function normalizeBookmark(record) {
+    record.kind = bookmarkKind(record);
+    if (record.kind !== 'chat') record.swipeIndex ??= null;
+    return record;
+}
+/** 聊天、整楼与候选使用不同的稳定键；旧楼层/候选 ID 保持不变。 */
+export function bookmarkId(record) {
+    const { chatKey: key, mesIndex, swipeIndex = null } = record;
+    chatKey(key);
+    if (bookmarkKind(record) === 'chat') return `stcr:bookmark:${encodeURIComponent(key)}:chat`;
+    index(mesIndex); if (swipeIndex !== null) index(swipeIndex);
     return `stcr:bookmark:${encodeURIComponent(key)}:${mesIndex}:${swipeIndex === null ? 'floor' : swipeIndex}`;
 }
 function validateRecord(category, record) {
@@ -67,6 +85,7 @@ function validateRecord(category, record) {
         if (!string(record.from, '原词', 1000)) fail('INVALID_DATA', '原词不能为空');
         object(record.to); string(record.to.value, '替换内容');
         if (!['text', 'icon', 'asset'].includes(record.to.kind)) fail('INVALID_DATA', '替换类型无效');
+        if (!validReplacementBackground(record.to)) fail('INVALID_DATA', '仅文字替换可设置 #RRGGBB 背景色');
         if (record.to.kind === 'icon' && !/^fa-[a-z0-9-]+$/.test(record.to.value)) fail('INVALID_DATA', '图标需为单个 Font Awesome 名称');
         if (typeof record.caseSensitive !== 'boolean' || typeof record.wholeWord !== 'boolean') fail('INVALID_DATA', '匹配选项需为布尔值');
         if (!string(record.scope, '作用范围', 1000) || record.scope !== 'all' && /[\\/\u0000-\u001f]/u.test(record.scope)) fail('INVALID_DATA', '作用范围需为 all 或角色头像文件名');
@@ -102,7 +121,10 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
         const state = await (await adapter()).getItem(STATE_KEY);
         if (state === null) return empty();
         if (state?.version !== 1 || !state.data || CATEGORIES.some(key => !Object.hasOwn(state.data, key))) fail('INVALID_STATE', '阅读器存储格式不兼容，未覆盖原数据');
-        return clone(state);
+        const copy = clone(state);
+        // 只升级读取副本；首次读取、列表和导出预览不会为了迁移写入数据库。
+        Object.values(copy.data.bookmarks).forEach(normalizeBookmark);
+        return copy;
     }
     function exclusive(run) {
         const perform = () => lock ? lock(run) : globalThis.navigator?.locks ? navigator.locks.request('stcr:store:v1', run) : run();
@@ -133,7 +155,7 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
                 }
                 return mutate(state => {
                     const time = now();
-                    if (category === 'bookmarks') { record.swipeIndex ??= null; record.id ??= bookmarkId(record); }
+                    if (category === 'bookmarks') { normalizeBookmark(record); record.id ??= bookmarkId(record); }
                     if (!record.id) {
                         const target = category === 'annotations' ? `${encodeURIComponent(record.anchor?.chatKey)}:${record.anchor?.mesIndex}:${record.anchor?.swipeIndex}:${record.anchor?.part}:` : '';
                         record.id = `stcr:${category}:${target}${uuid()}`;
@@ -172,6 +194,7 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
             for (const [id, record] of Object.entries(data[category])) {
                 if (id !== record.id) fail('INVALID_BACKUP', '备份记录键与 ID 不一致');
                 validateRecord(category, record);
+                if (category === 'bookmarks') normalizeBookmark(record);
                 if (category === 'assets') Object.assign(record, await normalizeAssetImage(record, cleanSvg));
             }
         }

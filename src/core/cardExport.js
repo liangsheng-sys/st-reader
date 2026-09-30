@@ -4,10 +4,11 @@ import { store } from './store.js';
 import { normalizeMaskStyle } from './cardTransforms.js';
 import { getCardSource, applyCardParts, renderCardParts, prepareCardAssets, maskTextNodesInPlace } from './cardContent.js';
 import { buildCardFontCss } from './cardFonts.js';
-import { createCardSnapshot, finishCardSnapshot } from './cardSnapshot.js';
+import { createCardSnapshot, finishCardSnapshot, waitForCardFonts } from './cardSnapshot.js';
 
 export { createCardMessage, bindCardSource, wrapMaskSpans } from './cardContent.js';
 export { replaceNamesInRaw, maskText, automaticNameRules } from './cardTransforms.js';
+export { maskCodeText, maskHtmlString } from './codeTransforms.js';
 
 /**
  * 从已连接的预览节点生成 PNG。只在隔离副本重渲染、脱敏，不改输入 DOM。
@@ -35,14 +36,15 @@ export async function exportCard(rootEl, opts = {}) {
             const result = await renderCardParts(getCardSource(original), options, snapshot.doc);
             applyCardParts(target, result);
         }
-        maskTextNodesInPlace(snapshot.copy, options.maskWords, options.maskStyle, options.assetMap);
-        // 在最终副本上收集字体，覆盖正则新建的 q/code 等节点，不只看旧预览。
+        // 先收集并加载未遮盖副本的字体，让 Range 测到最终字形，亦包含将被完全遮掉的字体。
         const font = await buildCardFontCss(snapshot.copy);
         if (font.fallbacks.length) {
             const message = `以下非 Ny 本地字体没有可嵌入字节，将使用系统回退：${font.fallbacks.join('、')}。需精确字形时请在 Ny 导入并应用本地字体。`;
             console.warn(`[st-reader] ${message}`); opts.onWarning?.(message);
         }
         const fontStyle = snapshot.doc.createElement('style'); fontStyle.textContent = font.cssText; snapshot.doc.head.append(fontStyle);
+        await waitForCardFonts(snapshot);
+        maskTextNodesInPlace(snapshot.copy, options.maskWords, options.maskStyle, options.assetMap);
         await finishCardSnapshot(snapshot);
         if (snapshot.width * snapshot.height * scale * scale > 32_000_000) throw new RangeError('导出超过 3200 万像素，请减少选段或倍率');
         let networkAttempt = false;

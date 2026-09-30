@@ -17,3 +17,5 @@ T30 验证入口：
 - `node dev/audit-readonly.mjs` 扫描全仓库、分类输出D02/网络命中、核对扩展体积和未跟踪数据；网络字面量需结合人工审计与浏览器实证。
 
 T40 后审计的扩展范围为根目录 `manifest.json / index.js / style.css / LICENSE` 与 `src/ / vendor/`；另外阻止 `.dev/`、`.tmp/` 和 `docs/*.png` 进入 Git。安装脚本只用内存替身测试，绝不运行 `install/run-junction.mjs`。
+
+T41：`test-core.cmd` 依次通过 Node 102 项、UI 27 项。启动开发实例后，控制台输入 `await window.stcrSelfTest({core:false,coreFixes:true})` 可单独跑 33 项（13 保护 + 11 纯逻辑 + 9 浏览器），无需选角色或导入字体；完整默认浏览器检查现为 130 项，仍需原 T14 的雾岚与 Ny 字体准备。T41 包含实际 PNG 的遮盖像素宽度/替换背景、HTML 属性与脚本保持、禁网解析和独立 IndexedDB 往返。工作台测量时机尚需 Opus 接入，见 I026。

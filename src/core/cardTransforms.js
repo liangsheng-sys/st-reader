@@ -4,6 +4,10 @@ export const CARD_ICONS = Object.freeze({ 'fa-star': '\uf005', 'fa-heart': '\uf0
 const wordChar = char => !!char && /[\p{L}\p{N}\p{M}_]/u.test(char);
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** 背景色仅允许文字目标的可选六位实色；存储与执行共用相同边界。 */
+export const validReplacementBackground = to => !Object.hasOwn(to, 'background')
+    || to.kind === 'text' && typeof to.background === 'string' && /^#[\da-f]{6}$/i.test(to.background);
+
 /** 按群成员给定顺序编号；重名不猜身份，按首次出现的成员编号匹配。 */
 export function automaticNameRules({ userName = '', characterName = '', isGroup = false, groupNames = [] } = {}) {
     const result = [];
@@ -22,6 +26,7 @@ export function automaticNameRules({ userName = '', characterName = '', isGroup 
 function validateRule(rule) {
     if (typeof rule?.from !== 'string' || !rule.from) throw new TypeError('替换原词不能为空');
     if (!['text', 'icon', 'asset'].includes(rule.to?.kind) || typeof rule.to.value !== 'string') throw new TypeError('替换目标无效');
+    if (!validReplacementBackground(rule.to)) throw new TypeError('仅文字替换可设置 #RRGGBB 背景色');
     if (rule.to.kind === 'icon' && !Object.hasOwn(CARD_ICONS, rule.to.value)) throw new TypeError('不支持的内置图标');
     if (rule.to.kind === 'asset' && !rule.to.value) throw new TypeError('图片素材 ID 不能为空');
 }
@@ -83,7 +88,7 @@ export function replaceNamesInRaw(text, options = {}) {
     for (const { start, end, rule } of matches) {
         if (start > offset) segments.push({ kind: 'text', text: text.slice(offset, start) });
         segments.push({ kind: 'replacement', to: { ...rule.to } });
-        const existing = mappings.find(item => item.from === rule.from && item.source === rule.source && item.to.kind === rule.to.kind && item.to.value === rule.to.value);
+        const existing = mappings.find(item => item.from === rule.from && item.source === rule.source && item.to.kind === rule.to.kind && item.to.value === rule.to.value && item.to.background === rule.to.background);
         const mapping = existing ?? { from: rule.from, to: { ...rule.to }, source: rule.source, count: 0 };
         if (!existing) mappings.push(mapping);
         mapping.count++;
@@ -92,7 +97,7 @@ export function replaceNamesInRaw(text, options = {}) {
         for (const candidate of skipped.filter(item => protectsName && overlaps(item, { start, end }))) {
             mapping.skippedOverlap = true;
             mapping.skippedRules ??= [];
-            const found = mapping.skippedRules.find(item => item.from === candidate.rule.from && item.to.kind === candidate.rule.to.kind && item.to.value === candidate.rule.to.value);
+            const found = mapping.skippedRules.find(item => item.from === candidate.rule.from && item.to.kind === candidate.rule.to.kind && item.to.value === candidate.rule.to.value && item.to.background === candidate.rule.to.background);
             if (found) found.count++;
             else mapping.skippedRules.push({ from: candidate.rule.from, to: { ...candidate.rule.to }, count: 1 });
         }

@@ -52,7 +52,10 @@ function icon(doc, value) {
 }
 function replacement(doc, to, assets) {
     const span = doc.createElement('span'); span.dataset.stcrProtected = '1'; span.className = 'stcr-replacement';
-    if (to.kind === 'text') span.textContent = to.value;
+    if (to.kind === 'text') {
+        span.textContent = to.value;
+        if (to.background !== undefined) span.style.setProperty('background-color', to.background, 'important');
+    }
     else span.append(to.kind === 'asset' ? picture(doc, to.value, assets) : icon(doc, to.value));
     return span;
 }
@@ -141,13 +144,13 @@ export async function renderCardParts(source, options, doc = document) {
     const name = doc.createElement('span'); name.append(fragments(doc, raw(model.name), assets));
     const actualMappings = [];
     for (const item of mappings) {
-        const found = actualMappings.find(other => other.from === item.from && other.source === item.source && other.to.kind === item.to.kind && other.to.value === item.to.value);
+        const found = actualMappings.find(other => other.from === item.from && other.source === item.source && other.to.kind === item.to.kind && other.to.value === item.to.value && other.to.background === item.to.background);
         if (found) {
             found.count += item.count;
             if (item.skippedOverlap) {
                 found.skippedOverlap = true; found.skippedRules ??= [];
                 for (const skipped of item.skippedRules) {
-                    const prior = found.skippedRules.find(rule => rule.from === skipped.from && rule.to.kind === skipped.to.kind && rule.to.value === skipped.to.value);
+                    const prior = found.skippedRules.find(rule => rule.from === skipped.from && rule.to.kind === skipped.to.kind && rule.to.value === skipped.to.value && rule.to.background === skipped.to.background);
                     if (prior) prior.count += skipped.count; else found.skippedRules.push({ ...skipped });
                 }
             }
@@ -177,11 +180,12 @@ export function applyCardParts(element, result) {
     element.querySelector('.mes_reasoning')?.replaceChildren(...result.reasoning.childNodes);
 }
 
-function maskElement(doc, segment, assets) {
+function maskElement(doc, segment, assets, pixelWidth) {
     const span = doc.createElement('span'), style = segment.style;
     span.className = `stcr-mask stcr-mask--${style.kind}`; span.dataset.stcrMask = '1';
     span.setAttribute('aria-label', '已屏蔽');
-    span.style.cssText = `display:inline-block!important;width:${segment.width}em!important;height:.8em!important;vertical-align:-.05em!important;overflow:hidden!important;opacity:1!important;filter:none!important;text-shadow:none!important;box-shadow:none!important;border:0!important;`;
+    const width = pixelWidth === undefined ? `${segment.width}em` : `${pixelWidth}px`;
+    span.style.cssText = `display:inline-block!important;width:${width}!important;box-sizing:content-box!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;height:.8em!important;vertical-align:-.05em!important;overflow:hidden!important;opacity:1!important;filter:none!important;text-shadow:none!important;box-shadow:none!important;border:0!important;`;
     if (style.kind === 'sticker') {
         span.style.setProperty('height', '1em', 'important');
         span.style.setProperty('color', style.color, 'important');
@@ -196,12 +200,12 @@ function maskElement(doc, segment, assets) {
 /** 文本节点适配器：复制输入树；跨 em/strong 等内联节点命中，绝不改属性或 style 文本。 */
 export function wrapMaskSpans(root, words = [], style = 'bar', assets = new Map()) {
     const copy = root.cloneNode(true);
-    maskTextNodesInPlace(copy, words, style, assets);
+    maskTextNodesInPlace(copy, words, style, assets, root);
     return copy;
 }
 
-export function maskTextNodesInPlace(root, words, style, assets) {
-    const doc = root.ownerDocument, runs = []; let current = [];
+function textRuns(root) {
+    const runs = []; let current = [];
     const flush = () => { if (current.length) runs.push(current); current = []; };
     const block = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|BR|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TD|TH|TR|UL)$/;
     function visit(node) {
@@ -213,17 +217,37 @@ export function maskTextNodesInPlace(root, words, style, assets) {
         if (block.test(node.tagName)) flush();
     }
     visit(root); flush();
-    for (const nodes of runs) {
+    return runs;
+}
+function textRange(doc, offsets, segment) {
+    const start = offsets.find(item => item.start <= segment.start && item.end > segment.start);
+    const end = offsets.find(item => item.start < segment.end && item.end >= segment.end);
+    const range = doc.createRange();
+    range.setStart(start.node, segment.start - start.start); range.setEnd(end.node, segment.end - end.start);
+    return range;
+}
+
+/** 先测量全部命中，再逆序变更副本，避免先插入的遮盖影响后面的排版读数。 */
+export function maskTextNodesInPlace(root, words, style, assets, measureRoot = root) {
+    const doc = root.ownerDocument, measuredRuns = textRuns(measureRoot), changes = [];
+    textRuns(root).forEach((nodes, runIndex) => {
         const offsets = []; let text = '';
         for (const node of nodes) { offsets.push({ node, start: text.length, end: text.length + node.length }); text += node.data; }
         const matches = maskText(text, words, style).filter(segment => segment.kind === 'mask');
-        for (const segment of matches.reverse()) {
-            const start = offsets.find(item => item.start <= segment.start && item.end > segment.start);
-            const end = offsets.find(item => item.start < segment.end && item.end >= segment.end);
-            const range = doc.createRange();
-            range.setStart(start.node, segment.start - start.start); range.setEnd(end.node, segment.end - end.start);
-            range.deleteContents(); range.insertNode(maskElement(doc, segment, assets));
+        for (const segment of matches) {
+            let pixelWidth;
+            if (!segment.style.uniform && measureRoot.isConnected) {
+                const measuredOffsets = offsets.map((item, index) => ({ ...item, node: measuredRuns[runIndex][index] }));
+                const measurement = textRange(measureRoot.ownerDocument, measuredOffsets, segment);
+                const width = measurement.getBoundingClientRect().width;
+                if (Number.isFinite(width) && width > 0) pixelWidth = width;
+            }
+            changes.push({ offsets, segment, pixelWidth });
         }
+    });
+    for (const { offsets, segment, pixelWidth } of changes.reverse()) {
+        const range = textRange(doc, offsets, segment);
+        range.deleteContents(); range.insertNode(maskElement(doc, segment, assets, pixelWidth));
     }
 }
 

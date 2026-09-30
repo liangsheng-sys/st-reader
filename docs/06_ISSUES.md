@@ -31,4 +31,6 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 | I022 | 2026-09-30 | 人类 | 首次安装使用反馈 8 条 + 代码渲染痛点 + 发布需求，原文 `docs/feedback/2026-09-30_初次安装使用的新问题.txt`。规划者已拆为 F10–F16、D15–D21、M4 任务卡 T40–T48 | M4 | 已处理（已拆卡） |
 | I023 | 2026-09-30 | Fable | 人类放在 `docs/` 的两张截图含真实聊天文字，**不得入库、不得发布**。T40 已核对 `docs/*.png` 忽略规则、两张截图未跟踪且 Git 全部分支历史无截图记录；审计脚本新增截图跟踪检查。未读取图片内容；发布前 T47 仍需复查仓库无真实聊天片段 | T40 / T47 | T40 已处理；T47 待复查 |
 | I024 | 2026-09-30 | Fable | 参考项目代码复制检查：grep `stir-|chatvault|st-viewer|adhd` 等标识在 `extension/` 为空，未复制代码。README 致谢以"思路参考"措辞列出四个参考项目与酒馆助手、Ny-font-manager 即可 | T46 | 已处理 |
+| I025 | 2026-09-30 | astra | T41 合同增补：非统一遮盖在 DOM 按 Range 像素测宽，exportCard 先加载字体；文字目标可选 to.background（#RRGGBB）；新增 maskCodeText 同步字符串、maskHtmlString 异步字符串（隔离 DOMParser，仅 Text.data，不改属性/script/style）；bookmarks 新增 chat/floor/swipe 类型并兼容无 kind 旧备份，旧楼/候选 ID 不变。详细边界与错误见 03 §5.12 | T42 / T43 / T44a / T44b / T45 | core 已验证：Node 102/102、T41 浏览器专项33/33、完整浏览器130/130；交接通知 Opus 保留 background、按 kind 筛选收藏，HTML 接口须 await，字符串输出不直接挂宿主 DOM |
+| I026 | 2026-09-30 | astra | T41 集成核对：现有 cardStudio.applyMasks 在 card 未挂载时逐词调用 wrapMaskSpans，compose 随后挂到缩放舞台；导出复制已遮盖预览。故即使 core 已有 Range 测宽，这条旧 UI 路径仍会走无布局码点回退。需在最终模板的 1:1 未缩放上下文先排版、等待字体，每次副本有布局后再测量，最后 fit。T41 按分工未改 src/ui；不能把独立 core PNG 实证等同为工作台已接好 | T42 / F14④ | open，交给 Opus 调整测量时机；03 §5.12 已写明前置条件，保持函数签名兼容 |
 

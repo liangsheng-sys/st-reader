@@ -111,7 +111,7 @@ T14 在候选**原文副本**上选取不重叠的替换范围：我的规则优
 
 匹配片段在**显示正则前**从原文取走，以临时不透明占位符穿过一次 `runDisplayRegex` 与既有安全格式化器，随后仅在文本节点恢复成文字/图标/图片。用户替换文字通过 textContent 放入，不能成为 HTML、宏或正则代码；替换目标被保护，既不被再次替换，也不被屏蔽词吞掉。脚本 replacement 的 user/char 宏同样先保护，避免重新插回真名。普通正文仍完整执行原正则，作用域、深度与只跑一次保持 T12 语义。**受保护片段不参与显示正则匹配**；若正则删掉、拆散占位符，或将其放入属性/style，导出明确失败，不拿未脱敏正文回退。T12 的旧纯文本函数及 renderMessage 签名没有变化。
 
-最后在正则后的 DOM 文本节点查找屏蔽词，支持跨 em/strong/高亮 span，隔离段落/楼层边界，跳过 style/script/按钮和替换片段。删除原词后放入 `<span class="stcr-mask stcr-mask--bar|block|sticker">`；不是盖在仍存在的字上。bar 为实色直角条、block 为主题色圆角块、sticker 为3个 FA 图标或本地图片。默认统一3em宽；可关闭统一长度，按 Unicode 码点数设置宽度。遮盖元素不含原词，源属性/注释不进入截图副本。
+最后在正则后的 DOM 文本节点查找屏蔽词，支持跨 em/strong/高亮 span，隔离段落/楼层边界，跳过 style/script/按钮和替换片段。删除原词后放入 `<span class="stcr-mask stcr-mask--bar|block|sticker">`；不是盖在仍存在的字上。bar 为实色直角条、block 为主题色圆角块、sticker 为3个 FA 图标或本地图片。默认统一3em宽；可关闭统一长度：DOM 适配层在修改前用 Range.getBoundingClientRect() 测实际像素宽度；无布局时按 Unicode 码点数回退为 em。导出先嵌入并加载字体再测量（T41）。遮盖元素不含原词，源属性/注释不进入截图副本。
 
 `modern-screenshot` 固定4.7.0单文件与完整MIT许可（见 LICENSES）。副本在禁脚本、禁外网的 srcdoc 中排版，保留可读主题CSS、important、媒体/嵌套规则和伪元素，不改变宿主。仅本地 data 图片与已有可读图片的 Canvas 副本进入导出；不克隆 CSS 资源 URL、@import，禁止依赖补取资源。字体在最终副本构造后收集：用 readonly 事务读取实际使用的 Ny 本地 Blob，内嵌 data URL @font-face；字体解码失败就拒绝。FA 实心图标以宿主已加载字形离线绘制成小PNG。不加载worker，不走CDN。
 
@@ -263,7 +263,7 @@ T13 接口见5.5–5.8，T14接口见5.9–5.11。T12 已交付签名与行为�
 | `store.exportAll()` | JSON **字符串**，含六类数据与素材；成功生成即记录 lastExportAt（不等同于用户已保存到磁盘） |
 | `store.previewImport(json)` | `ImportReport`，完整验证、计数但不落盘 |
 | `store.importAll(json)` | `ImportReport`，验证后原子**合并**；重复 ID、设置键、词条跳过，保留现有编辑，不覆盖/清空 |
-| `bookmarkId({chatKey,mesIndex,swipeIndex = null})` | 稳定 ID；省略/null 表示整楼，与具体候选收藏可并存 |
+| `bookmarkId({kind?,chatKey,mesIndex?,swipeIndex?})` | 稳定 ID；kind=chat 只含聊天键，整楼/候选旧 ID 不变；省略 kind 时由 swipeIndex 推断 floor/swipe，见5.12 |
 | `store.assets.references(id)` | 使用该素材的替换规则数组 |
 | `store.assets.remove(id,{removeRules = false} = {})` | 有引用默认抛 ASSET_IN_USE；明确 true 时连同引用规则原子删除 |
 
@@ -287,15 +287,15 @@ T13 接口见5.5–5.8，T14接口见5.9–5.11。T12 已交付签名与行为�
  * @property {string} createdAt core 生成的 ISO 时间，更新保留
  * @property {string} updatedAt core 每次 put 更新
  */
-/** @typedef {{id:string,chatKey:string,mesIndex:number,swipeIndex:number|null,title:string,preview:string,createdAt:string,updatedAt:string}} Bookmark */
-/** @typedef {{id:string,from:string,to:{kind:'text'|'icon'|'asset',value:string},scope:string,caseSensitive:boolean,wholeWord:boolean,createdAt:string,updatedAt:string}} ReplaceRule */
+/** @typedef {{id:string,kind:'chat'|'floor'|'swipe',chatKey:string,mesIndex?:number,swipeIndex?:number|null,title:string,preview:string,createdAt:string,updatedAt:string}} Bookmark */
+/** @typedef {{id:string,from:string,to:{kind:'text'|'icon'|'asset',value:string,background?:string},scope:string,caseSensitive:boolean,wholeWord:boolean,createdAt:string,updatedAt:string}} ReplaceRule */
 /** @typedef {{id:string,name:string,mime:string,size:number,dataUrl:string,createdAt:string,updatedAt:string}} Asset */
 /** @typedef {Object<string,{added:number,skipped:number}>} ImportReport 六个固定分类 */
 ```
 
-Bookmark 创建时 id、时间由 core 生成，title/preview 必填，swipeIndex 默认 null；id 必须与 bookmarkId 一致，不能让同一收藏产生重复行。Annotation、ReplaceRule、Asset 也允许创建时省略 id/时间；记录均使用 `stcr:` 前缀。楼号/候选号从 0 开始。
+Bookmark 创建时 id、时间由 core 生成，title/preview 必填；kind=chat 不得携带 mesIndex/swipeIndex，其他类型 swipeIndex 默认 null；id 必须与 bookmarkId 一致，不能让同一收藏产生重复行。Annotation、ReplaceRule、Asset 也允许创建时省略 id/时间；记录均使用 `stcr:` 前缀。楼号/候选号从 0 开始。
 
-ReplaceRule：from 为非空字面量（≤1000 码元）；scope 默认为 all，或角色 avatar 文件名；caseSensitive/wholeWord 默认 false。`to.kind:'icon'` 的 value 为单个 `fa-star` 形式名称；asset 的 value 为已存在的 Asset.id；text 可为空串。仅持久化这些选项，T14 才执行替换。
+ReplaceRule：from 为非空字面量（≤1000 码元）；scope 默认为 all，或角色 avatar 文件名；caseSensitive/wholeWord 默认 false。`to.kind:'icon'` 的 value 为单个 `fa-star` 形式名称；asset 的 value 为已存在的 Asset.id；text 可为空串，且可选 to.background（严格 #RRGGBB，不能用于 icon/asset）。T41 的文字背景在预览、映射与 PNG 中保留；纯文本/HTML 字符串接口只替换 Text.data，不产生背景样式。
 
 Asset.put 输入 `{id?,name,blob}` 或 `{id?,name,dataUrl}`；PNG/JPEG/WebP/SVG，单张≤200 KiB、最多30张，返回统一 base64 dataUrl。校验 MIME/文件头，浏览器实际解码位图；SVG 用宿主 DOMPurify 清洗并移除事件、脚本、外部资源、动画、样式和外链，备份导入也重洗。SVG 必须在 ST 浏览器调用，Node 测试使用位图。导出不含 Ny 字体；其字体数据库归 Ny 管理。
 
@@ -390,13 +390,13 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 /**
  * @typedef {object} MaskStyle
  * @property {'bar'|'block'|'sticker'} kind
- * @property {boolean} [uniform=true] 固定3em宽；false按被遮词的Unicode码点数
+ * @property {boolean} [uniform=true] 固定3em宽；false在DOM中按Range像素宽度，无布局时以Unicode码点数回退
  * @property {string} [color] 必须#RRGGBB实色；bar默认#000000，其余默认#72b8a5
  * @property {'fa-star'|'fa-heart'|'fa-cat'|'fa-cloud'|'fa-moon'|'fa-shield'} [icon='fa-star']
  * @property {string} [assetId] sticker可用已导入图片；给出时优先于icon
  */
-/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},count:number}} SkippedNameRule */
-/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string},source:'mine'|'automatic',count:number,skippedOverlap?:true,skippedRules?:SkippedNameRule[]}} CardMapping */
+/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string,background?:string},count:number}} SkippedNameRule */
+/** @typedef {{from:string,to:{kind:'text'|'icon'|'asset',value:string,background?:string},source:'mine'|'automatic',count:number,skippedOverlap?:true,skippedRules?:SkippedNameRule[]}} CardMapping */
 ```
 
 导出开启名字替换时必须有绑定的原文；传普通已格式化楼层而不绑定会报错，因为不能在正则后的HTML上假装完成“正则前名字替换”。每次导出对绑定楼层从原始候选重渲染一次，保持模板的外壳/样式，在副本内更新三个展示区域；不会把预览已经处理过的正文再跑一次正则。没有绑定、且 `replaceNames:false` 时可直接导出任何安全DOM，此时仅做屏蔽。
@@ -424,7 +424,7 @@ I018① 已修：Canvas 字体名去外层引号后重新引用，六个 FA 实�
 | `automaticNameRules({userName='',characterName='',isGroup=false,groupNames=[]}={})` | 自动规则数组；不读宿主 |
 | `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules、replaceNames、autoReplaceNames、applyReplaceRules；独立开关、自动名字整体保护及 skippedOverlap/skippedRules 见5.9 |
 | `maskText(text,words=[],maskStyle='bar')` | 数组；普通段`{kind:'text',text,start,end}`，遮盖段`{kind:'mask',width,style,start,end}`；位置是原输入UTF-16偏移，遮盖段无原词。Node自测覆盖这两个变换内核 |
-| `wrapMaskSpans(root,words=[],maskStyle='bar',assets=new Map())` | 返回root的DOM副本；输入不变，无网络或存储。assets是`Map<id,{dataUrl}>`，必须是经过store/prepareCardAssets校验的数据；一般工作台使用exportCard接管校验即可 |
+| `wrapMaskSpans(root,words=[],maskStyle='bar',assets=new Map())` | 返回root的DOM副本；输入不变，无网络或存储。uniform=false 且源节点已连接并有布局时，在源节点上只读测量全部命中范围，再给副本遮盖写入 px 宽；未连接/隐藏/零宽时回退码点数 em。调用前应等待 document.fonts.ready。assets是`Map<id,{dataUrl}>`，必须是经过store/prepareCardAssets校验的数据；一般工作台使用exportCard接管校验即可 |
 
 自定义卡片中的副标题/批注需由UI明确决定是否显示；屏蔽会遍历这些文本节点。将不应导出的控件标记 `data-stcr-export-ignore`，副本构造时整树跳过。不要把真实名字放进背景图；图片像素不做OCR脱敏。被保护的替换文字通过 `.stcr-replacement[data-stcr-protected]` 标记，在预览裁剪时保留该包裹，保证“替换优先于屏蔽”。这两个标志都不包含真实原词。
 
@@ -456,3 +456,54 @@ previewImage.src = url;
 ```
 
 在开发实例控制台：`await stcrExportDemo()` 会用合成星灯第12楼、当前存储候选构造预览，屏蔽“星图/今晚”，弹出**实际PNG**与“保存PNG（请选E盘）”按钮；也可打开 `http://localhost:8100/?stcrExportDemo=1`。先按T11手册导入Ny字体。普通浏览器支持文件选择时由人类选择E盘；不支持时右键图片另存为。`stcrSelfTest()` 的T14部分会逐项检查图案、群成员、源DOM不变、零fetch、遮盖像素、Ny字形和失败清理。
+
+### 5.12 T41 增补合同（2026-09-30）
+
+#### 遮盖宽度与替换背景
+
+- `maskText` 纯函数签名、字段均不变：uniform=false 的 width 仍是 Unicode 码点数，供无 DOM 环境回退。
+- `wrapMaskSpans` 仍同步返回副本。源节点连接到文档且有布局时，在源文本上对**全部命中先测量再修改副本**，用 `Range.getBoundingClientRect().width` 写 px；跨 em/strong、混合字号与 emoji 均可测。跨行时取 Range 的外接矩形宽度。未挂载、display:none 或测到零宽时退回码点数 em，统一长度仍为 3em。调用方应先等待字体就绪，在 **1:1 未缩放**的最终模板样式上下文中测量，再给预览施加 scale；函数不把未连接的输入临时挂到宿主页。
+- `exportCard` 在隔离副本中先收集、内嵌并加载字体，再测原词、移除原词并添加遮盖；随后截图。避免 Ny 字体尚未解码时测到后备字体宽度。三个遮盖类型都使用相同宽度规则；高度调整仍由 T42 处理。
+- **I026 / T42 必须接线**：当前 `cardStudio.applyMasks` 对未挂载的 card 逐词调用 wrapMaskSpans，随后才把结果放进已缩放的预览；其导出直接复制已遮盖预览。该调用仍会使用无布局回退。Opus 须在 1:1 模板上下文排版并等待字体后再逐次测量，每次生成的新副本也须有布局；完成后再 fit。不得声称 T41 已单独修好此旧 UI 路径。core 独立导出传入 maskWords 的路径及已排版副本路径均已实测。
+- `ReplaceRule.to.background?: string` 只在 kind=text 时允许，必须严格匹配 `#RRGGBB`，不接受透明色、CSS 名称、短色号或空值；不需要背景时**省略字段**。store 校验失败抛 INVALID_DATA，纯变换/导出校验失败抛 TypeError；旧规则完全兼容。颜色随导入导出、segments、mappings、skippedRules 保留。
+- 预览与 PNG 的替换文字包裹使用 `background-color: <颜色> !important`，不解析 value 中的 HTML；名字行、正文、思维链走同一适配器。替换结果仍受保护，不被屏蔽词二次吞掉。UI 编辑/复制规则时须保留 to.background；T42 添加颜色输入与预设。
+
+#### 代码 / HTML 字符串脱敏
+
+从 `../core/codeTransforms.js` 导入，或通过 `cardExport.js` 重导出：
+
+| 签名 | 返回与约定 |
+|---|---|
+| `maskCodeText(text, opts={})` | 同步 string，无 DOM、网络或存储。适用于纯文本代码；HTML 必须使用下一函数 |
+| `maskHtmlString(html, opts={})` | `Promise<string>`，需要浏览器 document.body；使用 DOMParser 解析，只修改文本节点，返回规范化的完整 HTML 文档字符串 |
+
+opts 接受与 `replaceNamesInRaw` 相同的名字上下文、avatarUrl、rules、replaceNames、autoReplaceNames、applyReplaceRules；额外接受 `maskWords=[]` 与 `maskStyle='bar'`。默认名字/规则开关与原接口一致；仅想处理显式规则时可设 autoReplaceNames=false。不隐式读取 store，不运行 ST 显示正则。规则长词优先、自动名字保护、作用域/大小写/整词与三个开关沿用 §5.9；替换优先于屏蔽，不串换。
+
+字符串出口将遮盖转为实心方块：统一长度 `███`，关闭统一长度时按原词码点数重复 `█`。text 规则直接写文字；六种 icon 分别用 `★ / ♥ / 🐈 / ☁ / ☾ / 🛡`，asset 用 `[图片]` 纯文本占位。字符串接口不嵌入图片或背景 CSS，也不读取 assets；background 仍校验但没有文字之外的效果。这保持了“只改文本节点”的边界。
+
+HTML 解析在临时、禁脚本且 `default-src 'none'` 的同源沙箱解析环境中进行；用**该环境的 DOMParser**继承禁网策略。用户 HTML 从不放到活动页面。遍历 Text.data，包括 title、模板内容与 SVG 文本；跳过 script/style 全部内容，不改现有标签、属性、注释。匹配限于每个独立文本节点，不跨标签拼接名字。DOMParser 会规范化引号、实体与隐含 html/head/body，并修复无效 HTML，因此不承诺源字符串字节相同。解析环境在成功、失败时都移除。
+
+这不是 HTML 安全清洗器：输出按要求仍保留原属性和 script/style，不能直接注入宿主 `innerHTML`。复制代码时作为字符串交给剪贴板；显示/导出交给 T44a 沙箱或静态清洗管线。T44a 调用必须 `await maskHtmlString(...)`。
+
+解析策略依据：[MDN DOMParser](https://developer.mozilla.org/en-US/docs/Web/API/DOMParser/parseFromString) 提醒惰性解析仍可能下载图片/iframe；[HTML 标准](https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#dom-domparser-parsefromstring) 定义解析文档的创建环境。本实现使用隔离环境并另做浏览器零外链实测，不以“不执行脚本”代替断网。
+
+#### 三类收藏与旧数据
+
+```js
+// 整个聊天：不得传 mesIndex 或 swipeIndex（即使值为 null）。
+const chatBookmark = await store.bookmarks.put({ kind: 'chat', chatKey, title, preview: '' });
+await store.bookmarks.list({ kind: 'chat' });
+// 整楼/候选：旧调用继续可用，返回记录补全 kind。
+await store.bookmarks.put({ chatKey, mesIndex: 0, title, preview: '' }); // kind=floor
+await store.bookmarks.put({ chatKey, mesIndex: 0, swipeIndex: 2, title, preview: '' }); // kind=swipe
+```
+
+kind=chat 的 ID 为 `stcr:bookmark:${encodeURIComponent(chatKey)}:chat`，目标身份仅取 chatKey；不包含楼号、候选号、标题或摘要。重复 put 同聊天更新同条记录。floor/swipe 的 ID 保持原格式，三种收藏互不覆盖；显式 kind 与编号冲突会抛 INVALID_DATA。list() 默认返回三种，可按 kind/chatKey 严格过滤；get/remove/计数与六分类备份继续适用。
+
+无 kind 的旧记录在读取副本与导入时根据 swipeIndex 推断 floor/swipe；不改 ID，不改创建时间，读取/列表/previewImport 不为迁移写库。export/import 仍用 version=1 与原六分类，导出的记录带 kind；重复 ID 合并仍跳过已有记录。新聊天收藏不能导入不支持 T41 的旧版客户端。
+
+T43 抽屉仅取 `list({kind:'chat'})`；批注面板应明确筛选 floor/swipe，不能把 chat 当成楼号 0。T41 不改 src/ui，也不添加聊天收藏按钮。
+
+#### 验证入口
+
+Node 纯逻辑纳入 `node dev/selftest.mjs`；浏览器完整 `await window.stcrSelfTest()` 默认包含 T41。只验 T41 可用 `await window.stcrSelfTest({core:false,coreFixes:true})`，无需切角色或导入字体。网址入口：`http://localhost:8100/?stcrSelfTest=1&core=0&coreFixes=1`，按 F12 在控制台查看结果。

@@ -103,7 +103,19 @@ export async function createCardSnapshot(root, fontCss, { width } = {}) {
     } catch (error) { clearTimeout(loadTimer); frame.remove(); throw error; }
 }
 
-/** 在副本内去掉源属性，避免 attr() 伪元素显示原名字；图标用宿主已加载字体离线栅格化。 */
+/** 先触发布局，再等待副本内嵌字体解码，让遮盖测量与截图使用同一字形。 */
+export async function waitForCardFonts({ copy, doc }) {
+    copy.getBoundingClientRect();
+    let fontTimer;
+    try {
+        await Promise.race([
+            Promise.all([...doc.fonts].map(face => face.load())).then(() => doc.fonts.ready),
+            new Promise((_, reject) => { fontTimer = setTimeout(() => reject(new Error('本地字体解码超时')), 15000); }),
+        ]);
+    } finally { clearTimeout(fontTimer); }
+}
+
+/** 在副本内去掉源属性、转换图标，并等待最终布局。 */
 export async function finishCardSnapshot(snapshot) {
     const { copy, doc } = snapshot;
     for (const element of [copy, ...copy.querySelectorAll('*')]) {
@@ -116,14 +128,7 @@ export async function finishCardSnapshot(snapshot) {
         image.style.cssText = 'width:1em!important;height:1em!important;display:inline-block!important;vertical-align:-.1em!important;';
         icon.replaceWith(image);
     }
-    copy.getBoundingClientRect();
-    let fontTimer;
-    try {
-        await Promise.race([
-            Promise.all([...doc.fonts].map(face => face.load())).then(() => doc.fonts.ready),
-            new Promise((_, reject) => { fontTimer = setTimeout(() => reject(new Error('本地字体解码超时')), 15000); }),
-        ]);
-    } finally { clearTimeout(fontTimer); }
+    await waitForCardFonts(snapshot);
     await Promise.all([...copy.querySelectorAll('img')].map(image => image.decode()));
     // 图片解码与字体就绪后再次布局，避免截断最后一行。
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

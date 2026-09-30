@@ -26,6 +26,11 @@ if (isDevInstance(window.location)) {
             const { testCardExportBrowser } = await import('./src/core/cardExportBrowser.test.js');
             results.push(...await testCardExportLogic(), ...await testCardExportBrowser());
         }
+        if (options.coreFixes ?? runCore) {
+            const { testCoreFixesLogic } = await import('./src/core/coreFixes.test.js');
+            const { testCoreFixesBrowser } = await import('./src/core/coreFixesBrowser.test.js');
+            results.push(...await testCoreFixesLogic(), ...await testCoreFixesBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
@@ -79,6 +84,7 @@ eventSource.on(event_types.APP_READY, async () => {
         const options = { core: params.has('core') ? params.get('core') !== '0' : params.get('fixtures') !== '1', fixtures: params.get('fixtures') === '1', font: params.get('font') === '1', rendered: params.get('rendered') === '1' };
         if (params.has('persistence')) options.persistence = params.get('persistence') !== '0';
         if (params.has('cardExport')) options.cardExport = params.get('cardExport') !== '0';
+        if (params.has('coreFixes')) options.coreFixes = params.get('coreFixes') !== '0';
         const run = () => window.stcrSelfTest(options).catch(error => console.error('[st-reader] 自测失败：', error));
         const waitAvatar = options.rendered ? 'STCR_T11_Aster.png' : params.get('coreWhenChat') === '1' ? 'STCR_T11_Mist.png' : null;
         if (waitAvatar) {
