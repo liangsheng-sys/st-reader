@@ -1,3 +1,4 @@
+// ST Reader — AGPL-3.0
 import { deflateSync } from 'node:zlib';
 
 export function crc32(bytes) {

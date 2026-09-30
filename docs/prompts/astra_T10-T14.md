@@ -5,7 +5,7 @@
 2. 数据：只用 E:\st-reader\.dev\ 的开发实例；--dataRoot 永远是 E:\st-reader\.dev\data；不得读、列、复制 F:\Claude\xinllm\SillyTavern\data\ 下任何东西。核对 ST API 可以读 F:\Claude\xinllm\SillyTavern\public\ 和 src\ 的源码。
 3. 磁盘：不写 C 盘、不写 F 盘、不 npm install、不建 node_modules、不下载大文件。临时文件只进 .tmp/。
 
-T10 要求：dev/start-dev-st.cmd + .dev/config.yaml（dataRoot E:\st-reader\.dev\data、port 8100、listen false、whitelistMode true）；首次运行自动建 .dev/ 并把 extension/ 用目录联接挂到 .dev/data/default-user/extensions/st-reader；写 extension/src/core/readonlyGuard.js（包装 window.fetch，命中 D02 禁用路径就 throw 并 console.error，开发实例默认开启）；补全 docs/SETUP_WINDOWS.md §2。验收：我双击 cmd，浏览器打开 localhost:8100，扩展列表里有"阅读器 (ST Reader)"。
+T10 要求：dev/start-dev-st.cmd + .dev/config.yaml（dataRoot E:\st-reader\.dev\data、port 8100、listen false、whitelistMode true）；首次运行自动建 .dev/ 并把仓库根用目录联接挂到 .dev/data/default-user/extensions/st-reader；写 src/core/readonlyGuard.js（包装 window.fetch，命中 D02 禁用路径就 throw 并 console.error，开发实例默认开启）；补全 docs/SETUP_WINDOWS.md §2。验收：我双击 cmd，浏览器打开 localhost:8100，扩展列表里有"阅读器 (ST Reader)"。
 
 T11 要求：dev/fixtures/gen.mjs 只用 Node 内置模块，按任务卡生成全部合成数据（角色、群聊、多 swipe 带思维链、代码块、HTML、超长楼、≥20 MB 大文件、带 custom_css 的主题、全局正则、作用域正则 + character_allowed_regex），并在开发实例里装 Ny-font-manager 做兼容测试，登记 LICENSES。所有内容都是虚构的，不许从任何真实聊天复制。
 

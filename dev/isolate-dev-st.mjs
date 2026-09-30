@@ -1,3 +1,4 @@
+// ST Reader — AGPL-3.0
 import { PUBLIC_DIRECTORIES } from 'file:///F:/Claude/xinllm/SillyTavern/src/constants.js';
 
 // 仅调整当前开发进程的内存常量，不改写宿主源码。

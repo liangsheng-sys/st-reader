@@ -1,3 +1,4 @@
+// ST Reader — AGPL-3.0
 import fs from 'node:fs';
 import { changeJunction, LINK_PATH, SOURCE_PATH } from './junction.mjs';
 

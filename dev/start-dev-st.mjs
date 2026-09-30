@@ -1,8 +1,10 @@
+// ST Reader — AGPL-3.0
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { prepareDevJunction } from './junction.mjs';
 
 // 启动器只使用 Node 内置模块。固定位置避免误把真实实例当作开发实例。
 const projectRoot = 'E:\\st-reader';
@@ -11,7 +13,7 @@ const devRoot = path.join(projectRoot, '.dev');
 const tempRoot = path.join(projectRoot, '.tmp');
 const dataRoot = path.join(devRoot, 'data');
 const configPath = path.join(devRoot, 'config.yaml');
-const extensionRoot = path.join(projectRoot, 'extension');
+const extensionRoot = projectRoot;
 const junctionPath = path.join(dataRoot, 'default-user', 'extensions', 'st-reader');
 const serverPath = path.join(sourceRoot, 'server.js');
 let runtimeTemp;
@@ -86,8 +88,8 @@ function prepare() {
     }
     if (!fs.existsSync(serverPath)) throw new Error(`找不到现有 ST 程序：${serverPath}`);
     const extensionStat = statIfPresent(extensionRoot);
-    if (!extensionStat?.isDirectory() || extensionStat.isSymbolicLink()) throw new Error('extension/ 必须是仓库内的普通目录。');
-    if (!fs.existsSync(path.join(extensionRoot, 'manifest.json'))) throw new Error('extension/manifest.json 缺失。');
+    if (!extensionStat?.isDirectory() || extensionStat.isSymbolicLink()) throw new Error('仓库根必须是普通目录。');
+    if (!fs.existsSync(path.join(extensionRoot, 'manifest.json'))) throw new Error('仓库根 manifest.json 缺失。');
 
     // ST 会补建这些程序目录；这里先检查，缺失时停止，防止在 F 盘创建目录。
     for (const relative of ['public/img', 'public/sounds', 'public/scripts/extensions']) {
@@ -110,16 +112,7 @@ function prepare() {
     }
     checkConfig();
 
-    const junctionStat = statIfPresent(junctionPath);
-    if (junctionStat) {
-        // 只读联接本身的目标文字，不跟随未知联接去读取别处的数据。
-        if (!junctionStat.isSymbolicLink() || !samePath(fs.readlinkSync(junctionPath), extensionRoot)) {
-            throw new Error(`已有目录不是指向 extension/ 的联接，未覆盖：${junctionPath}`);
-        }
-    } else {
-        fs.symlinkSync(extensionRoot, junctionPath, 'junction');
-        console.log('[st-reader] 已创建扩展目录联接。');
-    }
+    console.log(`[st-reader] ${prepareDevJunction(fs)}`);
     prepareSettings();
 
     // 占位可阻止宿主尝试迁移 F 盘根目录的旧 access.log，不读、不搬旧日志。

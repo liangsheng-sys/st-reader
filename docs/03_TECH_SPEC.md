@@ -34,8 +34,12 @@
 - 正则脚本：`{id, scriptName, findRegex, replaceString, trimStrings[], placement[], disabled, markdownOnly, promptOnly, runOnEdit, substituteRegex, minDepth, maxDepth}`。`placement` 枚举：`USER_INPUT=1, AI_OUTPUT=2, SLASH_COMMAND=3, WORLD_INFO=5, REASONING=6`。全局脚本在 `extensionSettings.regex`（含 `regex_presets`）；作用域脚本在角色卡 `data.extensions.regex_scripts`，且需 `extensionSettings.character_allowed_regex` 包含该角色 avatar 才生效；预设脚本需预设名在 `preset_allowed_regex[api]`。引擎：`/scripts/extensions/regex/engine.js` 导出 `runRegexScript(script, str, {characterOverride})`、`getRegexedString`、`regex_placement`、`getRegexScripts`。
 
 ## §3 目录与模块
+
+T40（D17/D18，2026-09-30）：仓库根即扩展，以下路径均相对 `E:\st-reader`。D04/D08/D09 的旧目录布局由 D18 取代；§5 的模块相对导入与接口均未变。ST 的扩展 URL 仍为 `/scripts/extensions/third-party/st-reader/`。
+
 ```
-extension/
+E:\st-reader/
+  LICENSE            AGPL-3.0 全文；vendor 保留第三方许可
   manifest.json / index.js / style.css
   src/core/   (astra)
     chatSource.js     只读 API 封装；chatKey 规范；header 解析；大文件按楼分页（每页 N 楼，默认 30）
@@ -54,9 +58,12 @@ extension/
     reader.js drawer.js floorToolbar.js selectionPopover.js cardStudio.js settingsBar.js annotationsPanel.js
     templates/*.html  Handlebars（renderExtensionTemplateAsync('third-party/st-reader/src/ui/templates', name)）
   vendor/modern-screenshot.mjs
-dev/   start-dev-st.cmd  fixtures/gen.mjs  selftest.mjs
-install/ link-to-my-st.cmd
+  docs/              规格、验收与交接；docs/*.png 私有截图不入库
+  dev/               start-dev-st.cmd  fixtures/gen.mjs  selftest.mjs  junction.mjs
+  install/           link-to-my-st.cmd  unlink-from-my-st.cmd
 ```
+
+开发联接 `.dev/data/default-user/extensions/st-reader` 与人类安装联接都指向 `E:\st-reader`。启动器只自动迁移已核对的旧开发联接；真实 ST 必须由人类先双击 unlink、再双击 link，AI 不执行。卸载只接受本仓库根或旧 `E:\st-reader\extension`，只删联接目录项。自有 `.js/.mjs` 首行是 `// ST Reader — AGPL-3.0`，`.css` 用合法 `/* ST Reader — AGPL-3.0 */`；vendor 不改。
 DOM 约定（D12）：根 `#stcr_root`（`position:fixed; inset:0; z-index` 高于 ST 顶栏），正文 `#stcr_chat`，每楼 `.mes[mesid][data-swipe]`，内含 `.mes_block > .ch_name .name_text` 与 `.mes_text`，思维链 `.mes_reasoning_details`。自有类名一律 `stcr-` 前缀。
 
 ## §4 关键技术点

@@ -1,2 +1,6 @@
 # Windows 批处理必须使用 CRLF，避免 cmd.exe 错读 UTF-8 中文行。
 *.cmd text eol=crlf
+# 源码固定 LF，迁移路径及重新检出后仍满足界面自测的换行约定。
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf

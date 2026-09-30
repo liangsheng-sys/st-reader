@@ -1,8 +1,11 @@
+// ST Reader — AGPL-3.0
 import { win32 } from 'node:path';
 
 // 路径固定；本模块不打开文件系统，只有人类启动入口才传入真实 fs。
 export const LINK_PATH = 'F:\\Claude\\xinllm\\SillyTavern\\data\\default-user\\extensions\\st-reader';
-export const SOURCE_PATH = 'E:\\st-reader\\extension';
+export const SOURCE_PATH = 'E:\\st-reader';
+// T40 迁移兼容：仅卸载接受旧目标，新建联接始终使用仓库根。
+export const LEGACY_SOURCE_PATH = 'E:\\st-reader\\extension';
 
 /** 仅操作指定目录项；注入 fs 让自测可用内存替身，不访问真实数据。 */
 export function changeJunction(action, fs) {
@@ -22,7 +25,8 @@ export function changeJunction(action, fs) {
     }
     if (!item) return '联接不存在，无需卸载。';
     if (!item.isSymbolicLink()) throw new Error('目标不是联接，已停止；不会删除普通文件夹。');
-    if (win32.resolve(fs.readlinkSync(LINK_PATH)).toLowerCase() !== win32.resolve(SOURCE_PATH).toLowerCase()) {
+    const target = win32.resolve(fs.readlinkSync(LINK_PATH)).toLowerCase();
+    if (![SOURCE_PATH, LEGACY_SOURCE_PATH].some(source => win32.resolve(source).toLowerCase() === target)) {
         throw new Error('联接指向其他位置，已停止。');
     }
     fs.unlinkSync(LINK_PATH);

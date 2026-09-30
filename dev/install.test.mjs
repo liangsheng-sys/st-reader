@@ -1,6 +1,8 @@
+// ST Reader — AGPL-3.0
 import { readFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
-import { changeJunction, LINK_PATH, SOURCE_PATH } from '../install/junction.mjs';
+import { changeJunction, LINK_PATH, SOURCE_PATH, LEGACY_SOURCE_PATH } from '../install/junction.mjs';
+import { prepareDevJunction } from './junction.mjs';
 
 const missing = () => Object.assign(new Error('不存在'), { code: 'ENOENT' });
 function fixture({ exists = false, symbolic = true, target = SOURCE_PATH, linkError } = {}) {
@@ -17,6 +19,7 @@ export function testInstall() {
     const results = [];
     const test = (name, run) => { run(); results.push({ name, passed: true }); };
     test('安装：内存替身只创建一个固定目标联接，不建父目录', () => {
+        assert.equal(SOURCE_PATH, 'E:\\st-reader');
         const { fs, calls } = fixture();
         assert.match(changeJunction('link', fs), /已建立/);
         assert.deepEqual(calls, [['lstat', LINK_PATH], ['symlink', SOURCE_PATH, LINK_PATH, 'junction']]);
@@ -53,6 +56,35 @@ export function testInstall() {
         const { fs, calls } = fixture();
         assert.match(changeJunction('unlink', fs), /无需卸载/);
         assert.deepEqual(calls, [['lstat', LINK_PATH]]);
+    });
+    test('T40 卸载：旧联接即使已悬空也能移除，再安装只指向仓库根', () => {
+        const old = fixture({ exists: true, target: LEGACY_SOURCE_PATH.toLowerCase() });
+        assert.match(changeJunction('unlink', old.fs), /已移除/);
+        assert.deepEqual(old.calls, [['lstat', LINK_PATH], ['readlink', LINK_PATH], ['unlink', LINK_PATH]]);
+        const next = fixture();
+        changeJunction('link', next.fs);
+        assert.deepEqual(next.calls[1], ['symlink', 'E:\\st-reader', LINK_PATH, 'junction']);
+    });
+    test('T40 开发联接：缺失时创建，旧目标迁移，新目标复用', () => {
+        const devLink = 'E:\\st-reader\\.dev\\data\\default-user\\extensions\\st-reader';
+        for (const target of [null, LEGACY_SOURCE_PATH.toLowerCase(), SOURCE_PATH.toLowerCase()]) {
+            const { fs, calls } = fixture({ exists: target !== null, target });
+            prepareDevJunction(fs);
+            const expected = [['lstat', devLink]];
+            if (target) expected.push(['readlink', devLink]);
+            if (target === LEGACY_SOURCE_PATH.toLowerCase()) expected.push(['unlink', devLink]);
+            if (target !== SOURCE_PATH.toLowerCase()) expected.push(['symlink', SOURCE_PATH, devLink, 'junction']);
+            assert.deepEqual(calls, expected);
+        }
+    });
+    test('T40 开发联接：普通目录、未知目标与权限错误不做写入', () => {
+        for (const options of [{ symbolic: false }, { target: 'E:\\unrelated' }, { target: SOURCE_PATH + '-other' }]) {
+            const { fs, calls } = fixture({ exists: true, ...options });
+            assert.throws(() => prepareDevJunction(fs), /未覆盖/);
+            assert(!calls.some(([action]) => ['unlink', 'symlink'].includes(action)));
+        }
+        const denied = Object.assign(new Error('拒绝访问'), { code: 'EACCES' });
+        assert.throws(() => prepareDevJunction({ lstatSync() { throw denied; } }), error => error === denied);
     });
     test('卸载：普通目录与指向其他位置的联接均拒绝删除', () => {
         for (const options of [{ symbolic: false }, { target: 'E:\\other-extension' }]) {

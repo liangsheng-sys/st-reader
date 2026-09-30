@@ -1,3 +1,4 @@
+// ST Reader — AGPL-3.0
 import assert from 'node:assert/strict';
 import { crc32 } from './png.mjs';
 

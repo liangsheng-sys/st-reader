@@ -1,8 +1,9 @@
-import { testReadonlyGuard } from '../extension/src/core/readonlyGuard.test.js';
+// ST Reader — AGPL-3.0
+import { testReadonlyGuard } from '../src/core/readonlyGuard.test.js';
 import { testFixtures } from './fixtures/selftest.mjs';
-import { testCoreLogic } from '../extension/src/core/core.test.js';
-import { testPersistenceLogic } from '../extension/src/core/persistence.test.js';
-import { testCardExportLogic } from '../extension/src/core/cardExport.test.js';
+import { testCoreLogic } from '../src/core/core.test.js';
+import { testPersistenceLogic } from '../src/core/persistence.test.js';
+import { testCardExportLogic } from '../src/core/cardExport.test.js';
 import { testInstall } from './install.test.mjs';
 
 // 后续任务把各模块的纯逻辑验证依次加入这里，不需要安装依赖。

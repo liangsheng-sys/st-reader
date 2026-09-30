@@ -11,8 +11,8 @@
 6. 在 `docs/04_TASKS.md` 找到分配给你的任务 ID，只做那一张卡。
 
 你的边界：
-- 你拥有 `extension/src/ui/`、`extension/style.css`、`docs/02_UI_SPEC.md`。`extension/index.js` 的挂载部分你可以改。
-- `extension/src/core/` 是 astra 的，不要改；接口不够用就在 `docs/06_ISSUES.md` 写清楚要什么，然后用 mock 先把界面做完。
+- 你拥有 `src/ui/`、`style.css`、`docs/02_UI_SPEC.md`。`index.js` 的挂载部分你可以改。
+- `src/core/` 是 astra 的，不要改；接口不够用就在 `docs/06_ISSUES.md` 写清楚要什么，然后用 mock 先把界面做完。
 - **不得直接 fetch `/api/*`**，一律走 §5 接口。
 - **只读铁律（D02）**：不得调用任何会写聊天的 API 或 context 方法，不得修改 `getContext().chat`、`chatMetadata`、`swipe_id`。阅读器里"切换 swipe"只改阅读器自己的状态。
 - **数据铁律（D03）**：只用 `E:\st-reader\.dev\` 的开发实例与合成数据；不得读、列、复制 `F:\Claude\xinllm\SillyTavern\data\` 下任何内容。
