@@ -44,7 +44,7 @@
 | T43 | **抽屉改造**（F12、F13）：按角色页跟随 ST 排序 + 临时切换下拉 + ST 标签筛选 + 搜索框；收藏页改为"收藏的聊天"（聊天列表项与阅读器顶栏加收藏聊天按钮）；楼 / swipe 收藏只留右侧面板 | Opus | 通过（人类 2026-09-30 验收；core 接口见 I029） | 372 角色样本（T11 可生成大量空角色）10 秒内找到；两处收藏不重复 |
 | T44a | **HTML 渲染 core**（D15/D16）：`htmlRenderer.js`：识别两类 HTML；生成 `srcdoc`（注入高度上报脚本 + CSP meta）；`sandbox="allow-scripts"`；`allowNetwork` 开关重建 srcdoc；`renderStatic(html, opts)` 生成去脚本同源静态副本供截图；`exportRenderedHtml(html, {width, maskWords, rules, crop})` → PNG Blob；进 selftest（识别、脱敏文本节点、CSP 字符串） | astra | 待开始 | 控制台演示：给一段带 `<body>` 与外链字体的 HTML，渲染出来、无外链请求；导出 PNG 屏蔽词不可见 |
 | T44b | **HTML 渲染 UI**（F10/F10a/F10b）：楼内"渲染 / 原文"切换（默认按设置，默认渲染）、宽度预设、允许外链按钮（含每次确认与提示文案）；卡片工作台"渲染视图"来源 + 裁剪框；代码块"复制脱敏版"按钮；02_UI_SPEC 补 §10 | Opus | 待开始 | 用人类两个提示词生成的样本 HTML（由 T11 fixture 追加 2 楼合成样本，不用真实聊天）验收 |
-| T45 | **脱敏阅读模式**（F11/D21）：设置条开关；渲染时套用 `maskText` / 规则；锚点按未脱敏文本；开关状态持久化 | Opus（core 需要什么写 06） | 待验收（分支 task/T45-masked-reading；core 无需新接口） | 开启后正文脱敏；已有划线不孤立 |
+| T45 | **脱敏阅读模式**（F11/D21）：设置条开关；渲染时套用 `maskText` / 规则；锚点按未脱敏文本；开关状态持久化 | Opus（core 需要什么写 06） | 通过（人类 2026-09-30 验收；core 无需新接口） | 开启后正文脱敏；已有划线不孤立 |
 | T46 | **发布材料**（F16）：README.md 发布版（中文为主 + 英文简介；功能 GIF 可选；安装 URL；只读声明；第三方域名披露；参考项目致谢；AGPL 声明）；`CHANGELOG.md`；`docs/发布指南.md`（小白版：GitHub 网页建仓 → `git remote add` → 首次 push 用浏览器登录 → 打 tag v0.1.0 → 发 Release → 社区帖子模板含"公开源码、无信息收集、外链域名披露"） | astra | 待开始 | 人类读指南能独立完成推送 |
 | T47 | **发布前复查**：D02 / NF3 再审（含沙箱 CSP）；许可头；README 披露是否属实 | Fable | 待开始 | 报告写 handoff |
 | T48 | 人类：照 `docs/发布指南.md` 推送 GitHub，在真实 ST 里用 URL 重新安装验证，社区发帖 | 人类 | 待开始 | 帖子链接记 07 |
