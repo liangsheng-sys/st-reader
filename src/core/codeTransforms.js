@@ -26,6 +26,20 @@ export function maskCodeText(text, options = {}) {
 export async function maskHtmlString(html, options = {}) {
     if (typeof html !== 'string') throw new TypeError('HTML 必须为字符串');
     maskCodeText('', options);
+    return transformHtmlOffline(html, doc => {
+        function visit(node) {
+            if (node.nodeType === 3) { node.data = maskCodeText(node.data, options); return; }
+            if (['script', 'style'].includes(node.localName?.toLowerCase())) return;
+            for (const child of node.childNodes) visit(child);
+            if (node.localName === 'template' && node.content) visit(node.content);
+        }
+        visit(doc);
+    });
+}
+
+/** core 内部共用：在禁网解析文档中同步变换，再序列化；不把用户节点挂进活动文档。 */
+export async function transformHtmlOffline(html, transform) {
+    if (typeof html !== 'string') throw new TypeError('HTML 必须为字符串');
     if (!globalThis.document?.body) throw new Error('HTML 脱敏需要浏览器 DOMParser 环境');
     const frame = document.createElement('iframe');
     frame.dataset.stcrParseFrame = '1'; frame.setAttribute('sandbox', 'allow-same-origin');
@@ -42,13 +56,7 @@ export async function maskHtmlString(html, options = {}) {
         await loaded;
         // 解析文档继承这个 realm 的 CSP；不用宿主页的 DOMParser，以免资源在解析时请求外链。
         const realm = frame.contentWindow, doc = new realm.DOMParser().parseFromString(html, 'text/html');
-        function visit(node) {
-            if (node.nodeType === 3) { node.data = maskCodeText(node.data, options); return; }
-            if (['script', 'style'].includes(node.localName?.toLowerCase())) return;
-            for (const child of node.childNodes) visit(child);
-            if (node.localName === 'template' && node.content) visit(node.content);
-        }
-        visit(doc);
+        transform(doc);
         const serializer = new realm.XMLSerializer();
         return [...doc.childNodes].map(node => node.nodeType === 1 ? node.outerHTML : serializer.serializeToString(node)).join('');
     } finally { clearTimeout(timer); frame.remove(); }

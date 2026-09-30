@@ -19,3 +19,5 @@ T30 验证入口：
 T40 后审计的扩展范围为根目录 `manifest.json / index.js / style.css / LICENSE` 与 `src/ / vendor/`；另外阻止 `.dev/`、`.tmp/` 和 `docs/*.png` 进入 Git。安装脚本只用内存替身测试，绝不运行 `install/run-junction.mjs`。
 
 T41：`test-core.cmd` 依次通过 Node 103 项、UI 27 项。启动开发实例后，控制台输入 `await window.stcrSelfTest({core:false,coreFixes:true})` 可单独跑 35 项（13 保护 + 12 纯逻辑 + 10 浏览器），无需选角色或导入字体；完整默认浏览器检查现为 132 项，仍需原 T14 的雾岚与 Ny 字体准备。T41 包含实际 PNG 的遮盖像素宽度/替换背景、HTML 属性与脚本保持、禁网解析和独立 IndexedDB 往返。I027 返修补上内联样式 CSP、重复自测串行与节点清理反例；Ctrl+F5 后重验。工作台测量时机尚需 Opus 接入，见 I026。
+
+T44a：当前 Node **112 项**、UI **27 项**；`await stcrSelfTest({core:false,htmlRenderer:true})` 应通过 **31 项**（13 保护 + 8 识别/CSP + 10 浏览器）。`await stcrHtmlDemo()` 打开独立合成演示：手机聊天、网页游戏、宽度、脱敏 PNG 与 300×180 裁剪。也可用 `?stcrSelfTest=1&core=0&htmlRenderer=1` 或 `?stcrHtmlDemo=1`。完整默认浏览器检查现为 **150 项**。故意的导航/脚本反例会产生 CSP “blocked” 提示；不能出现 false、“自测失败”或内联样式被阻止。开发 fixture 的纸舟第 7、8 楼为新样本，旧实例用 `node dev/fixtures/append-html.mjs` 停服追加，不能重建整个数据目录。

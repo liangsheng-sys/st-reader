@@ -15,6 +15,14 @@ export async function testFixtures() {
     const results = [];
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
+    await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
+        assert.equal(chats[1].messages.length, 8);
+        assert.match(chats[1].messages[6].mes, /^<!doctype html>/);
+        assert.match(chats[1].messages[6].mes, /st-reader-fixture\.invalid/);
+        assert.match(chats[1].messages[7].mes, /^```html/);
+        assert.match(chats[1].messages[7].mes, /onclick/);
+        assert.ok(chats[1].messages.slice(6).every(message => message.extra.stcr_fixture && message.mes.includes('虚构')));
+    });
     await test('I013 宿主补字段/更改当前 chat 后 PNG 仍有效，关键字段或正则变化仍拒绝', () => {
         const expected = makeCard(CHARACTERS[0]), changed = structuredClone(expected);
         changed.chat = 'STCR-95-T30-50MiB-4000楼'; changed.fav = false;

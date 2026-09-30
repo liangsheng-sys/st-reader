@@ -6,10 +6,11 @@ import { testPersistenceLogic } from '../src/core/persistence.test.js';
 import { testCardExportLogic } from '../src/core/cardExport.test.js';
 import { testInstall } from './install.test.mjs';
 import { testCoreFixesLogic } from '../src/core/coreFixes.test.js';
+import { testHtmlRendererLogic } from '../src/core/htmlRenderer.test.js';
 
 // 后续任务把各模块的纯逻辑验证依次加入这里，不需要安装依赖。
 try {
-    const results = [...await testReadonlyGuard(), ...await testFixtures(), ...await testCoreLogic(), ...await testPersistenceLogic(), ...await testCardExportLogic(), ...testInstall(), ...await testCoreFixesLogic()];
+    const results = [...await testReadonlyGuard(), ...await testFixtures(), ...await testCoreLogic(), ...await testPersistenceLogic(), ...await testCardExportLogic(), ...testInstall(), ...await testCoreFixesLogic(), ...testHtmlRendererLogic()];
     for (const result of results) console.log(`通过：${result.name}`);
     console.log(`\n全部通过（${results.length} 项）。测试没有发送任何网络请求。`);
 } catch (error) {
