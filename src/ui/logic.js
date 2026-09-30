@@ -17,6 +17,7 @@ export const DEFAULT_PREFS = Object.freeze({
     hideUser: false,
     expandAllReasoning: false,
     hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
+    redact: false,         // T45：脱敏显示（屏蔽词与我的替换规则套到正文显示上）
     drawerPinned: false,
     panelPinned: false,
 });
@@ -38,7 +39,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'drawerPinned', 'panelPinned']) {
+    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'redact', 'drawerPinned', 'panelPinned']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;

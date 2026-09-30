@@ -28,6 +28,8 @@ export function createSettingsBar({ onExport, onImport }) {
     const widthRange = h('input', { type: 'range', min: PREF_LIMITS.width.min, max: PREF_LIMITS.width.max, step: '10', 'aria-label': '正文宽度' });
     const widthValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复默认宽度' });
     const hideUser = switchInput('隐藏用户楼');
+    const redact = switchInput('脱敏显示');
+    redact.el.title = '正文按屏蔽词与替换规则显示（只改阅读器里看到的，不改聊天）；划线照常可用';
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
     const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
@@ -56,7 +58,7 @@ export function createSettingsBar({ onExport, onImport }) {
             row('行距', lineRange, lineValue),
             row('宽度', widthRange, widthValue),
             row('思维链', reasoningSeg),
-            row('显示', hideUser.el)),
+            row('显示', hideUser.el, redact.el)),
         more,
         h('div', { class: 'stcr-set-foot' }, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
@@ -79,6 +81,7 @@ export function createSettingsBar({ onExport, onImport }) {
     widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value) }));
     widthValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ width: null }); });
     hideUser.input.addEventListener('change', () => setPrefs({ hideUser: hideUser.input.checked }));
+    redact.input.addEventListener('change', () => setPrefs({ redact: redact.input.checked }));
     reasoningSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-reasoning]')?.dataset.reasoning;
         if (mode === 'hide') setPrefs({ hideReasoning: true });
@@ -102,6 +105,7 @@ export function createSettingsBar({ onExport, onImport }) {
         widthRange.value = String(shown.width ?? 800);
         widthValue.textContent = shown.width === null ? '跟随 ST' : String(shown.width);
         hideUser.input.checked = prefs.hideUser;
+        redact.input.checked = prefs.redact;
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
     }

@@ -6,6 +6,7 @@
 import { renderMessage } from '../core/formatter.js';
 import { h, iconButton } from './dom.js';
 import { formatStamp, reasoningTitle } from './logic.js';
+import { redactElement, visibleText } from './redact.js';
 
 /**
  * @typedef {object} FloorContext
@@ -13,6 +14,7 @@ import { formatStamp, reasoningTitle } from './logic.js';
  * @property {(model:object)=>string|null} avatarFor 头像地址；null 不显示
  * @property {(index:number)=>boolean} isReasoningOpen 这一楼的思维链此刻是否展开
  * @property {(index:number, swipe:number|null)=>boolean} isBookmarked 整楼（swipe=null）或某候选是否已收藏
+ * @property {(model:object)=>import('./redact.js').RedactOptions|null} [redactFor] 脱敏显示开着时给这一楼的屏蔽词 / 规则（T45）
  */
 
 /** 建一楼。swipeIndex 是阅读器要显示的候选（可能与 ST 当前候选不同）。 */
@@ -36,6 +38,7 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     const swipe = model.swipes[rendered.swipeIndex];
     const block = el.querySelector(':scope > .mes_block');
     block.replaceChildren();
+    const redact = ctx.redactFor?.(model) ?? null;
     el.dataset.swipe = String(rendered.swipeIndex);
     el.classList.toggle('reasoning', !!rendered.reasoningHtml);
 
@@ -49,11 +52,13 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     if (!model.isSystem) row.append(buildToolbar(model, !!rendered.reasoningHtml));
     if (model.swipes.length > 1 && !model.isSystem) row.append(buildSwipeControl(model, rendered.swipeIndex));
     if (!model.isSystem) row.append(iconButton('fa-ellipsis', '这一楼的工具', { class: 'stcr-mes-more', 'data-act': 'more' }));
+    if (redact) redactElement(row.querySelector('.name_text'), redact); // 名字行也按规则显示（它不参与锚点）
     block.append(row);
 
     if (rendered.reasoningHtml) {
         const body = h('div', { class: 'mes_reasoning' });
         body.innerHTML = rendered.reasoningHtml; // core 已清洗（DOMPurify）
+        if (redact) redactElement(body, redact);
         const details = h('details', { class: 'mes_reasoning_details', open: ctx.isReasoningOpen(model.index) },
             h('summary', { class: 'mes_reasoning_summary flex-container' },
                 h('div', { class: 'mes_reasoning_header_block flex-container' },
@@ -67,6 +72,7 @@ export function fillFloor(ctx, el, model, swipeIndex) {
 
     const text = h('div', { class: 'mes_text' });
     text.innerHTML = rendered.html; // core 已清洗（DOMPurify）
+    if (redact) redactElement(text, redact); // 在加复制按钮之前：按钮文字不参与
     addCodeCopyButtons(text);
     block.append(text);
     syncBookmarkMarks(ctx, el);
@@ -135,11 +141,8 @@ function addCodeCopyButtons(container) {
     }
 }
 
-/** 本楼当前显示候选的纯文本（正则后、去 HTML），给"复制本楼"用。 */
+/** 本楼当前显示候选的纯文本（正则后、去 HTML），给"复制本楼"用。脱敏显示开着时复制的是脱敏后的样子（所见即所得）。 */
 export function floorPlainText(el) {
     const text = el.querySelector(':scope > .mes_block > .mes_text');
-    if (!text) return '';
-    const clone = text.cloneNode(true);
-    for (const node of clone.querySelectorAll('.stcr-code-copy, [data-stcr-ignore-anchor]')) node.remove();
-    return (clone.innerText ?? clone.textContent ?? '').trim();
+    return text ? visibleText(text).trim() : '';
 }

@@ -17,6 +17,7 @@ import { effectivePrefs, formatStamp, hiddenUserRuns, parseJumpInput, pickSwipe,
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
+import { hasRedaction, redactString, setRedactState, visibleText } from './redact.js';
 import { createSettingsBar } from './settingsBar.js';
 
 const PAGE_SIZE = 30;      // 每批楼数，与 core 默认一致（03 §4.5）
@@ -65,11 +66,11 @@ export async function openReader({ tab, chatKey } = {}) {
         stateBox: root.querySelector('.stcr-state'), progressBtn: root.querySelector('.stcr-progress'),
         progressLine: root.querySelector('.stcr-progress-line > span'), topPercent: root.querySelector('.stcr-top-percent'),
         titleOwner: root.querySelector('.stcr-title-owner'), titleFile: root.querySelector('.stcr-title-file'),
-        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'),
+        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), redactBadge: root.querySelector('.stcr-redact-badge'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
-        chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null,
+        chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
     };
     S = session;
     session.marks = createMarks({
@@ -112,7 +113,12 @@ export async function openReader({ tab, chatKey } = {}) {
     });
     session.studio = createCardStudio({
         root, toast: say, getDirection: () => getPrefs().direction, confirm: (message, ok) => confirmDialog(message, ok),
-        onClose: () => { if (S === session) session.scroller.focus({ preventScroll: true }); },
+        onClose: () => {
+            if (S !== session) return;
+            session.scroller.focus({ preventScroll: true });
+            // 工作台里可能改了屏蔽词 / 规则：脱敏显示开着就重读并重排
+            if (getPrefs().redact) loadRedaction(session).then(() => { if (S === session) { refreshSideTexts(session); rerender(captureAnchor()); } });
+        },
     });
     session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
     root.querySelector('.stcr-body').prepend(session.drawer.el);
@@ -124,6 +130,8 @@ export async function openReader({ tab, chatKey } = {}) {
     if (S !== session) return;
 
     wireEvents(session);
+    if (getPrefs().redact) await loadRedaction(session);
+    if (S !== session) return;
     applyPrefs(getPrefs());
     session.cleanup.push(onPrefsChange(onPrefs));
     session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
@@ -325,6 +333,7 @@ function onClick(event) {
             case 'close-drawer': session.drawer.close(); return;
             case 'panel': togglePanel(); return;
             case 'fav-chat': toggleChatFav(); return;
+            case 'redact-off': setPrefs({ redact: false }); say('已关闭脱敏显示'); return;
             case 'close-panel': session.panel.close(); return;
             case 'jump': openJump(); return;
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
@@ -475,6 +484,10 @@ function applyPrefs(prefs) {
     root.classList.toggle('stcr-mode-scroll', shown.mode !== 'paged');
     root.classList.toggle('stcr-hide-user', prefs.hideUser);
     root.classList.toggle('stcr-hide-reasoning', prefs.hideReasoning);
+    root.classList.toggle('stcr-redacted', prefs.redact);
+    setRedactState(prefs.redact ? S.redact : null);
+    setTitles(S);
+    S.redactBadge.hidden = !prefs.redact;
     root.classList.toggle('stcr-drawer-pinned', prefs.drawerPinned);
     root.classList.toggle('stcr-panel-pinned', prefs.panelPinned);
     root.classList.toggle('stcr-lh-custom', prefs.lineHeight !== null);
@@ -492,12 +505,53 @@ function onPrefs(next, previous) {
     const anchor = captureAnchor();
     applyPrefs(next);
     if (next.hideUser !== previous.hideUser) { rerender(anchor); return; }
+    if (next.redact !== previous.redact) {
+        const session = S;
+        (next.redact ? loadRedaction(session) : Promise.resolve()).then(() => {
+            if (S !== session) return;
+            refreshSideTexts(session);
+            rerender(anchor);
+            if (next.redact && !hasRedaction(session.redact)) say('还没有屏蔽词或替换规则：在分享卡片里添加后，这里就会按它们显示');
+        });
+        return;
+    }
     if (next.expandAllReasoning !== previous.expandAllReasoning) {
         S.reasoning.clear(); // "全部展开/折叠"清掉逐楼记忆（02 §5.2）
         for (const details of S.chat.querySelectorAll('.mes_reasoning_details')) details.open = next.expandAllReasoning;
     }
     restoreAnchor(anchor);
     updateProgress();
+}
+
+// ───────────────────────── 脱敏显示（T45） ─────────────────────────
+
+/** 顶栏标题：角色名 · 聊天名（脱敏显示时按规则 / 屏蔽词换）。 */
+function setTitles(session) {
+    if (!session?.handle) return;
+    session.titleOwner.textContent = redactString(session.owner, session.chatKey) || '阅读器';
+    session.titleFile.textContent = redactString(session.handle.title, session.chatKey);
+}
+
+/** 脱敏开关或词表变了：正文以外的小字也跟着换（面板、抽屉、跟随条）。 */
+function refreshSideTexts(session) {
+    setRedactState(getPrefs().redact ? session.redact : null);
+    setTitles(session);
+    session.panel.refresh();
+    session.drawer.refreshList?.();
+    session.follow.dataset.key = '';
+    updateFollower();
+}
+
+/** 读屏蔽词、替换规则、图片（规则可能换成图片）。读不到就当没有，正文照常显示原文。 */
+async function loadRedaction(session) {
+    try {
+        const [words, rules, assets] = await Promise.all([store.maskWords.list(), store.replaceRules.list(), store.assets.list()]);
+        session.redact = { words, rules, assets: new Map(assets.map(a => [a.id, a])) };
+    } catch (error) {
+        console.warn('[st-reader] 脱敏显示：屏蔽词或规则读取失败', error);
+        session.redact = null;
+        say(`脱敏显示暂时用不了：${describeStoreError(error)}`);
+    }
 }
 
 // ───────────────────────── 划线、收藏、备份 ─────────────────────────
@@ -707,8 +761,7 @@ async function loadChat(chatKey, { index = null, swipe = null } = {}) {
         if (S !== session || token !== session.token) { handle.close(); return; }
         session.handle = handle;
         session.owner = handle.header.characterName || (handle.isGroup ? '群聊' : '');
-        session.titleOwner.textContent = session.owner || '阅读器';
-        session.titleFile.textContent = handle.title;
+        setTitles(session);
         session.root.setAttribute('aria-label', `阅读器：${session.owner} · ${handle.title}`);
         syncChatFav(session);
         try {
@@ -809,6 +862,13 @@ function floorContext() {
         },
         isReasoningOpen: index => session.reasoning.has(index) ? session.reasoning.get(index) : getPrefs().expandAllReasoning,
         isBookmarked: (index, swipe) => session.marks.isBookmarked(index, swipe),
+        redactFor: model => {
+            const data = getPrefs().redact ? session.redact : null;
+            if (!hasRedaction(data)) return null;
+            // 规则作用范围：单聊 = 这个角色；群聊 = 这一楼的发言成员（用户楼只有"全部聊天"的规则）
+            const avatarUrl = session.handle.isGroup ? (model.isUser ? null : model.originalAvatar ?? null) : key?.avatarUrl ?? null;
+            return { ...data, avatarUrl };
+        },
     };
 }
 
@@ -1028,7 +1088,7 @@ function updateFollower() {
         const model = session.handle.getMessage(index);
         // replaceChildren 会把 null 写成文字"null"，先滤掉
         follow.replaceChildren(...[
-            h('span', { class: 'stcr-follow-name', text: model.name }),
+            h('span', { class: 'stcr-follow-name', text: redactString(model.name, S.chatKey) }),
             model.swipes.length > 1 ? buildSwipeControl(model, swipe) : null,
             iconButton('fa-arrow-up', '回到这一楼开头', { 'data-act': 'follow-top', 'data-index': index }),
         ].filter(Boolean));
@@ -1112,7 +1172,7 @@ async function copyFloor(mes) {
 async function copyCode(button) {
     const code = button.closest('pre')?.querySelector('code');
     if (!code) return;
-    const ok = await copyText(code.textContent ?? '');
+    const ok = await copyText(visibleText(code));
     const icon = button.querySelector('i');
     if (ok && icon) {
         icon.className = 'fa-solid fa-check';
@@ -1178,7 +1238,7 @@ function openSwipeList(mes, button, { fromFollow = false } = {}) {
             'aria-selected': String(swipe.index === shown), 'data-act': 'swipe-pick', 'data-index': index, 'data-swipe': swipe.index },
         h('span', { class: 'stcr-swipe-item-num', text: String(swipe.index + 1) }),
         h('span', { class: 'stcr-swipe-item-time', text: formatStamp(swipe.sendDate).replace(/^.*日 /, '') }),
-        h('span', { class: 'stcr-swipe-item-text', text: previews[swipe.index] || '（空）' }),
+        h('span', { class: 'stcr-swipe-item-text', text: redactString(previews[swipe.index], S.chatKey) || '（空）' }),
         notes.get(swipe.index) ? h('span', { class: 'stcr-swipe-item-notes', title: `这个候选上有 ${notes.get(swipe.index)} 条划线`, text: `✎${notes.get(swipe.index)}` }) : null,
         S.marks.isBookmarked(index, swipe.index) ? h('i', { class: 'fa-solid fa-star stcr-swipe-item-star', title: '已收藏这个候选', 'aria-label': '已收藏' }) : null,
         swipe.index === model.swipeId ? h('span', { class: 'stcr-swipe-dot', title: 'ST 里现在采用的是这个候选' }) : null)));

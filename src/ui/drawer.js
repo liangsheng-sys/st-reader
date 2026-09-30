@@ -8,6 +8,7 @@ import { isFavoriteChat, listFavoriteChats, loadFavoriteChats, onFavoriteChatsCh
 import { h, iconButton } from './dom.js';
 import { filterOwners, formatListDate, matchesFilter, OWNER_SORTS, sortOwners } from './logic.js';
 import { loadOwners } from './ownerMeta.js';
+import { redactString } from './redact.js';
 
 const TABS = [
     { id: 'recent', icon: 'fa-clock', label: '最近' },
@@ -132,10 +133,10 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         return h('div', { class: 'stcr-row-wrap', role: 'listitem', 'data-filter': [owner.name, summary.title].join('\n') }, // 只过滤名字和标题；全文搜索是 v2
             h('button', { type: 'button', class: `stcr-btn stcr-row${summary.chatKey === getActiveKey() ? ' stcr-row--active' : ''}`, 'data-key': summary.chatKey },
                 h('span', { class: 'stcr-row-title' },
-                    h('span', { text: showOwner ? owner.name : summary.title }),
+                    h('span', { text: redactString(showOwner ? owner.name : summary.title, summary.avatarUrl) }),
                     summary.isGroup && showOwner ? h('small', { class: 'stcr-row-tag', text: '群' }) : null),
-                h('span', { class: 'stcr-row-meta', text: showOwner ? [summary.title, meta].filter(Boolean).join(' · ') : meta }),
-                summary.preview ? h('span', { class: 'stcr-row-preview', text: summary.preview.replace(/\s+/g, ' ') }) : null),
+                h('span', { class: 'stcr-row-meta', text: showOwner ? [redactString(summary.title, summary.avatarUrl), meta].filter(Boolean).join(' · ') : meta }),
+                summary.preview ? h('span', { class: 'stcr-row-preview', text: redactString(summary.preview.replace(/\s+/g, ' '), summary.avatarUrl) }) : null),
             star);
     }
 
@@ -311,7 +312,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
             const { owner } = item;
             wrap.append(h('button', { type: 'button', class: 'stcr-btn stcr-owner-row', 'data-owner': item.ownerKey, 'aria-expanded': String(item.open) },
                 owner.thumbnailUrl ? h('img', { class: 'stcr-owner-thumb', src: owner.thumbnailUrl, alt: '', loading: 'lazy', decoding: 'async' }) : h('span', { class: 'stcr-owner-thumb stcr-owner-thumb--blank' }),
-                h('span', { class: 'stcr-owner-name', text: owner.name }),
+                h('span', { class: 'stcr-owner-name', text: redactString(owner.name, owner.avatarUrl) }),
                 owner.fav ? h('i', { class: 'fa-solid fa-star stcr-owner-fav', title: '在 ST 里收藏过的角色', 'aria-label': 'ST 收藏' }) : null,
                 h('i', { class: 'fa-solid fa-chevron-right stcr-owner-arrow', 'aria-hidden': 'true' })));
         } else if (item.type === 'chat') {
@@ -358,6 +359,8 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
             else markActive();
         },
         close() { el.classList.remove('stcr-drawer--open'); },
+        /** 脱敏显示变了：列表开着就按当前页签重画（名字、标题、预览跟着换）。 */
+        refreshList() { if (el.classList.contains('stcr-drawer--open')) { if (tab === 'owners' && owners) renderOwners(); else showTab(tab); } },
         /** 收藏变了（备份导入等）：收藏页开着就重读。 */
         refreshFavorites() { if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) showTab('favorites'); },
         isOpen() { return el.classList.contains('stcr-drawer--open'); },

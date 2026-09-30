@@ -179,6 +179,15 @@
 /* 隐藏思维链（F15②）：整行"思考了 x 秒"和楼层工具条的 🧠 都不出现；只是不显示，划线记录不受影响 */
 #stcr_root.stcr-hide-reasoning #stcr_chat .mes_reasoning_details,
 #stcr_root.stcr-hide-reasoning .stcr-floor-toolbar [data-act="reasoning"] { display: none !important; }
+/* 脱敏显示（T45）：原词节点永远不显示；替换处一道细细的点状下划线提示"此处已脱敏"，悬停只有这句提示、不显示原词 */
+#stcr_root .stcr-rd-orig { display: none !important; }
+#stcr_root .stcr-rd { text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent) !important; text-decoration-thickness: 1px !important; text-underline-offset: .22em !important; cursor: help; }
+#stcr_root .stcr-rd--mask { color: inherit !important; letter-spacing: -.08em; font-family: ui-monospace, Consolas, monospace; text-shadow: none !important; }
+#stcr_root .stcr-rd--bg { padding: 0 .15em; border-radius: .2em; }
+#stcr_root .stcr-rd img.stcr-rd-img { display: inline-block; width: 1em; height: 1em; object-fit: contain; vertical-align: -.12em; }
+#stcr_root .stcr-redact-badge { display: inline-flex; align-items: center; gap: 5px; margin-right: 4px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--stcr-accent) 55%, transparent); border-radius: 999px; color: var(--stcr-accent); font-size: 11.5px; }
+#stcr_root .stcr-redact-badge:hover { background-color: var(--stcr-hover); }
+#stcr_root .stcr-set-ctl .stcr-set-switch + .stcr-set-switch { margin-left: 8px; }
 
 /* 楼层工具：收在名字行里、排在候选切换左边；鼠标移入 150ms 后淡入、移开 600ms 后淡出（02 §1.4）。
  * 平时透明但保留位置，出现时不挤动名字行。 */

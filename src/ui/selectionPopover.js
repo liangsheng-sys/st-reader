@@ -7,6 +7,7 @@ import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
 import { COLORS } from './marks.js';
 import { createRuleEditor, ruleScopes } from './rulesUi.js';
+import { redactString } from './redact.js';
 
 const MASK_MAX = 30;
 
@@ -181,7 +182,7 @@ export function createSelectionUi({ root, marks, toast, onCard, getChatKey, getA
         area.value = record.note ?? '';
         const status = h('span', { class: 'stcr-note-status' });
         const pop = h('div', { class: 'stcr-popover stcr-note-pop', role: 'dialog', 'aria-label': '批注' },
-            h('div', { class: 'stcr-note-quote', text: `“${record.anchor.quote.exact.slice(0, 80)}${record.anchor.quote.exact.length > 80 ? '…' : ''}”` }),
+            h('div', { class: 'stcr-note-quote', text: `“${redactString(record.anchor.quote.exact.slice(0, 80), record.anchor.chatKey)}${record.anchor.quote.exact.length > 80 ? '…' : ''}”` }),
             area,
             h('div', { class: 'stcr-note-foot' }, status,
                 h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => closePopover({ cancel: true }), text: '取消' }),
@@ -224,7 +225,7 @@ export function createSelectionUi({ root, marks, toast, onCard, getChatKey, getA
         const record = marks.get(markEl.dataset.ann);
         if (!record?.note) return;
         hideBubble();
-        bubble = h('div', { class: 'stcr-note-bubble', role: 'tooltip', text: record.note });
+        bubble = h('div', { class: 'stcr-note-bubble', role: 'tooltip', text: redactString(record.note, record.anchor.chatKey) });
         place(bubble, markEl.getBoundingClientRect());
     }
     function hideBubble() { bubble?.remove(); bubble = null; }

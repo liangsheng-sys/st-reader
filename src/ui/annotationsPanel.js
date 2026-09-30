@@ -7,6 +7,7 @@ import { parseChatKey } from '../core/chatSource.js';
 import { store } from '../core/store.js';
 import { copyText, h, iconButton } from './dom.js';
 import { COLORS } from './marks.js';
+import { redactString } from './redact.js';
 
 const TABS = [
     { id: 'notes', label: '划线与批注' },
@@ -89,8 +90,8 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPi
         const w = where(r);
         return h('div', { class: `stcr-item stcr-item--${r.color}`, role: 'listitem' },
             h('button', { type: 'button', class: 'stcr-btn stcr-item-main', 'data-jump': r.id, title: '跳到这条划线' },
-                h('span', { class: 'stcr-item-quote', text: `“${r.anchor.quote.exact}”` }),
-                r.note ? h('span', { class: 'stcr-item-note', text: r.note }) : null,
+                h('span', { class: 'stcr-item-quote', text: `“${redactString(r.anchor.quote.exact, r.anchor.chatKey)}”` }),
+                r.note ? h('span', { class: 'stcr-item-note', text: redactString(r.note, r.anchor.chatKey) }) : null,
                 h('span', { class: 'stcr-item-meta', text: `第 ${w.mesIndex + 1} 楼${swipeLabel(w.chatKey, w.mesIndex, w.swipeIndex)}${r.anchor.part === 'reasoning' ? ' · 思维链' : ''}` })),
             iconButton('fa-image', '用这段做分享卡片', { class: 'stcr-item-x stcr-item-card', 'data-card': r.id }));
     }
@@ -100,15 +101,15 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPi
                 h('span', { class: 'stcr-item-meta stcr-item-meta--top' },
                     h('i', { class: `fa-solid ${r.swipeIndex === null ? 'fa-bookmark' : 'fa-star'}`, 'aria-hidden': 'true' }),
                     ` 第 ${r.mesIndex + 1} 楼${r.swipeIndex === null ? '' : swipeLabel(r.chatKey, r.mesIndex, r.swipeIndex)}`),
-                r.preview ? h('span', { class: 'stcr-item-quote', text: r.preview }) : null),
+                r.preview ? h('span', { class: 'stcr-item-quote', text: redactString(r.preview, r.chatKey) }) : null),
             iconButton('fa-xmark', '取消收藏', { class: 'stcr-item-x', 'data-unbookmark': r.id }));
     }
     function orphanRow(r) {
         const w = where(r);
         return h('div', { class: `stcr-item stcr-item--${r.color} stcr-item--orphan`, role: 'listitem' },
             h('div', { class: 'stcr-item-main' },
-                h('span', { class: 'stcr-item-quote', text: `“${r.anchor.quote.exact}”` }),
-                r.note ? h('span', { class: 'stcr-item-note', text: r.note }) : null,
+                h('span', { class: 'stcr-item-quote', text: `“${redactString(r.anchor.quote.exact, r.anchor.chatKey)}”` }),
+                r.note ? h('span', { class: 'stcr-item-note', text: redactString(r.note, r.anchor.chatKey) }) : null,
                 h('span', { class: 'stcr-item-meta', text: `原第 ${w.mesIndex + 1} 楼${swipeLabel(w.chatKey, w.mesIndex, w.swipeIndex)} · ${r.orphanReason === 'ambiguous' ? '这段文字现在出现了好几次，认不出是哪一处' : '原文已变，找不到这段了'}` })),
             h('div', { class: 'stcr-item-actions' },
                 iconButton('fa-copy', '复制原文', { 'data-copy': r.id }),
@@ -130,7 +131,7 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPi
             let title = items.find(r => r.title)?.title;
             if (!title) { try { title = parseChatKey(chatKey).fileName; } catch { title = '（未知聊天）'; } }
             return h('div', { class: 'stcr-panel-group' },
-                h('div', { class: 'stcr-panel-group-title' }, h('span', { text: title }),
+                h('div', { class: 'stcr-panel-group-title' }, h('span', { text: redactString(title, chatKey) }),
                     chatKey === active ? h('small', { class: 'stcr-row-tag', text: '正在读' }) : null,
                     h('small', { class: 'stcr-panel-group-count', text: String(items.length) })),
                 ...items.sort(byPlace).map(rowFn));
