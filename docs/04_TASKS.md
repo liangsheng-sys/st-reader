@@ -33,3 +33,19 @@
 | T30 | **性能与只读审计**：50 MB fixture 打开 < 3 s、翻页流畅、切换聊天内存回落；全仓库 grep 禁用接口为空；`install/link-to-my-st.cmd`（只建目录联接，路径写死为 `F:\Claude\xinllm\SillyTavern\data\default-user\extensions\st-reader`，存在则提示不覆盖）；补全 `SETUP_WINDOWS.md` 安装一节；写 `docs/M3_验收清单.md`（F1–F9 逐条勾选表）；**另含**：修 I018①、按 06 拍板语义实现 I019、≥50 MB 合成文件实测、`unlink-from-my-st.cmd`、修 I013 反复发生、把 `main` 快进到最终提交 | astra | 待验收（人工1–7步已完成；NF2肉眼流畅，打开/预取定量遗留 I020；I021 人类暂缓） | 人类能看懂清单；性能数据及未达标项如实见 T30 交接 |
 | T31 | **交付前只读复查**：只读铁律、无出站请求、许可登记、`.dev` 未入库 | Fable | 通过（报告 `handoff/2026-09-29_fable_to_human_T31.md`；须在 T30 后再复查一次） | 复查报告写 `handoff/` |
 | T32 | 人类：双击 `install\link-to-my-st.cmd`，重启 ST，按 `M3_验收清单.md` 逐条验收，结论写 `07_FEEDBACK.md`；退回项由规划者拆新卡 | 人类 | 通过（人工步骤完成；NF2定量遗留另记I020） | 07 有记录 |
+
+## M4 使用反馈修补与发布（v0.1.0）
+先 T40（重构目录），其余 astra / Opus 卡按目录分工可并行；T44b 需 T44a 交付。
+| ID | 任务 | 负责 | 状态 | 验收标准 |
+|---|---|---|---|---|
+| T40 | **仓库重构为可直接安装**（D17/D18）：`extension/*` 移到仓库根；更新 `dev/`、`install/`、自测与文档里的路径；`LICENSE`（AGPL-3.0）；每个源文件头加版权行；`manifest.json` 补 `homePage`、`auto_update:true`、`version 0.1.0`；`.gitignore` 加 `docs/*.png`；人类的反馈 txt 移到 `docs/feedback/`；`main` 快进 | astra | 待开始 | `node dev/selftest.mjs` 与 `ui.test.js` 全绿；人类重跑 `install/unlink-from-my-st.cmd` + `link-to-my-st.cmd` 后 ST 里扩展正常 |
+| T41 | **core 修补**：①遮盖宽度按原词实际像素宽度（F14④，DOM 适配层测量）；②`ReplaceRule.to` 文字类型加 `background`（#RRGGBB）；③`maskCodeText(text, opts)` 与 `maskHtmlString(html, opts)`：只改文本节点，不碰标签 / 属性 / `<script>` 内容（F10b、F10a 用）；④store bookmarks 新增 `kind:'chat'`（F13）；⑤§5 合同更新；全部进 selftest | astra | 待开始 | selftest 新增项全绿；03 §5 有签名 |
+| T42 | **UI 细节**（F14①②③、F15①②③）：Aa 对齐；隐藏思维链开关；替换文字背景色与色块颜色选择器（8 个预设 + 色号输入）；遮盖高度贴行高；I021 独立开关接线 | Opus | 待开始 | 人类肉眼；I021 场景：关自动名字仍替换"灯塔→某地" |
+| T43 | **抽屉改造**（F12、F13）：按角色页跟随 ST 排序 + 临时切换下拉 + ST 标签筛选 + 搜索框；收藏页改为"收藏的聊天"（聊天列表项与阅读器顶栏加收藏聊天按钮）；楼 / swipe 收藏只留右侧面板 | Opus | 待开始 | 372 角色样本（T11 可生成大量空角色）10 秒内找到；两处收藏不重复 |
+| T44a | **HTML 渲染 core**（D15/D16）：`htmlRenderer.js`：识别两类 HTML；生成 `srcdoc`（注入高度上报脚本 + CSP meta）；`sandbox="allow-scripts"`；`allowNetwork` 开关重建 srcdoc；`renderStatic(html, opts)` 生成去脚本同源静态副本供截图；`exportRenderedHtml(html, {width, maskWords, rules, crop})` → PNG Blob；进 selftest（识别、脱敏文本节点、CSP 字符串） | astra | 待开始 | 控制台演示：给一段带 `<body>` 与外链字体的 HTML，渲染出来、无外链请求；导出 PNG 屏蔽词不可见 |
+| T44b | **HTML 渲染 UI**（F10/F10a/F10b）：楼内"渲染 / 原文"切换（默认按设置，默认渲染）、宽度预设、允许外链按钮（含每次确认与提示文案）；卡片工作台"渲染视图"来源 + 裁剪框；代码块"复制脱敏版"按钮；02_UI_SPEC 补 §10 | Opus | 待开始 | 用人类两个提示词生成的样本 HTML（由 T11 fixture 追加 2 楼合成样本，不用真实聊天）验收 |
+| T45 | **脱敏阅读模式**（F11/D21）：设置条开关；渲染时套用 `maskText` / 规则；锚点按未脱敏文本；开关状态持久化 | Opus（core 需要什么写 06） | 待开始 | 开启后正文脱敏；已有划线不孤立 |
+| T46 | **发布材料**（F16）：README.md 发布版（中文为主 + 英文简介；功能 GIF 可选；安装 URL；只读声明；第三方域名披露；参考项目致谢；AGPL 声明）；`CHANGELOG.md`；`docs/发布指南.md`（小白版：GitHub 网页建仓 → `git remote add` → 首次 push 用浏览器登录 → 打 tag v0.1.0 → 发 Release → 社区帖子模板含"公开源码、无信息收集、外链域名披露"） | astra | 待开始 | 人类读指南能独立完成推送 |
+| T47 | **发布前复查**：D02 / NF3 再审（含沙箱 CSP）；许可头；README 披露是否属实 | Fable | 待开始 | 报告写 handoff |
+| T48 | 人类：照 `docs/发布指南.md` 推送 GitHub，在真实 ST 里用 URL 重新安装验证，社区发帖 | 人类 | 待开始 | 帖子链接记 07 |
+

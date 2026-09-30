@@ -15,3 +15,6 @@
 | `opus_T21-T23.md` | Claude Code / Opus | 已用完（T21、T22 已交付）；T23 已拆卡，改用下一行 |
 | `opus_T23a-T23b.md` | Claude Code / Opus | T22 验收通过后，粘给同一个 Opus 会话或新会话均可 |
 | `astra_T30.md` | Codex / astra | T23b 已通过、T31 复查已出；**先做 T01 清 F 盘** |
+| `astra_T40-T46.md` | Codex / astra | M4 先做，T40 完成后再给 Opus |
+| `opus_T42-T45.md` | Claude Code / Opus | T40 已合到 main；T44b 等 T44a |
+
