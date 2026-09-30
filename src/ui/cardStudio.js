@@ -511,17 +511,15 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     }
 
     /**
-     * 涂黑、色块的高度 = 所在行的行高（F14③，T42）：上下正好填满一行，连着几行遮盖时也齐整。
-     * core 给的是 0.8em（03 §5.12 把高度留给 UI）；这里按所在元素的实际行高写成像素，导出副本原样复制。
+     * 涂黑、色块的高度 = 字高（1em，F14③；T42 验收后人类定：比行高好看，不显厚）。
+     * core 给的是 0.8em（03 §5.12 把高度留给 UI）；这里按所在元素的实际字号写成像素，下沉一点与汉字字身对齐，导出副本原样复制。
      */
     function fitMaskHeights(card) {
         for (const span of card.querySelectorAll('.stcr-mask--bar, .stcr-mask--block')) {
-            const style = getComputedStyle(span.parentElement ?? span);
-            let lineHeight = parseFloat(style.lineHeight);
-            if (!Number.isFinite(lineHeight)) lineHeight = parseFloat(style.fontSize) * 1.2; // line-height: normal
-            if (!Number.isFinite(lineHeight) || lineHeight <= 0) continue;
-            span.style.setProperty('height', `${lineHeight.toFixed(2)}px`, 'important');
-            span.style.setProperty('vertical-align', 'top', 'important');
+            const size = parseFloat(getComputedStyle(span.parentElement ?? span).fontSize);
+            if (!Number.isFinite(size) || size <= 0) continue;
+            span.style.setProperty('height', `${size.toFixed(2)}px`, 'important');
+            span.style.setProperty('vertical-align', '-0.14em', 'important');
         }
     }
 
