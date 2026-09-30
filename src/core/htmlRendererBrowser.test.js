@@ -2,6 +2,7 @@
 import { createSandbox, renderStatic, exportRenderedHtml } from './htmlRenderer.js';
 import { maskHtmlString, transformHtmlOffline } from './codeTransforms.js';
 import { PHONE_HTML, GAME_HTML } from '../../dev/fixtures/html.mjs';
+import { createCropPreview } from './htmlCropPreview.js';
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const selector = '[data-stcr-html-frame],[data-stcr-html-static],[data-stcr-parse-frame]';
@@ -89,20 +90,73 @@ export async function testHtmlRendererBrowser() {
             const expected = await pixels(await exportRenderedHtml(wrap('某地 ███'), { width: 300 }));
             assert(image.width === expected.width && image.height === expected.height && image.data.every((value, i) => value === expected.data[i]), 'PNG 中仍有原词或替换不一致');
             const cropped = await pixels(await exportRenderedHtml(wrap('灯塔 秘密'), { width: 300, maskWords: ['秘密'], crop: { x: 10, y: 45, w: 90, h: 30 } }));
-            assert(cropped.width === 90 && cropped.height === 30, '裁剪尺寸错误');
+            assert(cropped.width === 180 && cropped.height === 60, '默认双倍裁剪尺寸错误');
             assert(cropped.data.every((value, i) => value === [18, 171, 205, 255][i % 4]), '裁剪坐标或像素错误');
+        });
+        await test('高清文字重新栅格化而非拉大旧图，非原点三倍裁剪逐像素一致', async () => {
+            const html = '<html><body style="margin:0;background:white;color:#123;font:13px/21px serif"><div style="padding:11px;transform:rotate(3deg);transform-origin:0 0">雾岛虚构地图 ABCDE 12345<br>高清文字与细线</div><div style="height:100px;background:linear-gradient(75deg,#135,#fed)"></div></body></html>';
+            const low = await exportRenderedHtml(html, { width: 300, scale: 1 });
+            const high = await pixels(await exportRenderedHtml(html, { width: 300 }));
+            const bitmap = await createImageBitmap(low), canvas = document.createElement('canvas'); canvas.width = bitmap.width * 2; canvas.height = bitmap.height * 2;
+            assert(high.width === canvas.width && high.height === canvas.height, '默认分辨率不是 2 倍');
+            const context = canvas.getContext('2d');
+            for (const smoothing of [true, false]) {
+                context.imageSmoothingEnabled = smoothing; context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                const enlarged = context.getImageData(0, 0, canvas.width, canvas.height).data; let different = 0;
+                // 只比较文字所在的上部，不借助下方渐变制造差异。
+                for (let i = 0; i < high.width * 70 * 2 * 4; i++) if (Math.abs(high.data[i] - enlarged[i]) > 8) different++;
+                assert(different > 100, '高清图只是拉伸一倍旧图');
+            }
+            bitmap.close();
+            const full = await pixels(await exportRenderedHtml(html, { width: 300, scale: 3 }));
+            const crop = { x: 17, y: 29, w: 123, h: 47 }, selected = await pixels(await exportRenderedHtml(html, { width: 300, scale: 3, crop }));
+            assert(selected.width === 369 && selected.height === 141, '三倍尺寸不正确');
+            for (let y = 0; y < selected.height; y++) for (let x = 0; x < selected.width * 4; x++) {
+                assert(selected.data[y * selected.width * 4 + x] === full.data[((y + crop.y * 3) * full.width + crop.x * 3) * 4 + x], '高清裁剪发生重采样或坐标错位');
+            }
+        });
+        await test('自由框选的缩放、越界移动、四角调整、取消、锁定和监听清理', async () => {
+            const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 240;
+            const image = document.createElement('img'); image.src = canvas.toDataURL(); await image.decode();
+            const container = document.createElement('div'); container.style.width = '200px'; root.append(container);
+            let changes = 0; const preview = createCropPreview(image, 400, 240, () => changes++); container.append(preview.element);
+            const box = preview.element.querySelector('[data-stcr-crop-box]');
+            const same = expected => assert(JSON.stringify(preview.selection) === JSON.stringify(expected), '自由裁剪状态错误');
+            const pointer = (target, type, x, y) => {
+                const bounds = preview.element.getBoundingClientRect();
+                target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 44, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+                    clientX: bounds.left + x * bounds.width / 400, clientY: bounds.top + y * bounds.height / 240 }));
+            };
+            try {
+                assert(preview.element.getBoundingClientRect().width === 200, '测试没有真正缩小预览');
+                pointer(preview.element, 'pointerdown', 300, 160); pointer(document, 'pointermove', 100, 60); pointer(document, 'pointerup', 100, 60);
+                same({ x: 100, y: 60, w: 200, h: 100 });
+                pointer(box, 'pointerdown', 120, 80); pointer(document, 'pointermove', 700, 600); pointer(document, 'pointerup', 700, 600);
+                same({ x: 200, y: 140, w: 200, h: 100 });
+                pointer(box.querySelector('[data-corner="nw"]'), 'pointerdown', 200, 140); pointer(document, 'pointermove', 100, 70); pointer(document, 'pointerup', 100, 70);
+                same({ x: 100, y: 70, w: 300, h: 170 });
+                pointer(box, 'pointerdown', 120, 80); pointer(document, 'pointermove', 0, 0); pointer(document, 'pointercancel', 0, 0);
+                same({ x: 100, y: 70, w: 300, h: 170 });
+                preview.setDisabled(true); pointer(preview.element, 'pointerdown', 0, 0); pointer(document, 'pointerup', 20, 20);
+                same({ x: 100, y: 70, w: 300, h: 170 }); preview.setDisabled(false);
+                box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); same(null);
+                pointer(preview.element, 'pointerdown', 30, 30); preview.destroy(); const stopped = changes;
+                pointer(document, 'pointermove', 90, 90); pointer(document, 'pointerup', 90, 90);
+                assert(changes === stopped && !preview.element.isConnected, '销毁后仍有拖动监听或节点');
+            } finally { preview.destroy(); container.remove(); }
         });
         await test('错误裁剪/图片/超大文档拒绝，失败与并行静态副本均清理', async () => {
             await rejects(() => exportRenderedHtml('<body>虚构</body>', { width: 300, crop: { x: -1, y: 0, w: 10, h: 10 } }));
             await rejects(() => renderStatic('<body style="height:17000px">过长</body>'));
             await rejects(() => renderStatic('<body><img src="data:image/png;base64,YmFk"></body>'));
+            await rejects(() => exportRenderedHtml('<body style="height:1000px">高清超限</body>', { width: 8192, crop: { x: 0, y: 0, w: 1, h: 1 } }));
             const snapshots = await Promise.all([renderStatic('<body>甲</body>'), renderStatic('<body>乙</body>')]);
             assert(snapshots[0].iframe !== snapshots[1].iframe, '复用了同一静态 iframe'); snapshots.forEach(snapshot => snapshot.destroy());
         });
         await test('手机与游戏样本都能导出初始静态 PNG，导出不接受联网权限', async () => {
             for (const [html, width] of [[PHONE_HTML, 390], [GAME_HTML, 768]]) {
                 const result = await pixels(await exportRenderedHtml(html, { width, maskWords: ['秘密'], allowNetwork: true }));
-                assert(result.width === width && result.height > 200, '合成样本 PNG 尺寸错误');
+                assert(result.width === width * 2 && result.height > 400, '合成样本高清 PNG 尺寸错误');
                 let visible = 0; for (let i = 3; i < result.data.length; i += 4) if (result.data[i]) visible++;
                 assert(visible > 10000, '合成样本截图为空');
             }

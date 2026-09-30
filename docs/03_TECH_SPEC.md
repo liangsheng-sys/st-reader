@@ -525,7 +525,7 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 | `handle.update(html?,{width?,allowNetwork=false,onHeight?}={})` | 返回本次 ready Promise，替换 srcdoc、轮换 token，旧加载 Promise 拒绝。省略 html 保留原文，省略 width 保留宽度；**allowNetwork 每次默认 false**，需要继续允许时必须显式传 true |
 | `handle.destroy()` | 幂等；移除 iframe、消息监听和超时，拒绝未完成的 ready；销毁后 update 抛错 |
 | `renderStatic(html,{width=390}={})` | `Promise<{iframe,document,element,width,height,destroy}>`；已挂到页面外的同源静态 iframe，sandbox 仅 `allow-same-origin`、无脚本能力，始终断网。element 是文档根，调用者必须 finally destroy |
-| `exportRenderedHtml(html,{width=390,maskWords=[],rules=[],assets=[],crop?,...maskOptions}={})` | `Promise<Blob>`，image/png；先 await maskHtmlString → renderStatic → 离线截图 → 裁剪。crop 是 `{x,y,w,h}` 的 1:1 文档整数像素坐标；省略则导出全文，不自动下载 |
+| `exportRenderedHtml(html,{width=390,scale=2,maskWords=[],rules=[],assets=[],crop?,...maskOptions}={})` | `Promise<Blob>`，image/png；先 await maskHtmlString → renderStatic → 离线截图 → 裁剪。scale 只接受整数 1/2/3，默认 2；crop 是 `{x,y,w,h}` 的 CSS 文档整数像素坐标，省略则全文。PNG 尺寸为选区宽高各乘 scale，不自动下载 |
 
 识别：支持反引号/波浪号围栏（≥3 个、闭合符同种且不短于开头）、多个围栏、CRLF、未闭合围栏延续到末尾；只有内部含真实 `<body>` 起始标签才返回。存在任何围栏时不再把整篇当裸 HTML。裸 HTML 需含 html/body/style 起始标签且至少两个标签，标签字符占去空白结构文本至少 12%；忽略注释与行内代码，CSS/脚本正文不参与密度计算。普通 Markdown 代码、仅有 b 标签或长正文里偶然提到标签不识别；启发式不能取代 HTML 语义分析，UI 始终保留原文入口。
 
@@ -537,7 +537,11 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 
 首次高度及变更上报使用微任务，不能依赖 requestAnimationFrame：Chrome 会暂停视口外跨源 iframe 的动画帧，阅读器预加载或自动测试时仍必须完成 ready。ResizeObserver、MutationObserver、字体就绪、load/resize 共同触发测量；同一高度不重复发送。宽度保持指定像素，较窄父容器由 UI 提供横向滚动，不能通过 max-width 悄悄改变排版宽度。
 
-静态副本去 script（包括模板和 SVG 内脚本）、事件属性、iframe/object/embed、meta/link/base、导航/表单目标、SVG 动画；去远端图片与含远端 URL 的 CSS 声明，保留无网络展示 CSS、data/blob 图片和 data 字体。CSS 动画/过渡停止。字体/图片解码失败会拒绝，不联网补资源；外链样式和字体使用本地回退，所以离线 PNG 与已手动允许联网的交互视图可能不同。静态图最高 16384px，最多 3200 万像素；裁剪必须在静态文档范围内，先截图再裁剪，不用小裁剪绕过原图上限。所有失败路径释放自己的 iframe/计时器/位图。
+静态副本去 script（包括模板和 SVG 内脚本）、事件属性、iframe/object/embed、meta/link/base、导航/表单目标、SVG 动画；去远端图片与含远端 URL 的 CSS 声明，保留无网络展示 CSS、data/blob 图片和 data 字体。CSS 动画/过渡停止。字体/图片解码失败会拒绝，不联网补资源；外链样式和字体使用本地回退，所以离线 PNG 与已手动允许联网的交互视图可能不同。静态文档最高 16384 CSS px；实际高清整图最多 3200 万像素、每边不超过 32768 像素，在分配截图画布前校验。超限明确拒绝并建议降低倍数或减少内容，不能静默缩小。先截整图再裁剪，小裁剪不能绕过原图上限。所有失败路径释放自己的 iframe/计时器/位图。
+
+I029 验收返修：原来硬编码 scale=1，在高像素密度屏幕或放大查看时容易模糊。现直接让截图器以 scale 重新栅格化文字和矢量内容，不把已生成的 1 倍 PNG 拉大；裁剪源坐标、目标宽高同时乘 scale，不再降回 1 倍。原文排版 width 与 crop 的 CSS 坐标含义不变；需要旧尺寸时显式传 scale:1。例如 width=768 的完整 PNG 默认宽 1536；crop={x:100,y:50,w:300,h:180} 默认输出 600×360。输入中的低分辨率位图不会凭空获得更多细节。
+
+开发演示已移除固定左上角入口。在**脱敏的静态 PNG** 上任意拖出选区、拖动内部移动、拖四角改大小、清除后重画，支持反向拖动和方向键微调（Shift 为 10 CSS px，Escape 清除）。预览按 CSS 排版宽显示、较窄时等比例缩小；换算使用图片实际 getBoundingClientRect 与 CSS 文档尺寸，不能用屏幕像素直接裁剪。样本/排版宽度/清晰度变化会清除过期预览，关闭或切换后到达的旧异步结果被丢弃，Blob URL 随替换/关闭释放。T44b 可参考内部 htmlCrop.js / htmlCropPreview.js；正式 UI 的接线仍由 Opus 完成。
 
 导出取传入的**初始 HTML**，不读不透明源交互 iframe 的当前 DOM；脚本运行后产生的结局、canvas 图像或网络内容不进入静态图。若需要某种结局的图片，调用方须提供对应静态 HTML。脱敏边界沿用 §5.12：只替换文本节点，不跨标签；不修改属性、CSS 文本或图片像素，故 CSS 生成内容/表单 value/图片中的名字不在文本脱敏范围内。assets 不触发图片读取，字符串替换为 `[图片]`；文字背景色仍不插入新 span。不能把这个出口说成对任意 HTML 全部可见内容进行 OCR 脱敏。
 
@@ -548,7 +552,7 @@ await view.ready;
 // 只有用户本次明确点了允许外链，才传 true；关闭阅读器不持久化这项权限。
 await view.update(block.html, { width: 768, allowNetwork: true });
 // 同一段原 HTML 的离线初始静态图，裁剪坐标不能直接使用缩放后的屏幕坐标。
-const png = await exportRenderedHtml(block.html, { width: 768, maskWords: ['虚构秘密'], rules: [], crop: { x: 0, y: 0, w: 300, h: 180 } });
+const png = await exportRenderedHtml(block.html, { width: 768, scale: 2, maskWords: ['虚构秘密'], rules: [], crop: { x: 100, y: 50, w: 300, h: 180 } }); // 600×360 PNG
 view.destroy();
 ```
 

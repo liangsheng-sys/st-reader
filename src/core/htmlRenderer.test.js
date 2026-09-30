@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 import { detectHtmlBlocks, buildSrcdoc } from './htmlRenderer.js';
 import { PHONE_HTML, GAME_HTML, HTML_MESSAGES } from '../../dev/fixtures/html.mjs';
+import { captureGeometry, previewPoint, dragCrop } from './htmlCrop.js';
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 export function testHtmlRendererLogic() {
     const results = [], test = (name, run) => { run(); results.push({ name: `T44a ${name}`, passed: true }); };
@@ -42,6 +43,38 @@ export function testHtmlRendererLogic() {
         for (const run of [() => detectHtmlBlocks(null), () => buildSrcdoc(null), ...[0, -1, 8193, 2.5, NaN].map(width => () => buildSrcdoc('', { width })), () => buildSrcdoc('', { allowNetwork: 'true' })]) {
             let rejected = false; try { run(); } catch { rejected = true; } assert(rejected, '坏参数未拒绝');
         }
+    });
+    test('高清裁剪沿用 CSS 坐标，默认双倍，显式三倍不改变排版', () => {
+        const crop = { x: 17, y: 31, w: 123, h: 47 };
+        for (const scale of [undefined, 1, 2, 3]) {
+            const geometry = captureGeometry(768, 556, scale, crop), factor = scale ?? 2;
+            assert(JSON.stringify(geometry.rect) === JSON.stringify(crop), '改写了 CSS 坐标');
+            assert(['x', 'y', 'w', 'h'].every(key => geometry.pixels[key] === crop[key] * factor), 'PNG 坐标未同倍转换');
+        }
+    });
+    test('高清内存上限先验整图，不能用小裁剪绕过或静默降清晰度', () => {
+        for (const run of [() => captureGeometry(8192, 1000, 2, { x: 0, y: 0, w: 1, h: 1 }), () => captureGeometry(1, 16384, 3),
+            ...[0, 1.5, 4, NaN, '2'].map(scale => () => captureGeometry(300, 150, scale)), () => captureGeometry(300, 150, 2, { x: 250, y: 0, w: 100, h: 20 })]) {
+            let rejected = false; try { run(); } catch { rejected = true; } assert(rejected, '越界参数未拒绝');
+        }
+    });
+    test('自由框选支持缩小预览、滚动偏移、反向拖动和边界', () => {
+        const bounds = { left: 20, top: -30, width: 384, height: 278 };
+        const start = previewPoint(170, 70, bounds, 768, 556), end = previewPoint(70, -5, bounds, 768, 556);
+        const crop = dragCrop('draw', null, start, end, 768, 556);
+        assert(JSON.stringify(crop) === JSON.stringify({ x: 100, y: 50, w: 200, h: 150 }), '屏幕坐标或反向拖动错误');
+        assert(previewPoint(1000, -100, bounds, 768, 556).x === 768 && previewPoint(1000, -100, bounds, 768, 556).y === 0, '未约束范围');
+    });
+    test('选区可移动、四角调整和跨对角点，始终保留范围内整数矩形', () => {
+        const rect = { x: 100, y: 80, w: 200, h: 150 }, start = { x: 0, y: 0 };
+        assert(JSON.stringify(dragCrop('move', rect, start, { x: 999, y: -999 }, 768, 556)) === JSON.stringify({ x: 568, y: 0, w: 200, h: 150 }), '移动破坏尺寸或越界');
+        for (const corner of ['nw', 'ne', 'sw', 'se']) {
+            const result = dragCrop(corner, rect, start, { x: 30, y: 20 }, 768, 556);
+            assert(result.w === (corner.includes('w') ? 170 : 230) && result.h === (corner.includes('n') ? 130 : 170), '边角调整错误');
+        }
+        const reversed = dragCrop('nw', rect, start, { x: 300, y: 300 }, 768, 556);
+        assert(JSON.stringify(reversed) === JSON.stringify({ x: 300, y: 230, w: 100, h: 150 }), '越过对角点失效');
+        captureGeometry(768, 556, 2, dragCrop('draw', null, { x: 768, y: 556 }, { x: 768, y: 556 }, 768, 556));
     });
     return results;
 }
