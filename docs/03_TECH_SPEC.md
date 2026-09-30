@@ -369,7 +369,9 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 ```js
 /**
  * @typedef {object} CardOptions
- * @property {boolean} [replaceNames=true] 同时控制我的规则与自动名字；不关闭屏蔽词
+ * @property {boolean} [replaceNames=true] 原文替换阶段总开关；false 用于导出已处理选段，不关闭屏蔽词
+ * @property {boolean} [autoReplaceNames=true] 自动名字脱敏及整名保护；可独立关闭
+ * @property {boolean} [applyReplaceRules=true] 执行我的规则；可独立关闭
  * @property {ReplaceRule[]} [rules] 见5.5；导出默认读store.replaceRules，预览createCardMessage默认[]
  * @property {Asset[]} [assets] 见5.5；导出默认读store.assets，预览createCardMessage默认[]
  * @property {string[]} [maskWords] 导出默认读store.maskWords；createCardMessage不应用遮盖
@@ -394,6 +396,8 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 
 **选段合同**：若只要部分楼层，先用 createCardMessage 得到已脱敏、已格式化的节点，在这个副本上提取选段（例如Range.cloneContents），放入模板；然后用 `exportCard(template,{...options,replaceNames:false})` 导出已经处理好的片段。这里的false是“导出时不再做名字阶段”，不会还原已替换的名字。规则/名字开关变化时，从原始handle重建预览和选段。不要把只剩部分正文的元素再次bind，否则导出会按绑定重建整楼。原阅读器上的选区映射与工作台重选/确认由T23处理，不能直接把阅读器原始HTML当作已脱敏HTML。
 
+**T30 退回 / I021**：新增两个可选子开关，默认均为 true，旧调用行为不变。`autoReplaceNames:false, applyReplaceRules:true` 保留角色/用户/群成员名字，同时执行“灯塔→某地”等我的规则；已知名字宏仍按目标聊天展开。自动名字关闭时不再建立 I019 的保护范围，此时我的规则可照字面匹配名字的部分；重新开启则恢复整名保护。关闭 applyReplaceRules 不执行或验证我的规则。两个子开关都关闭时不处理原文；无论它们是什么，`replaceNames:false` 始终跳过整个阶段，避免选段导出重复替换。屏蔽词独立，仍由最后的遮盖阶段执行。UI 尚未接线，见 I021；接入时必须同步预览、缓存键、选段重建、名字行、批注与映射列表，不能只新增按钮。
+
 我的规则 scope=all 或匹配**当前目标发言角色的avatar**；群聊按实际成员，用户楼没有任意成员作用域。整词判断按Unicode字母/数字/组合符/下划线边界；中文连续字串需要精确边界或关闭wholeWord。规则不是正则表达式；同级重叠先长词，相同长度用传入顺序，store.list的顺序稳定。目标图标只允许上述六种；素材引用必须存在，重新校验图片签名/限额，SVG再次清洗。mappings只包含实际命中，含原词，供工作台私有映射预览，不能放到分享图或日志。
 
 **T30 / I019 合同增补**：先收集原文中全部自动名字的 UTF-16 范围（单聊 char/user、群成员、已展开的名字宏），每次“我的规则”匹配若碰到任何自动名字，必须与其中某个名字同时满足**原词逐字完全相等（区分大小写）且范围完全相同**，并且不截断其他相交的自动名字，才可覆盖；前缀、后缀、内部片段、跨边界及包含整名的更长原词均跳过该处。规则在其他不与名字相交的位置仍能执行，scope/wholeWord/caseSensitive 仍按原合同过滤。嵌套名字中，完整短名不能拆开另一个长名。
@@ -411,7 +415,7 @@ I018① 已修：Canvas 字体名去外层引号后重新引用，六个 FA 实�
 | 签名 | 返回 |
 |---|---|
 | `automaticNameRules({userName='',characterName='',isGroup=false,groupNames=[]}={})` | 自动规则数组；不读宿主 |
-| `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules与replaceNames；自动名字整体保护及 skippedOverlap/skippedRules 见5.9 |
+| `replaceNamesInRaw(text,options={})` | `{segments,mappings}`；segments为`{kind:'text',text}`或`{kind:'replacement',to:{kind,value}}`；不存匹配原文，只在mappings里供私有预览。options含名字上下文、avatarUrl、rules、replaceNames、autoReplaceNames、applyReplaceRules；独立开关、自动名字整体保护及 skippedOverlap/skippedRules 见5.9 |
 | `maskText(text,words=[],maskStyle='bar')` | 数组；普通段`{kind:'text',text,start,end}`，遮盖段`{kind:'mask',width,style,start,end}`；位置是原输入UTF-16偏移，遮盖段无原词。Node自测覆盖这两个变换内核 |
 | `wrapMaskSpans(root,words=[],maskStyle='bar',assets=new Map())` | 返回root的DOM副本；输入不变，无网络或存储。assets是`Map<id,{dataUrl}>`，必须是经过store/prepareCardAssets校验的数据；一般工作台使用exportCard接管校验即可 |
 

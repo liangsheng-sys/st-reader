@@ -50,18 +50,22 @@ const overlaps = (a, b) => a.start < b.end && a.end > b.start;
  * 纯函数：正则前的原文 → 文本/受保护替换片段。输入永不修改。
  * 自动名字整体保护；我的规则只有完整同名或不相交时优先。同级长词优先，不递归替换目标文本。
  * @param {string} text 正则前原文
- * @param {{replaceNames?:boolean,rules?:object[],avatarUrl?:string,userName?:string,characterName?:string,isGroup?:boolean,groupNames?:string[]}} options
+ * @param {{replaceNames?:boolean,autoReplaceNames?:boolean,applyReplaceRules?:boolean,rules?:object[],avatarUrl?:string,userName?:string,characterName?:string,isGroup?:boolean,groupNames?:string[]}} options
  * @returns {{segments:object[],mappings:object[]}}
  */
 export function replaceNamesInRaw(text, options = {}) {
     if (typeof text !== 'string') throw new TypeError('原文必须为字符串');
-    if (options.replaceNames === false) return { segments: [{ kind: 'text', text }], mappings: [] };
+    // replaceNames 是已交付的整段处理开关，选段导出用 false 防止再次替换。
+    if (options.replaceNames === false || (options.autoReplaceNames === false && options.applyReplaceRules === false)) {
+        return { segments: [{ kind: 'text', text }], mappings: [] };
+    }
     // 先展开已知名字宏的大小写/空白变体，使“我的名字规则”同样覆盖宏；未知宏不执行。
     text = text.replace(/{{\s*(user|char)\s*}}/gi, (_, name) => name.toLowerCase() === 'user'
         ? options.userName || '{{user}}' : options.characterName || '{{char}}');
-    const mine = (options.rules ?? []).filter(rule => !rule.scope || rule.scope === 'all' || rule.scope === options.avatarUrl);
+    const mine = options.applyReplaceRules === false ? []
+        : (options.rules ?? []).filter(rule => !rule.scope || rule.scope === 'all' || rule.scope === options.avatarUrl);
     mine.forEach(validateRule);
-    const automatic = automaticNameRules(options);
+    const automatic = options.autoReplaceNames === false ? [] : automaticNameRules(options);
     // 保护所有自动名字范围，包括嵌套短名字，不能让长的用户规则跨边界吞掉名字。
     const protectedMatches = automatic.flatMap(rule => occurrences(text, rule));
     const skipped = [];

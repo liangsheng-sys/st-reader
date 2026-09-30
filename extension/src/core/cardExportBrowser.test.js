@@ -60,6 +60,24 @@ export async function testCardExportBrowser() {
             assert(!floor.textContent.includes(handle.header.characterName) && !floor.textContent.includes(handle.header.userName), '真实名字仍存在');
             assert(JSON.stringify(handle.getMessage(11)) === raw, '源候选变化');
         });
+        await test('两个独立开关覆盖预览/PNG，屏蔽词始终独立', async () => {
+            const rules = [{ from: '灯塔', to: { kind: 'text', value: '某地' }, scope: 'all' }];
+            for (const autoReplaceNames of [false, true]) for (const applyReplaceRules of [false, true]) {
+                const options = { ...cleanOptions, rules, autoReplaceNames, applyReplaceRules, maskWords: ['星图'] };
+                const { element } = await createCardMessage(handle, 11, options);
+                assert(element.querySelector('.name_text').textContent.includes(handle.header.characterName) === !autoReplaceNames, '自动名字开关失效');
+                assert(element.textContent.includes('某地') === applyReplaceRules, '我的规则开关失效');
+                const expected = wrapMaskSpans(element, options.maskWords, 'bar');
+                assert(!expected.textContent.includes('星图') && expected.querySelector('.stcr-mask'), '屏蔽词被名字开关关闭');
+                chat.append(element, expected);
+                try {
+                    const actualPng = await pixels(await exportCard(element, options));
+                    const expectedPng = await pixels(await exportCard(expected, { ...cleanOptions, replaceNames: false }));
+                    assert(actualPng.width === expectedPng.width && actualPng.height === expectedPng.height
+                        && actualPng.data.every((value, index) => value === expectedPng.data[index]), '独立开关导出与预览像素不符');
+                } finally { element.remove(); expected.remove(); }
+            }
+        });
         await test('文字替换安全，图标/图片命中，替换结果优先于屏蔽词', async () => {
             const custom = { ...cleanOptions, assets: [{ id: 'dot', dataUrl: TEST_PNG }], rules: [
                 { from: '星图', to: { kind: 'text', value: '<img src=x>保留' }, scope: 'all' },

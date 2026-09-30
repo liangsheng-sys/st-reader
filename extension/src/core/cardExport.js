@@ -12,7 +12,7 @@ export { replaceNamesInRaw, maskText, automaticNameRules } from './cardTransform
  * 从已连接的预览节点生成 PNG。只在隔离副本重渲染、脱敏，不改输入 DOM。
  * createCardMessage / bindCardSource 提供原始候选；开启名字替换时必须具备此绑定。
  * @param {HTMLElement} rootEl 卡片或单楼预览，可含多楼
- * @param {{maskWords?:string[],replaceNames?:boolean,maskStyle?:string|object,rules?:object[],assets?:object[],width?:number,scale?:number,onWarning?:(message:string)=>void}} opts
+ * @param {{maskWords?:string[],replaceNames?:boolean,autoReplaceNames?:boolean,applyReplaceRules?:boolean,maskStyle?:string|object,rules?:object[],assets?:object[],width?:number,scale?:number,onWarning?:(message:string)=>void}} opts
  * @returns {Promise<Blob>} image/png；不会自动下载
  */
 export async function exportCard(rootEl, opts = {}) {

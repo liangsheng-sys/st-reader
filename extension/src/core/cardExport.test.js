@@ -78,6 +78,42 @@ export async function testCardExportLogic() {
     test('关闭总开关时保留全部原文，不执行我的规则', () => {
         assert(text(replaceNamesInRaw('星灯', { replaceNames: false, characterName: '星灯', rules: [rule('星灯', '访客')] })) === '星灯');
     });
+    test('自动名字和我的规则四种开关组合互不绑住', () => {
+        const options = { characterName: '星灯', userName: '旅人', rules: [rule('灯塔', '某地')] };
+        const source = '星灯和旅人在灯塔';
+        for (const [autoReplaceNames, applyReplaceRules, expected] of [
+            [true, true, 'char和user在某地'], [false, true, '星灯和旅人在某地'],
+            [true, false, 'char和user在灯塔'], [false, false, source],
+        ]) {
+            const result = replaceNamesInRaw(source, { ...options, autoReplaceNames, applyReplaceRules });
+            assert(text(result) === expected);
+            assert(result.mappings.every(item => item.source === 'automatic' ? autoReplaceNames : applyReplaceRules));
+        }
+    });
+    test('关闭自动名字时群聊真名保留，宏和我的规则仍按目标聊天解释', () => {
+        const result = replaceNamesInRaw('{{char}}和{{user}}去灯塔，纸舟留守', {
+            isGroup: true, groupNames: ['星灯', '纸舟'], characterName: '星灯', userName: '旅人',
+            autoReplaceNames: false, rules: [rule('灯塔', '某地')],
+        });
+        assert(text(result) === '星灯和旅人去某地，纸舟留守');
+        assert(result.mappings.length === 1 && result.mappings[0].source === 'mine');
+    });
+    test('主动关闭自动名字时不启用整名保护，重新开启恢复 I019', () => {
+        const options = { characterName: '星灯（虚构）', rules: [rule('虚构', '假想')] };
+        assert(text(replaceNamesInRaw('星灯（虚构） 虚构', { ...options, autoReplaceNames: false })) === '星灯（假想） 假想');
+        const protectedResult = replaceNamesInRaw('星灯（虚构） 虚构', options);
+        assert(text(protectedResult) === 'char 假想' && protectedResult.mappings[0].skippedOverlap);
+    });
+    test('关闭我的规则不验证或执行其中图案，自动脱敏保持有效', () => {
+        assert(text(replaceNamesInRaw('星灯', { characterName: '星灯', applyReplaceRules: false,
+            rules: [{ from: '', to: { kind: 'invalid' } }] })) === 'char');
+    });
+    test('选段导出旧总开关仍优先，不受两个新开关影响', () => {
+        const source = '{{char}} 灯塔';
+        const result = replaceNamesInRaw(source, { replaceNames: false, autoReplaceNames: true, applyReplaceRules: true,
+            characterName: '星灯', rules: [rule('灯塔', '某地')] });
+        assert(text(result) === source && result.mappings.length === 0);
+    });
     test('输入与规则不变，映射只记录实际命中', () => {
         const options = { rules: [rule('星灯', '客'), rule('未出现', 'X')] }, before = JSON.stringify(options);
         const result = replaceNamesInRaw('星灯 星灯', options);
