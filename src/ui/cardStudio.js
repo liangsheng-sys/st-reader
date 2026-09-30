@@ -386,6 +386,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         mine.colors = colors;
         mine.card = applyMasks(mine, card, colors);
         fitMaskHeights(mine.card);
+        fitStickerCounts(mine);
         contrastReplacements(mine.card);
         rasterizeReplacementIcons(mine);
         els.hover.hidden = true;
@@ -520,6 +521,24 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             if (!Number.isFinite(size) || size <= 0) continue;
             span.style.setProperty('height', `${size.toFixed(2)}px`, 'important');
             span.style.setProperty('vertical-align', '-0.14em', 'important');
+        }
+    }
+
+    /**
+     * 小图案的个数（T45 验收后）：关掉"统一长度"时，被遮的词有几个字就放几个图案，遮盖宽度 = 个数 × 1 字宽。
+     * core 固定画 3 个、宽度按原词像素（03 §5.12），短词会切掉半个、长词后面空一截；这里在副本上补齐或删掉，导出原样复制。
+     * 字数从词表按编号取（遮盖上只记编号，不写原词）。统一长度开着时保持 3 个。
+     */
+    function fitStickerCounts(mine) {
+        if (mine.prefs.uniform) return;
+        for (const span of mine.card.querySelectorAll('.stcr-mask--sticker[data-stcr-tw]')) {
+            const word = mine.words[Number(span.dataset.stcrTw)];
+            const first = span.firstElementChild;
+            if (!word || !first) continue;
+            const count = Math.max(1, Math.min(24, [...word].length));
+            while (span.childElementCount > count) span.lastElementChild.remove();
+            while (span.childElementCount < count) span.append(first.cloneNode(true));
+            span.style.setProperty('width', `${count}em`, 'important');
         }
     }
 

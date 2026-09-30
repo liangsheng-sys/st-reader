@@ -1,6 +1,8 @@
 // ST Reader — AGPL-3.0
 // 底部设置条（F1、F1a、F7/F8、F15、02 §1.8）。平时只是右下角的 Aa 圆钮。
 // T42：两列栅格（左标签右控件），每行控件从同一条竖线起步；思维链"折叠 / 展开 / 隐藏"一组三选一。
+// T45 验收后：两种样子可切换——"长条"（底部一条，各项横排、同一条中线对齐，不挡正文，默认）/ "面板"（T42 的两列栅格）。
+// 同一套控件，只换 CSS（.stcr-settings--bar）。手机上两种都是底部半屏抽屉。
 // ⋯ 里：排版、导出/导入备份。有数据且 14 天没导出时，Aa 上亮一个小点（只提醒，不弹窗）。
 
 import { h, iconButton } from './dom.js';
@@ -50,6 +52,7 @@ export function createSettingsBar({ onExport, onImport }) {
                     h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入'),
                 lastExport)));
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
+    const layoutBtn = iconButton('fa-table-cells-large', '换成面板样式', { class: 'stcr-set-layout-btn' });
     const row = (label, ...controls) => h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: label }), h('div', { class: 'stcr-set-ctl' }, ...controls));
     const panel = h('div', { class: 'stcr-settings', role: 'dialog', 'aria-label': '阅读设置', hidden: true },
         h('div', { class: 'stcr-settings-grid' },
@@ -60,7 +63,7 @@ export function createSettingsBar({ onExport, onImport }) {
             row('思维链', reasoningSeg),
             row('显示', hideUser.el, redact.el)),
         more,
-        h('div', { class: 'stcr-set-foot' }, moreBtn,
+        h('div', { class: 'stcr-set-foot' }, layoutBtn, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
 
     modeSeg.addEventListener('click', event => {
@@ -91,12 +94,19 @@ export function createSettingsBar({ onExport, onImport }) {
         more.hidden = !more.hidden;
         moreBtn.setAttribute('aria-expanded', String(!more.hidden));
     });
+    layoutBtn.addEventListener('click', () => { setPrefs({ aaLayout: getPrefs().aaLayout === 'bar' ? 'panel' : 'bar' }); sync(); });
     fab.addEventListener('click', () => (panel.hidden ? open() : close()));
     panel.querySelector('.stcr-set-done').addEventListener('click', () => close());
 
     function sync() {
         const prefs = getPrefs();
         const shown = effectivePrefs(prefs);
+        const bar = prefs.aaLayout === 'bar';
+        panel.classList.toggle('stcr-settings--bar', bar);
+        const layoutTitle = bar ? '换成面板样式（两列）' : '换成长条样式（底部一行）';
+        layoutBtn.title = layoutTitle;
+        layoutBtn.setAttribute('aria-label', layoutTitle);
+        layoutBtn.firstElementChild.className = `fa-solid ${bar ? 'fa-table-cells-large' : 'fa-grip-lines'}`;
         for (const button of modeSeg.children) button.classList.toggle('stcr-on', button.dataset.mode === shown.mode);
         for (const button of dirSeg.children) button.classList.toggle('stcr-on', button.dataset.dir === prefs.direction);
         fontValue.textContent = String(Math.round(themeFontSize() + prefs.fontDelta));

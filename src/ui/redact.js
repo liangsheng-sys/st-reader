@@ -69,9 +69,13 @@ function pair(orig, display) {
 }
 
 function maskEl(orig) {
-    // 一个字一个方块：宽度大致随原词，复制出来是 ███，看不出原字
-    const blocks = '█'.repeat(Math.max(1, Math.min(12, [...orig].length)));
-    return h('span', { class: 'stcr-rd stcr-rd--mask', 'data-stcr-ignore-anchor': '', title: '此处已脱敏' }, blocks);
+    // 涂黑条：长度 = 原词在当前字体下的实际宽度，高度 = 字高（T45 验收后）。
+    // 宽度靠 ::before 用 attr(data-stcr-w) 排一遍原词、字色透明——生成内容不能被选中、复制或页面查找命中，
+    // 换字号、换字体自动跟着变，不用量。原词本来就在旁边隐藏的 .stcr-rd-orig 里，这里不多泄露什么。
+    // 里面的 ███ 字号为 0：看不见、不占宽，只给"复制"用（复制出来一个字一块）。
+    const blocks = '█'.repeat(Math.max(1, [...orig].length));
+    return h('span', { class: 'stcr-rd stcr-rd--mask', 'data-stcr-ignore-anchor': '', 'data-stcr-w': orig, title: '此处已脱敏', role: 'img', 'aria-label': '已脱敏' },
+        h('span', { class: 'stcr-rd-ink' }, blocks));
 }
 
 function replacementEl(to, assets) {

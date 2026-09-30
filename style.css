@@ -182,7 +182,14 @@
 /* 脱敏显示（T45）：原词节点永远不显示；替换处一道细细的点状下划线提示"此处已脱敏"，悬停只有这句提示、不显示原词 */
 #stcr_root .stcr-rd-orig { display: none !important; }
 #stcr_root .stcr-rd { text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent) !important; text-decoration-thickness: 1px !important; text-underline-offset: .22em !important; cursor: help; }
-#stcr_root .stcr-rd--mask { color: inherit !important; letter-spacing: -.08em; font-family: ui-monospace, Consolas, monospace; text-shadow: none !important; }
+/* 涂黑条：宽 = 原词实际宽度（::before 排原词、透明），高 = 字高 1em，下沉一点对齐汉字字身（与卡片 T42 相同） */
+#stcr_root .stcr-rd--mask {
+    display: inline-block !important; height: 1em !important; line-height: 1em !important; vertical-align: -.14em !important;
+    overflow: hidden !important; white-space: pre !important; text-indent: 0 !important;
+    background-color: currentColor !important; border-radius: 1px; text-decoration: none !important; text-shadow: none !important;
+}
+#stcr_root .stcr-rd--mask::before { content: attr(data-stcr-w); color: transparent !important; text-shadow: none !important; }
+#stcr_root .stcr-rd-ink { font-size: 0 !important; }
 #stcr_root .stcr-rd--bg { padding: 0 .15em; border-radius: .2em; }
 #stcr_root .stcr-rd img.stcr-rd-img { display: inline-block; width: 1em; height: 1em; object-fit: contain; vertical-align: -.12em; }
 #stcr_root .stcr-redact-badge { display: inline-flex; align-items: center; gap: 5px; margin-right: 4px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--stcr-accent) 55%, transparent); border-radius: 999px; color: var(--stcr-accent); font-size: 11.5px; }
@@ -660,6 +667,28 @@
     background: #f5b400;
 }
 #stcr_root .stcr-set-more .stcr-text-btn { padding: 4px 12px; font-size: 12.5px; }
+/* 长条样式（T45 验收后，默认）：底部一条，各项横排；每项同高 30px、同一条中线对齐，放不下就整项换到下一行。手机上不用（见 <600 抽屉） */
+@media (min-width: 600px) {
+    #stcr_root .stcr-settings--bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+        width: max-content; max-width: calc(100% - 24px); padding: 9px 12px 9px 16px;
+    }
+    #stcr_root .stcr-settings--bar[hidden] { display: none !important; }
+    #stcr_root .stcr-settings--bar .stcr-settings-grid,
+    #stcr_root .stcr-settings--bar .stcr-set-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; min-width: 0; }
+    #stcr_root .stcr-settings--bar .stcr-set-more { order: 2; flex-basis: 100%; margin: 0; padding-top: 8px; }
+    #stcr_root .stcr-settings--bar .stcr-set-more[hidden] { display: none !important; }
+    #stcr_root .stcr-settings--bar .stcr-set-foot { order: 1; margin: 0 0 0 auto; gap: 2px; }
+    #stcr_root .stcr-settings--bar .stcr-set-item { display: inline-flex; align-items: center; gap: 8px; height: 30px; }
+    #stcr_root .stcr-settings--bar .stcr-set-label { text-align: left; line-height: 30px; }
+    #stcr_root .stcr-settings--bar .stcr-set-ctl { flex-wrap: nowrap; gap: 6px; height: 30px; min-height: 0; }
+    #stcr_root .stcr-settings--bar .stcr-set-stepper { gap: 2px; }
+    #stcr_root .stcr-settings--bar .stcr-set-ctl .stcr-set-switch + .stcr-set-switch { margin-left: 6px; }
+    #stcr_root .stcr-settings--bar input[type="range"] { flex: none; width: 96px; min-width: 0; }
+    #stcr_root .stcr-settings--bar input[type="range"] + .stcr-num { width: auto; min-width: 3.4em; }
+    #stcr_root .stcr-settings--bar .stcr-seg-btn { min-width: 0; padding: 3px 11px; }
+    #stcr_root .stcr-settings--bar .stcr-set-backup .stcr-set-ctl { flex-wrap: nowrap; }
+}
 #stcr_root .stcr-last-export.stcr-warn { color: #f5b400; }
 
 /* ── 右侧批注面板（02 §1.6） ── */
@@ -1319,6 +1348,7 @@
     #stcr_root .stcr-settings-grid, #stcr_root .stcr-set-more { row-gap: 14px; grid-template-columns: 4em minmax(0, 1fr); }
     #stcr_root .stcr-set-foot { justify-content: space-between; }
     #stcr_root .stcr-set-done { display: block; flex: 1; }
+    #stcr_root .stcr-set-layout-btn { display: none; } /* 手机上两种样子都是底部抽屉，不用切 */
     #stcr_root .stcr-fab[aria-expanded="true"] { display: none; }
     #stcr_root .stcr-footer { padding: 0 60px 0 12px; }
     #stcr_root .stcr-fab { bottom: 40px; right: 10px; }

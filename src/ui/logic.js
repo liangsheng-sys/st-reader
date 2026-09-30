@@ -18,6 +18,7 @@ export const DEFAULT_PREFS = Object.freeze({
     expandAllReasoning: false,
     hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
     redact: false,         // T45：脱敏显示（屏蔽词与我的替换规则套到正文显示上）
+    aaLayout: 'bar',       // T45 验收后：Aa 设置的样子，'bar' 底部长条（一行横排）/ 'panel' 两列面板
     drawerPinned: false,
     panelPinned: false,
 });
@@ -36,6 +37,7 @@ export function normalizePrefs(raw) {
     const out = { ...DEFAULT_PREFS };
     if (input.direction === 'a' || input.direction === 'b') out.direction = input.direction;
     if (input.mode === 'scroll' || input.mode === 'paged') out.mode = input.mode;
+    if (input.aaLayout === 'bar' || input.aaLayout === 'panel') out.aaLayout = input.aaLayout;
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
