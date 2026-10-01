@@ -270,6 +270,7 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             return;
         }
         if (build !== entry.build || !live.has(entry.shell)) return;
+        entry.shownMasked = html !== entry.block.html; // 沙箱里跑的是脱敏过的（截当前画面时不再串换，I032）
         const onHeight = height => {
             entry.height = height;
             heights.set(entry.key, height);
@@ -305,7 +306,11 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         const shell = el.closest(SHELL);
         const entry = shell && live.get(shell);
         if (!entry) return null;
-        return { html: entry.block.html, where: entry.where, width: pixelWidth(entry), widthChoice: get(entry.key).width };
+        const view = entry.view && entry.builtWidth ? entry.view : null; // 已经渲染好的那一个
+        return { html: entry.block.html, where: entry.where, width: pixelWidth(entry), widthChoice: get(entry.key).width,
+            network: get(entry.key).network, masked: !!view && !!entry.shownMasked,
+            // 截当前画面（I032）：只读取沙箱此刻的 DOM，返回不可信 HTML 字符串；没渲染时为 null
+            snapshot: view ? options => view.snapshot(options) : null };
     }
 
     /** Aa 里改了默认（渲染 / 原文、外链）：清掉逐块的这一项，全部按新默认重来。 */

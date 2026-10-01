@@ -262,6 +262,11 @@
 #stcr_root .stcr-shot .stcr-studio-export + .stcr-studio-export { margin-left: 4px; }
 #stcr_root .stcr-shot .stcr-studio-export:disabled { opacity: .45; cursor: default; }
 #stcr_root .stcr-shot .stcr-studio-seg { flex-wrap: nowrap; align-self: flex-start; }
+#stcr_root .stcr-shot .stcr-seg-btn:disabled { opacity: .4; cursor: default; }
+#stcr_root .stcr-shot-warn { max-width: 720px; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.6;
+    color: var(--stcr-text); background: color-mix(in srgb, #e0a84c 16%, transparent); }
+#stcr_root .stcr-shot-warn div { color: var(--stcr-faint); overflow-wrap: anywhere; }
+#stcr_root .stcr-studio-switch--off { opacity: .45; }
 
 /* 隐藏用户楼后的细线："— 你 · 3 条 —" */
 #stcr_root .stcr-fold {

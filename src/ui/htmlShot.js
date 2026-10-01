@@ -5,7 +5,8 @@
 // 框选坐标用 core 的 CSS 文档坐标（htmlCrop / htmlCropPreview）。
 // T44b 验收后：①屏蔽词、临时词、名字开关、管理替换规则都搬进这里，不用再去卡片工作台；②"长图"：把 HTML 里
 // 固定高度的滚动区（例如手机聊天界面的消息列表）展开，所有内容出现在一张图里。
-// 预览是"这段 HTML 刚打开时的样子"：游戏里点出来的结局、脚本画的图、网上的字体图片都不会出现（core 边界，06 I032）。
+// I032（astra 交付 snapshot）：默认"当前画面"——打开窗口时从沙箱取一次当前 DOM（游戏结局、滚动位置、表单），之后宽度 / 清晰度 / 框选
+// 都用这一份，不会选的是甲、导出却是乙；也可以切回"初始画面"。D23：截图默认带上 HTML 引用的外链图片、字体、样式，失败逐项提示。
 
 import { exportRenderedHtml, renderStatic } from '../core/htmlRenderer.js';
 import { createCropPreview } from '../core/htmlCropPreview.js';
@@ -23,8 +24,8 @@ const SCALES = [{ id: 1, label: '1 倍' }, { id: 2, label: '2 倍' }, { id: 3, l
  * 静态副本已经去掉脚本和外链（core renderStatic），这里读写的是同源、无脚本的那一份。
  * @returns {Promise<{html:string, count:number}>} count = 展开了几处；0 表示原样
  */
-export async function unfoldScrollAreas(html, width) {
-    const snap = await renderStatic(html, { width });
+export async function unfoldScrollAreas(html, width, { allowNetwork = true, onWarning, signal } = {}) {
+    const snap = await renderStatic(html, { width, allowNetwork, onWarning, signal });
     try {
         const doc = snap.document;
         const win = doc.defaultView;
@@ -67,20 +68,37 @@ export async function unfoldScrollAreas(html, width) {
 export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, autoNames, onClose }) {
     let st = null; // 打开着的一次
 
-    function open({ html, where, width, widthChoice }) {
+    function open({ html, where, width, widthChoice, network = true, masked = false, snapshot = null }) {
         close();
         const fit = typeof width === 'number' ? width : 600;
-        const mine = { html, where, fitWidth: fit, width: widthChoice === 'fit' ? 'fit' : widthChoice ?? 390, scale: 2, unfold: true,
+        const mine = { html, where, fitWidth: fit, width: widthChoice === 'fit' ? 'fit' : widthChoice ?? 390, scale: 2,
+            // 长图：截初始画面时默认开（展开滚动区）；截当前画面时默认关（保留你滚到的位置）。点过就按你选的
+            unfold: null, network, masked, source: snapshot ? 'current' : 'initial', current: null, currentError: null,
             autoNames: true, myRules: true, permanent: [], temp: [], run: 0, busy: false, blob: null, url: null, preview: null, cssHeight: 0,
-            exportHtml: html, unfolded: 0, changed: false, rulesPage: null };
+            exportHtml: html, unfolded: 0, changed: false, rulesPage: null, abort: null, warnings: [] };
         st = mine;
         mine.els = buildDom(mine);
         root.append(mine.els.dialog);
         mine.els.dialog.focus({ preventScroll: true });
         store.maskWords.list().then(words => { if (st === mine) { mine.permanent = words; syncWords(mine); } }).catch(() => {});
         sync(mine);
-        refresh(mine);
+        if (snapshot) {
+            // 只取这一次：之后游戏里再点什么都不影响这张图
+            setBusy(mine, true, '正在取当前画面…');
+            snapshot({ timeoutMs: 10000 }).then(current => { if (st === mine) { mine.current = current; refresh(mine); } },
+                error => {
+                    if (st !== mine) return;
+                    console.warn('[st-reader] 取当前画面失败', error);
+                    mine.currentError = String(error?.message ?? error);
+                    setBusy(mine, false, `当前画面没取到：${mine.currentError}。可以关掉窗口再点一次 📷，或在左边换成"初始画面"。`, true);
+                    sync(mine);
+                });
+        } else refresh(mine);
     }
+
+    const unfoldOn = mine => mine.unfold ?? mine.source === 'initial';
+    /** 截当前画面且阅读器里已脱敏：取到的就是换过词的样子，不再串换（core alreadyMasked）。 */
+    const alreadyMasked = mine => mine.source === 'current' && mine.masked;
 
     function buildDom(mine) {
         const seg = (items, key) => h('div', { class: 'stcr-seg stcr-studio-seg', role: 'group' },
@@ -96,6 +114,8 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
             h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', placeholder, 'aria-label': label }),
             h('button', { type: 'submit', class: 'stcr-btn stcr-text-btn', text: '添加' }));
 
+        const sources = seg([{ id: 'current', label: '当前画面', title: '你在阅读器里点到、滚到的样子' }, { id: 'initial', label: '初始画面', title: '这段 HTML 刚打开时的样子' }], 'shot-source');
+        const network = sw('带上外链素材', 'network', 'HTML 里引用的网上图片、字体、样式一起放进图里；有的网站不允许，会提示');
         const widths = seg(HTML_WIDTHS, 'shot-width');
         const scales = seg(SCALES, 'shot-scale');
         const unfold = sw('长图', 'unfold', '把里面的滚动区（比如聊天记录列表）展开，所有内容出现在一张图里');
@@ -106,6 +126,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         const clearBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-shot': 'clear', text: '清除选区', disabled: true });
         const cropInfo = h('span', { class: 'stcr-shot-crop-info' });
         const status = h('div', { class: 'stcr-shot-status', role: 'status', 'aria-live': 'polite' });
+        const warn = h('div', { class: 'stcr-shot-warn', hidden: true });
         const slot = h('div', { class: 'stcr-shot-slot' });
         const wordChips = h('div', { class: 'stcr-studio-chips' });
         const tempChips = h('div', { class: 'stcr-studio-chips' });
@@ -114,11 +135,15 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
             h('h2', { class: 'stcr-studio-title', text: '截图分享' }),
             h('span', { class: 'stcr-studio-sub', text: `第 ${mine.where.index + 1} 楼 · HTML` }),
             saveCrop, saveAll);
+        const maskedNote = h('p', { class: 'stcr-studio-hint stcr-shot-masked-note', hidden: true,
+            text: '取自阅读器里已经脱敏的当前画面：名字和替换规则已经换过了，这里的开关不会把原词换回来。还可以在下面追加屏蔽词。' });
         const sideMain = h('div', { class: 'stcr-studio-side-main' },
+            section('画面', sources),
             section('宽度', widths),
             section('清晰度', scales),
             section('长度', unfold.el),
-            section('名字替换', sw('自动名字', 'autoNames', '角色名、你的名字换成 char / user').el, sw('我的规则', 'myRules', '比如"灯塔 → 某地"').el,
+            section('外链', network.el),
+            section('名字替换', maskedNote, sw('自动名字', 'autoNames', '角色名、你的名字换成 char / user').el, sw('我的规则', 'myRules', '比如"灯塔 → 某地"').el,
                 h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-studio-rules', 'data-shot': 'rules', title: '自己定"某个词总是换成什么"' },
                     h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理替换规则…')),
             section('屏蔽词（永久）', wordChips, addForm('permanent', '输入要遮住的词，回车添加', '添加屏蔽词'),
@@ -128,8 +153,8 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '截图设置' }, sideMain, rulesHost);
         const foot = h('div', { class: 'stcr-shot-foot' }, cropInfo, clearBtn);
         const stage = h('div', { class: 'stcr-shot-stage' },
-            h('p', { class: 'stcr-shot-tip', text: '在图上按住拖一下，可以只框一部分；框里拖动能移动，四个角能调大小。截的是这段 HTML 刚打开时的样子：游戏里点出来的结局、网上的字体和图片不会出现。' }),
-            status, slot, foot);
+            h('p', { class: 'stcr-shot-tip', text: '在图上按住拖一下，可以只框一部分；框里拖动能移动，四个角能调大小。"当前画面"是你点开截图那一刻的样子，之后再在游戏里点什么，这张图都不变。' }),
+            status, warn, slot, foot);
         const dialog = h('div', { class: 'stcr-studio stcr-shot', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'HTML 截图分享', tabindex: '-1' },
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
 
@@ -137,6 +162,11 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
             const t = event.target;
             const width = t.closest('[data-shot-width]')?.dataset.shotWidth;
             if (width) { mine.width = width === 'fit' ? 'fit' : Number(width); sync(mine); refresh(mine); return; }
+            const source = t.closest('[data-shot-source]')?.dataset.shotSource;
+            if (source) {
+                if (source === 'current' && mine.current === null) return; // 没取到当前画面
+                mine.source = source; sync(mine); refresh(mine); return;
+            }
             const scale = t.closest('[data-shot-scale]')?.dataset.shotScale;
             if (scale) { mine.scale = Number(scale); sync(mine); refresh(mine); return; }
             const drop = t.closest('[data-word-drop]');
@@ -161,6 +191,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
             const key = event.target.dataset?.shotFlag;
             if (!key) return;
             mine[key] = event.target.checked;
+            sync(mine);
             refresh(mine);
         });
         dialog.addEventListener('keydown', event => {
@@ -170,13 +201,30 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
             if (!mine.els.rulesHost.hidden) { if (!mine.rulesPage?.isEditing()) hideRules(mine); return; }
             close();
         });
-        return { dialog, widths, scales, unfoldHint: unfold.hint, saveAll, saveCrop, clearBtn, cropInfo, status, slot, stage, side, sideMain, rulesHost, wordChips, tempChips };
+        return { dialog, sources, maskedNote, warn, widths, scales, unfoldHint: unfold.hint, saveAll, saveCrop, clearBtn, cropInfo, status, slot, stage, side, sideMain, rulesHost, wordChips, tempChips };
     }
 
     function sync(mine) {
+        for (const b of mine.els.sources.children) {
+            b.classList.toggle('stcr-on', b.dataset.shotSource === mine.source);
+            if (b.dataset.shotSource === 'current') {
+                b.disabled = mine.current === null && !mine.busy;
+                b.title = mine.currentError ? `当前画面没取到：${mine.currentError}` : b.disabled ? '这段 HTML 还没渲染出来，只能截初始画面' : '你在阅读器里点到、滚到的样子';
+            }
+        }
+        const masked = alreadyMasked(mine);
+        mine.els.maskedNote.hidden = !masked;
+        for (const key of ['autoNames', 'myRules']) {
+            const input = mine.els.dialog.querySelector(`[data-shot-flag="${key}"]`);
+            input.disabled = masked;
+            input.closest('label').classList.toggle('stcr-studio-switch--off', masked);
+        }
         for (const b of mine.els.widths.children) b.classList.toggle('stcr-on', b.dataset.shotWidth === String(mine.width));
         for (const b of mine.els.scales.children) b.classList.toggle('stcr-on', Number(b.dataset.shotScale) === mine.scale);
-        for (const input of mine.els.dialog.querySelectorAll('[data-shot-flag]')) input.checked = mine[input.dataset.shotFlag];
+        for (const input of mine.els.dialog.querySelectorAll('[data-shot-flag]')) {
+            const key = input.dataset.shotFlag;
+            input.checked = key === 'unfold' ? unfoldOn(mine) : mine[key];
+        }
     }
 
     function chips(list, kind) {
@@ -244,22 +292,43 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
     /** 本次截图的脱敏参数：存着的屏蔽词 + 临时词。 */
     async function options(mine) {
         const base = await maskOptions(mine.where, { autoNames: mine.autoNames, myRules: mine.myRules });
-        return { ...base, maskWords: [...new Set([...base.maskWords, ...mine.temp])] };
+        return { ...base, maskWords: [...new Set([...base.maskWords, ...mine.temp])], alreadyMasked: alreadyMasked(mine),
+            allowNetwork: mine.network, signal: mine.abort?.signal, onWarning: message => addWarning(mine, message) };
     }
+    function addWarning(mine, message) {
+        if (st !== mine || mine.warnings.includes(message)) return;
+        mine.warnings.push(message);
+        const { warn } = mine.els;
+        warn.hidden = false;
+        const lines = mine.warnings.slice(0, 4).map(m => h('div', { text: m }));
+        if (mine.warnings.length > 4) lines.push(h('div', { text: `……还有 ${mine.warnings.length - 4} 条` }));
+        // 有的网站不允许别处读取它的图片和字体（浏览器的跨域规则），这些就只能不带
+        warn.replaceChildren(h('b', { text: '有些外链素材没带进图里（对方网站不允许或连不上），其余照常：' }), ...lines);
+    }
+    const sourceHtml = mine => (mine.source === 'current' && mine.current !== null ? mine.current : mine.html);
 
     /** 任何设置变了：重新生成预览（旧图与选区作废）。 */
     async function refresh(mine) {
         const run = ++mine.run;
         dropPreview(mine);
-        setBusy(mine, true, '正在生成脱敏截图…');
+        mine.abort?.abort();
+        mine.abort = new AbortController();
+        mine.warnings = [];
+        mine.els.warn.hidden = true;
+        mine.els.warn.replaceChildren();
+        setBusy(mine, true, mine.network ? '正在生成脱敏截图（带上外链素材）…' : '正在生成脱敏截图…');
         try {
             const width = cssWidth(mine);
-            const [opts, unfolded] = await Promise.all([options(mine),
-                mine.unfold ? unfoldScrollAreas(mine.html, width) : Promise.resolve({ html: mine.html, count: 0 })]);
+            const opts = await options(mine);
+            const html = sourceHtml(mine);
+            const unfold = unfoldOn(mine);
+            const unfolded = unfold
+                ? await unfoldScrollAreas(html, width, { allowNetwork: opts.allowNetwork, onWarning: opts.onWarning, signal: opts.signal })
+                : { html, count: 0 };
             if (st !== mine || run !== mine.run) return;
             mine.exportHtml = unfolded.html;
             mine.unfolded = unfolded.count;
-            if (mine.els.unfoldHint) mine.els.unfoldHint.textContent = !mine.unfold ? '把里面的滚动区（比如聊天记录列表）展开，所有内容出现在一张图里'
+            if (mine.els.unfoldHint) mine.els.unfoldHint.textContent = !unfold ? '把里面的滚动区（比如聊天记录列表）展开，所有内容出现在一张图里'
                 : unfolded.count ? `已展开 ${unfolded.count} 处滚动区，所有内容都在这张图里` : '这段 HTML 里没有要展开的滚动区';
             const blob = await exportRenderedHtml(mine.exportHtml, { ...opts, width, scale: mine.scale });
             if (st !== mine || run !== mine.run) return;
@@ -280,7 +349,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         } catch (error) {
             if (st !== mine || run !== mine.run) return;
             console.error('[st-reader] HTML 截图失败', error);
-            const tooBig = error instanceof RangeError && mine.unfold ? '（展开后太长了：试试关掉"长图"、降低清晰度，或框一部分）' : '';
+            const tooBig = error instanceof RangeError && unfoldOn(mine) ? '（展开后太长了：试试关掉"长图"、降低清晰度，或框一部分）' : '';
             setBusy(mine, false, `截图没做出来：${error?.message ?? error}${tooBig}`, true);
         }
     }
@@ -299,6 +368,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         mine.preview?.setDisabled(busy);
         const els = mine.els;
         els.saveAll.disabled = busy || !mine.blob;
+        for (const b of els.sources.children) if (b.dataset.shotSource === 'current') b.disabled = mine.current === null;
         els.status.textContent = message;
         els.status.classList.toggle('stcr-shot-status--error', error);
         els.dialog.classList.toggle('stcr-studio--busy', busy);
@@ -348,6 +418,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         if (!mine) return;
         st = null;
         mine.run++;
+        mine.abort?.abort();
         dropPreview(mine);
         mine.els.dialog.remove();
         onClose?.({ changed: mine.changed });
