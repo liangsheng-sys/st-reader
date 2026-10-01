@@ -406,7 +406,7 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 
 **选段合同**：若只要部分楼层，先用 createCardMessage 得到已脱敏、已格式化的节点，在这个副本上提取选段（例如Range.cloneContents），放入模板；然后用 `exportCard(template,{...options,replaceNames:false})` 导出已经处理好的片段。这里的false是“导出时不再做名字阶段”，不会还原已替换的名字。规则/名字开关变化时，从原始handle重建预览和选段。不要把只剩部分正文的元素再次bind，否则导出会按绑定重建整楼。原阅读器上的选区映射与工作台重选/确认由T23处理，不能直接把阅读器原始HTML当作已脱敏HTML。
 
-**T30 退回 / I021**：新增两个可选子开关，默认均为 true，旧调用行为不变。`autoReplaceNames:false, applyReplaceRules:true` 保留角色/用户/群成员名字，同时执行“灯塔→某地”等我的规则；已知名字宏仍按目标聊天展开。自动名字关闭时不再建立 I019 的保护范围，此时我的规则可照字面匹配名字的部分；重新开启则恢复整名保护。关闭 applyReplaceRules 不执行或验证我的规则。两个子开关都关闭时不处理原文；无论它们是什么，`replaceNames:false` 始终跳过整个阶段，避免选段导出重复替换。屏蔽词独立，仍由最后的遮盖阶段执行。UI 尚未接线，见 I021；接入时必须同步预览、缓存键、选段重建、名字行、批注与映射列表，不能只新增按钮。
+**T30 退回 / I021**：新增两个可选子开关，默认均为 true，旧调用行为不变。`autoReplaceNames:false, applyReplaceRules:true` 保留角色/用户/群成员名字，同时执行“灯塔→某地”等我的规则；已知名字宏仍按目标聊天展开。自动名字关闭时不再建立 I019 的保护范围，此时我的规则可照字面匹配名字的部分；重新开启则恢复整名保护。关闭 applyReplaceRules 不执行或验证我的规则。两个子开关都关闭时不处理原文；无论它们是什么，`replaceNames:false` 始终跳过整个阶段，避免选段导出重复替换。屏蔽词独立，仍由最后的遮盖阶段执行。T42 已接线并经人类验收（I021），预览、缓存键、选段重建、名字行、批注与映射列表同步；2026-10-01 核对状态。
 
 我的规则 scope=all 或匹配**当前目标发言角色的avatar**；群聊按实际成员，用户楼没有任意成员作用域。整词判断按Unicode字母/数字/组合符/下划线边界；中文连续字串需要精确边界或关闭wholeWord。规则不是正则表达式；同级重叠先长词，相同长度用传入顺序，store.list的顺序稳定。目标图标只允许上述六种；素材引用必须存在，重新校验图片签名/限额，SVG再次清洗。mappings只包含实际命中，含原词，供工作台私有映射预览，不能放到分享图或日志。
 
@@ -467,7 +467,7 @@ previewImage.src = url;
 - `maskText` 纯函数签名、字段均不变：uniform=false 的 width 仍是 Unicode 码点数，供无 DOM 环境回退。
 - `wrapMaskSpans` 仍同步返回副本。源节点连接到文档且有布局时，在源文本上对**全部命中先测量再修改副本**，用 `Range.getBoundingClientRect().width` 写 px；跨 em/strong、混合字号与 emoji 均可测。跨行时取 Range 的外接矩形宽度。未挂载、display:none 或测到零宽时退回码点数 em，统一长度仍为 3em。调用方应先等待字体就绪，在 **1:1 未缩放**的最终模板样式上下文中测量，再给预览施加 scale；函数不把未连接的输入临时挂到宿主页。
 - `exportCard` 在隔离副本中先收集、内嵌并加载字体，再测原词、移除原词并添加遮盖；随后截图。避免 Ny 字体尚未解码时测到后备字体宽度。三个遮盖类型都使用相同宽度规则；高度调整仍由 T42 处理。
-- **I026 / T42 必须接线**：当前 `cardStudio.applyMasks` 对未挂载的 card 逐词调用 wrapMaskSpans，随后才把结果放进已缩放的预览；其导出直接复制已遮盖预览。该调用仍会使用无布局回退。Opus 须在 1:1 模板上下文排版并等待字体后再逐次测量，每次生成的新副本也须有布局；完成后再 fit。不得声称 T41 已单独修好此旧 UI 路径。core 独立导出传入 maskWords 的路径及已排版副本路径均已实测。
+- **I026 / T42 已接线**：`cardStudio.compose` 先取消舞台缩放并挂载 card，再逐词 wrapMaskSpans / replaceWith，最后 fit；字体加载完后重新排版。每个新副本必须继续处于 1:1 模板布局中。T42 已有人类验收和实际 PNG 像素证据；T41 本身只交付 core，旧的未挂载调用会使用码点回退这一边界不变。
 - `ReplaceRule.to.background?: string` 只在 kind=text 时允许，必须严格匹配 `#RRGGBB`，不接受透明色、CSS 名称、短色号或空值；不需要背景时**省略字段**。store 校验失败抛 INVALID_DATA，纯变换/导出校验失败抛 TypeError；旧规则完全兼容。颜色随导入导出、segments、mappings、skippedRules 保留。
 - 预览与 PNG 的替换文字包裹使用 `background-color: <颜色> !important`，不解析 value 中的 HTML；名字行、正文、思维链走同一适配器。替换结果仍受保护，不被屏蔽词二次吞掉。UI 编辑/复制规则时须保留 to.background；T42 添加颜色输入与预设。
 
@@ -515,7 +515,7 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 
 ### 5.13 T44a HTML 渲染合同（D15/D16）
 
-从 `../core/htmlRenderer.js` 导入。本模块不读取聊天、不读写 store、不改变宿主选中角色或候选。T44b 负责楼内按钮、裁剪框及每次打开阅读器的外链确认。
+从 `../core/htmlRenderer.js` 导入。本模块不读取聊天、不读写 store、不改变宿主选中角色或候选。T44b 负责楼内按钮、独立截图窗口和裁剪框。按 D22，UI 默认允许 HTTPS 外链，Aa 可整体关闭、每块可断网，不再逐次确认；UI 必须每次显式传 allowNetwork。core 缺省断网与静态导出始终断网的合同不变。
 
 | 签名 | 返回与约定 |
 |---|---|
@@ -549,7 +549,7 @@ I029 验收返修：原来硬编码 scale=1，在高像素密度屏幕或放大�
 const view = createSandbox(block.html, { width: 390, onHeight: height => updateHeightLabel(height) });
 container.append(view.iframe);
 await view.ready;
-// 只有用户本次明确点了允许外链，才传 true；关闭阅读器不持久化这项权限。
+// D22：UI 按 Aa 默认值或本次逐块选择显式传入；core 省略此项仍为 false。
 await view.update(block.html, { width: 768, allowNetwork: true });
 // 同一段原 HTML 的离线初始静态图，裁剪坐标不能直接使用缩放后的屏幕坐标。
 const png = await exportRenderedHtml(block.html, { width: 768, scale: 2, maskWords: ['虚构秘密'], rules: [], crop: { x: 100, y: 50, w: 300, h: 180 } }); // 600×360 PNG

@@ -6,7 +6,7 @@
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
 | T00 | 建仓库与全部合同文档 | 规划者 | 通过 | 人类读 `01`、`05` 后确认"是我想要的阅读器" |
-| T01 | 人类：**F 盘清出 ≥ 5 GB**（真实 ST 在 F 盘，只剩 145 MB）；E 盘保持 ≥ 3 GB | 人类 | 待开始 | 资源管理器里 F 盘可用空间 ≥ 5 GB |
+| T01 | 人类：**F 盘清出 ≥ 5 GB**（真实 ST 在 F 盘，只剩 145 MB）；E 盘保持 ≥ 3 GB | 人类 | 通过（2026-10-01 只读卷容量核对：F 约 37.17 GiB，E 约 6.84 GiB；未访问真实数据） | 资源管理器里 F 盘可用空间 ≥ 5 GB |
 | T02 | 人类：在 `E:\st-reader` 目录能启动 `codex`（astra）与 `claude`（可切 Opus 5.5） | 人类 | 待开始 | 两个都能出现输入框 |
 
 ## M1 引擎与开发环境（astra）
@@ -30,7 +30,7 @@
 ## M3 集成与验收
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
-| T30 | **性能与只读审计**：50 MB fixture 打开 < 3 s、翻页流畅、切换聊天内存回落；全仓库 grep 禁用接口为空；`install/link-to-my-st.cmd`（只建目录联接，路径写死为 `F:\Claude\xinllm\SillyTavern\data\default-user\extensions\st-reader`，存在则提示不覆盖）；补全 `SETUP_WINDOWS.md` 安装一节；写 `docs/M3_验收清单.md`（F1–F9 逐条勾选表）；**另含**：修 I018①、按 06 拍板语义实现 I019、≥50 MB 合成文件实测、`unlink-from-my-st.cmd`、修 I013 反复发生、把 `main` 快进到最终提交 | astra | 待验收（人工1–7步已完成；NF2肉眼流畅，打开/预取定量遗留 I020；I021 人类暂缓） | 人类能看懂清单；性能数据及未达标项如实见 T30 交接 |
+| T30 | **性能与只读审计**：50 MB fixture 打开 < 3 s、翻页流畅、切换聊天内存回落；全仓库 grep 禁用接口为空；`install/link-to-my-st.cmd`（只建目录联接，路径写死为 `F:\Claude\xinllm\SillyTavern\data\default-user\extensions\st-reader`，存在则提示不覆盖）；补全 `SETUP_WINDOWS.md` 安装一节；写 `docs/M3_验收清单.md`（F1–F9 逐条勾选表）；**另含**：修 I018①、按 06 拍板语义实现 I019、≥50 MB 合成文件实测、`unlink-from-my-st.cmd`、修 I013 反复发生、把 `main` 快进到最终提交 | astra | 待验收（人工1–7步已完成；NF2肉眼流畅，打开定量遗留 I020；本轮预取达标，I021 已由 T42 完成） | 人类能看懂清单；性能数据及未达标项如实见 T30 交接 |
 | T31 | **交付前只读复查**：只读铁律、无出站请求、许可登记、`.dev` 未入库 | Fable | 通过（报告 `handoff/2026-09-29_fable_to_human_T31.md`；须在 T30 后再复查一次） | 复查报告写 `handoff/` |
 | T32 | 人类：双击 `install\link-to-my-st.cmd`，重启 ST，按 `M3_验收清单.md` 逐条验收，结论写 `07_FEEDBACK.md`；退回项由规划者拆新卡 | 人类 | 通过（人工步骤完成；NF2定量遗留另记I020） | 07 有记录 |
 
@@ -39,7 +39,7 @@
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
 | T40 | **仓库重构为可直接安装**（D17/D18）：`extension/*` 移到仓库根；更新 `dev/`、`install/`、自测与文档里的路径；`LICENSE`（AGPL-3.0）；每个源文件头加版权行；`manifest.json` 补 `homePage`、`auto_update:true`、`version 0.1.0`；`.gitignore` 加 `docs/*.png`；人类的反馈 txt 移到 `docs/feedback/`；`main` 快进 | astra | 通过（人类 2026-09-30 验收） | `node dev/selftest.mjs` 与 `ui.test.js` 全绿；人类重跑 `install/unlink-from-my-st.cmd` + `link-to-my-st.cmd` 后 ST 里扩展正常 |
-| T41 | **core 修补**：①遮盖宽度按原词实际像素宽度（F14④，DOM 适配层测量）；②`ReplaceRule.to` 文字类型加 `background`（#RRGGBB）；③`maskCodeText(text, opts)` 与 `maskHtmlString(html, opts)`：只改文本节点，不碰标签 / 属性 / `<script>` 内容（F10b、F10a 用）；④store bookmarks 新增 `kind:'chat'`（F13）；⑤§5 合同更新；全部进 selftest | astra | 通过（人类 2026-09-30 验收；UI 测量接线仍见 I026） | selftest 新增项全绿；03 §5 有签名 |
+| T41 | **core 修补**：①遮盖宽度按原词实际像素宽度（F14④，DOM 适配层测量）；②`ReplaceRule.to` 文字类型加 `background`（#RRGGBB）；③`maskCodeText(text, opts)` 与 `maskHtmlString(html, opts)`：只改文本节点，不碰标签 / 属性 / `<script>` 内容（F10b、F10a 用）；④store bookmarks 新增 `kind:'chat'`（F13）；⑤§5 合同更新；全部进 selftest | astra | 通过（人类 2026-09-30 验收；T42 已完成 I026 UI 测量接线） | selftest 新增项全绿；03 §5 有签名 |
 | T42 | **UI 细节**（F14①②③、F15①②③）：Aa 对齐；隐藏思维链开关；替换文字背景色与色块颜色选择器（8 个预设 + 色号输入）；遮盖高度贴行高；I021 独立开关接线 | Opus | 通过（人类 2026-09-30 验收；遮盖高度按意见改为字高） | 人类肉眼；I021 场景：关自动名字仍替换"灯塔→某地" |
 | T43 | **抽屉改造**（F12、F13）：按角色页跟随 ST 排序 + 临时切换下拉 + ST 标签筛选 + 搜索框；收藏页改为"收藏的聊天"（聊天列表项与阅读器顶栏加收藏聊天按钮）；楼 / swipe 收藏只留右侧面板 | Opus | 通过（人类 2026-09-30 验收；core 接口见 I030） | 372 角色样本（T11 可生成大量空角色）10 秒内找到；两处收藏不重复 |
 | T44a | **HTML 渲染 core**（D15/D16）：`htmlRenderer.js`：识别两类 HTML；生成 `srcdoc`（注入高度上报脚本 + CSP meta）；`sandbox="allow-scripts"`；`allowNetwork` 开关重建 srcdoc；`renderStatic(html, opts)` 生成去脚本同源静态副本供截图；`exportRenderedHtml(html, {width, scale, maskWords, rules, crop})` → PNG Blob；进 selftest（识别、脱敏文本节点、CSP 字符串） | astra | 通过（人类 2026-09-30 验收；Node116/116；UI27/27；专项37/37；浏览器156/156；§5.13/I028/I029） | 默认断网渲染、脱敏 PNG；默认 2 倍、可选 3 倍清晰度；在静态预览任意框选、移动、调四角，支持缩小预览；正式 UI 仍属 T44b |
