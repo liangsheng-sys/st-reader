@@ -132,6 +132,8 @@
 /* ── 楼层 ── */
 #stcr_root #stcr_chat .stcr-mes { position: relative; }
 #stcr_root #stcr_chat .stcr-mes.stcr-swipe-fade > .mes_block { animation: stcr-fade .12s ease-out; }
+/* 正文默认左对齐（T50）：零优先级，只挡住从外层容器继承来的居中；主题 / 美化 CSS 里明确写的对齐照样生效。 */
+:where(#stcr_root #stcr_chat .mes_text) { text-align: start; }
 #stcr_root #stcr_chat .stcr-mes--system { justify-content: center; opacity: .72; }
 #stcr_root #stcr_chat .stcr-mes--system .mes_text { font-size: .86em; text-align: center; }
 #stcr_root #stcr_chat .stcr-mes--system .ch_name { justify-content: center; }

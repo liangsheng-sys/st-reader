@@ -63,4 +63,5 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 | I035 | 2026-10-01 | Fable | 公开仓库的 `docs/`、`dev/start-dev-st.mjs`、`dev/isolate-dev-st.mjs`、`install/junction.mjs` 写死本机路径 `F:/Claude/xinllm/SillyTavern`（无用户名）。不影响安全；若作者想隐去，改为读 `.dev/local.json` 或环境变量 | 发布后观感 | open（可选，不阻塞 0.1.0） |
 | I036 | 2026-10-01 | Fable | 人类把含真实聊天文字的截图放进 `docs/feedback/`，原 `.gitignore` 的 `docs/*.png` 不覆盖子目录。已改为 `docs/**/*.png` 与 `docs/**/*.jpg`，核对当前未跟踪。规则：反馈截图一律放 `docs/feedback/`，永不入库 | 隐私 | 已处理 |
 | I037 | 2026-10-01 | 人类 | 二次安装反馈 5 条：正文居中、HTML 块边界 / 白框 / 宽度 / 裁切、重开速度、版本与更新、使用说明。规划者拆为 D24–D27 与 M5 T50–T58 | M5 | 已处理（已拆卡） |
+| I040 | 2026-10-01 | Opus | T50 根因：`formatter.safeHtml` 把楼内 `<style>` 的选择器前缀定为 `#stcr_chat .mes_text `（照 ST 的 `.mes_text ` 做法），但阅读器一页同时放几十楼，一楼卡片 CSS 里的 `p { text-align: center }` 会命中整页所有楼。与主题、聊天风格、头像样式无关（五套 × 三种全部复现、全部修好）。UI 已在 `floorToolbar.scopeFloorStyles` 把前缀改写成只命中本楼（或本楼 HTML 原文容器）的 `[data-stcr-css]`，不阻塞。给 astra 的可选建议：以后若 core 能按楼给出唯一前缀，可去掉 UI 这一步；另外宿主 `#chat` 里 ST 自己渲染的楼内样式（前缀 `.mes_text `）同样会命中阅读器楼层，ST 主界面会先一起变样，目前未见实例 | T50 | 已处理（UI）；core 建议可选 |
 
