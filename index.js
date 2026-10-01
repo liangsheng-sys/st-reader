@@ -8,7 +8,7 @@ if (isDevInstance(window.location)) {
     installReadonlyGuard(window);
     console.log('[st-reader] 开发实例只读保护已开启。');
     window.stcrSelfTest = createSelfTestRunner(async (options = {}) => {
-        const runCore = options.core ?? (!options.fixtures && !options.performance);
+        const runCore = options.core ?? (!options.fixtures && !options.performance && !options.cachePerformance);
         if (!isReadonlyGuardInstalled(window)) throw new Error('开发实例的 fetch 只读保护已失效。');
         const { testReadonlyGuard } = await import('./src/core/readonlyGuard.test.js');
         const results = await testReadonlyGuard();
@@ -16,6 +16,11 @@ if (isDevInstance(window.location)) {
             const { testCoreLogic } = await import('./src/core/core.test.js');
             const { testCoreBrowser } = await import('./src/core/coreBrowser.test.js');
             results.push(...await testCoreLogic(), ...await testCoreBrowser());
+        }
+        if (options.chatCache ?? (runCore || options.cachePerformance)) {
+            const { testChatCacheLogic } = await import('./src/core/chatCache.test.js');
+            const { testChatCacheBrowser } = await import('./src/core/chatCacheBrowser.test.js');
+            results.push(...await testChatCacheLogic(), ...await testChatCacheBrowser({ performanceCheck: !!options.cachePerformance }));
         }
         if (options.persistence ?? runCore) {
             const { testPersistenceLogic } = await import('./src/core/persistence.test.js');
@@ -51,7 +56,7 @@ if (isDevInstance(window.location)) {
             results.push(...await testPerformanceBrowser());
         }
         console.table(results);
-        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
+        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore || options.chatCache || options.cachePerformance || options.performance ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
         return results;
     });
     window.stcrStorageProbe = async phase => {

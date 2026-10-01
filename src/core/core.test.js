@@ -93,13 +93,16 @@ export async function testCoreLogic() {
         Object.defineProperty(messages[64], 'swipes', { get() { throw new Error('不应提前构造未请求楼层'); } });
         const calls = [];
         const source = createChatSource({ getContext: () => ({ name1: '旅人' }), read: async (url, body) => {
-            calls.push({ url, body }); return url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' } : [{ user_name: '旅人' }, ...messages];
+            calls.push({ url, body });
+            if (url === '/api/chats/search') return [{ file_name: 'test.jsonl', file_size: 100, last_mes: 1 }];
+            return url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' } : [{ user_name: '旅人' }, ...messages];
         } });
         const handle = await source.openChat(makeChatKey({ avatarUrl: 'a.png', fileName: 'test' }));
         equal(handle.total, 65); equal(handle.pageCount, 3); equal(handle.page(1).messages[0].index, 30); equal(handle.page(0).messages.length, 30);
-        equal(calls.map(call => call.url), ['/api/characters/get', '/api/chats/get']);
+        equal(calls.map(call => call.url), ['/api/characters/get', '/api/chats/search', '/api/chats/get']);
         throws(() => handle.page(3)); handle.close(); handle.close(); throws(() => handle.getMessage(0)); throws(() => handle.page(0));
-        const emptySource = createChatSource({ getContext: () => ({}), read: async url => url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' } : [{ user_name: '旅人' }] });
+        const emptySource = createChatSource({ getContext: () => ({}), read: async url => url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' }
+            : url === '/api/chats/search' ? [{ file_name: 'empty.jsonl', file_size: 100, last_mes: 1 }] : [{ user_name: '旅人' }] });
         const empty = await emptySource.openChat('a.png/empty');
         equal(empty.total, 0); equal(empty.pageCount, 0); equal(empty.page(0).messages, []); empty.close();
     });
@@ -109,6 +112,7 @@ export async function testCoreLogic() {
             calls.push({ url, body });
             if (url === '/api/groups/all') return [{ id: 'g1', name: '群', chat_id: 'c2', chats: ['c2'], members: ['a.png', 'b.png'] }];
             if (url === '/api/characters/get') return { avatar: body.avatar_url, name: body.avatar_url === 'a.png' ? '甲' : '乙' };
+            if (url === '/api/chats/search') return [{ file_name: 'c2', file_size: 100, last_mes: 1 }];
             return [{ mes: '开始', name: '甲', is_user: true, original_avatar: 'a.png' }, { mes: '回应', name: '乙', original_avatar: 'b.png' }];
         } });
         const handle = await source.openChat('group:g1/c2'); equal(handle.total, 2); equal(handle.header.userName, '甲');
@@ -119,7 +123,7 @@ export async function testCoreLogic() {
     await test('目录摘要字段、无聊天目录、当前聊天键与取消信号', async () => {
         const abort = new AbortController();
         const ctx = { characters: [{ avatar: 'a.png' }], characterId: 0, getCurrentChatId: () => 't' };
-        const source = createChatSource({ getContext: () => ctx, read: async (url, _body, options) => {
+        const source = createChatSource({ getContext: () => ctx, prefetchOnList: false, read: async (url, _body, options) => {
             assert(options.signal === abort.signal);
             if (url === '/api/characters/chats') return { error: true };
             if (url === '/api/chats/search') return [{ file_name: 'c', message_count: 4, preview_message: '片段' }];

@@ -44,6 +44,7 @@ E:\st-reader/
   manifest.json / index.js / style.css
   src/core/   (astra)
     chatSource.js     只读 API 封装；chatKey 规范；header 解析；大文件按楼分页（每页 N 楼，默认 30）
+    chatCache.js      纯内存 LRU；原始数组、冻结模型与页；3 个 / 150 MB 估算限额
     messageModel.js   楼层→视图模型 {index, name, isUser, isSystem, date, swipes:[{text, reasoning, reasoningDuration}], swipeId}
     regexPipeline.js  为目标角色/群成员收集 GLOBAL/SCOPED/PRESET 显示类脚本；按该聊天算 depth；runRegexScript 逐条
     formatter.js      正则后文本 → 安全 HTML（markdown、hljs、DOMPurify）；思维链同样处理
@@ -124,9 +125,15 @@ I009 实证：187208字节的 Ny JetBrainsMono（兼容重复导入别名）实�
 导出边界：没有可读字节的普通URL字体（如ST默认Noto Sans）使用系统回退并通过console.warn / onWarning通知；需要精确字形时在Ny导入本地字体。中文是否覆盖由所导入字体决定，T11 JetBrainsMono只证明拉丁字母/数字。跨域不可读CSS、URL背景图与交互媒体不导出；不为它们发请求。宽≤8192 CSS px，高≤16384 CSS px，倍率1–3，最终≤3200万像素，本卡字体合计≤32 MiB。超限抛错，不静默裁切。
 
 ### 4.5 大文件（I005、NF2）
-`/api/chats/get` 一次返回整个文件；不能整篇渲染。`chatSource` 只取被打开的聊天，保留原始消息和紧凑深度索引，按页构造视图模型，close 释放正文；UI 翻页时释放上一页 DOM。T12 已实测 21.35 MiB / 1600 楼；T30 新增独立 **55987114 字节 / 53.39 MiB / 4000 楼** fixture，生成器为 `dev/fixtures/performance.mjs`，不修改原 T11 卡片与聊天，数据与报告只在 `.dev/`。
+`/api/chats/get` 一次返回整个文件；不能整篇渲染。`chatSource` 只取被打开或当前预取的聊天，保留原始消息和紧凑深度索引，按页构造视图模型；UI 翻页时释放上一页 DOM。T53 按 D24 修订 close：只释放该句柄，最近 3 个聊天及已构建页在内存 LRU 保留，刷新即空。T12 已实测 21.35 MiB / 1600 楼；T30 新增独立 **55987114 字节 / 53.39 MiB / 4000 楼** fixture，生成器为 `dev/fixtures/performance.mjs`，不修改原 T11 卡片与聊天，数据与报告只在 `.dev/`。
 
-`stcrSelfTest({performance:true})` 驱动真实阅读器（30楼一批、最多120楼），计时到 rAF 后绘制完成的下一任务；测3次打开、8次跨批次、20次分页翻屏、切回小聊天与关闭。`dev/test-performance.cmd` 使用已有 Chrome/Edge、独立 `.tmp` 配置、同源网络拦截和精确 JS 堆读数，主动 GC 后比较，结束清理。普通浏览器缺少主动 GC 时明确输出“内存未验证”，不能据此全勾。验收指标：打开每次 <3000ms；翻屏 P95<100ms、最慢<150ms；预取30楼一批<300ms；切小聊天释放≥70%增量。实测与硬件/窗口/字体/宿主负载相关；T30 多轮有超限，**性能暂不能宣告稳定通过**，见 I020 与 T30 交接。不得挑最快一轮覆盖失败样本。
+`stcrSelfTest({performance:true})` 驱动真实阅读器（30楼一批、最多120楼），计时到 rAF 后绘制完成的下一任务；测3次打开、8次跨批次、20次分页翻屏、切回小聊天与关闭。`dev/test-performance.cmd` 使用已有 Chrome/Edge、独立 `.tmp` 配置、同源网络拦截和精确 JS 堆读数，主动 GC 后比较，结束清理。普通浏览器缺少主动 GC 时明确输出“内存未验证”，不能据此全勾。验收指标：打开每次 <3000ms；翻屏 P95<100ms、最慢<150ms；预取30楼一批<300ms；切小聊天**并显式清空缓存后**释放≥70%增量（T53 / D24 修订，正常缓存不视为泄漏）。实测与硬件/窗口/字体/宿主负载相关；T30 多轮有超限，**性能暂不能宣告稳定通过**，见 I020 与 T30 交接。不得挑最快一轮覆盖失败样本。
+
+T53 内存计量：按 UTF-16 字符串、对象/字段/引用估算，原始数组、深度索引、已构建模型和不同 pageSize 的页均计费；限额为 **150,000,000 字节**，不是整页 JS 堆的硬上限。字符串共享仍保守重复计费；未渲染楼层不提前转模型。超限先淘汰最久未打开项，单项超限可以阅读但不缓存。仍在使用的句柄保有独立旧快照直到 close，不会因别的打开动作淘汰而读坏；这些活动引用及 DOM、格式化结果不属于 LRU 保留量。缓存模块不访问 store、localStorage、IndexedDB 或宿主可变数组。
+
+T53 每次打开/预取先读角色/群信息，再用 `/api/chats/search` 的 `file_size`、`last_mes`（另比较楼数）校验；未变化复用原始数组、冻结模型和页，不再发正文 get。缺摘要字段则不保留；文件消失报 NOT_FOUND；请求失败不拿旧缓存冒充最新。宿主提供的是格式化后大小和最后消息日期，不是精确 mtime/hash；**同大小、同末消息日期、同楼数的原地改字无法靠该摘要发现**。不能声称检测了任意文件变化；刷新可强制重读。
+
+T53 性能验收用 `stcrSelfTest({cachePerformance:true})` 或 `dev/test-chat-cache.cmd`；后者还验证真实页面刷新清空与完整浏览器回归。开发实例保留原 21 MB 和 53 MB 样本，不迁走大文件来缩短摘要扫描。当前宿主 search 会逐一读取、解析角色所有聊天，recent 也扫描所选文件；实测重开首帧未达 300 ms，见 I040。缓存功能通过不等于速度指标通过。
 
 ## §5 core ↔ ui 接口（astra 在 T12 填写，Opus 只依赖这里）
 **T12 合同版本 1，2026-09-28。下列已交付接口均有真实实现与可执行测试。** 后续改签名、字段语义或错误行为须登记 06 并在交接信通知 Opus。内部实证接口 `formatWithStrategy`、`loadHostRuntime`、`createChatSource` 不供 UI 依赖。
@@ -137,7 +144,7 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
 
 | 模块 | 已实现签名 | 返回与行为 |
 |---|---|---|
-| chatSource | `listCharacters(options = {})` | `Promise<CharacterSummary[]>`；只有卡片信息，不请求聊天正文 |
+| chatSource | `listCharacters(options = {})` | `Promise<CharacterSummary[]>`；返回卡片信息；列表读取同时触发当前聊天预取（见下） |
 | chatSource | `listGroups(options = {})` | `Promise<GroupSummary[]>`；thumbnailUrl 使用第一个成员头像，空群为 null |
 | chatSource | `listRecent(max = 30, options = {})` | `Promise<ChatSummary[]>`；max 1–200；忽略无角色/群组的临时聊天 |
 | chatSource | `listByCharacter(avatarUrl, options = {})` | `Promise<ChatSummary[]>`；avatarUrl 是 PNG 文件名；无聊天目录返回 [] |
@@ -146,10 +153,15 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
 | chatSource | `makeChatKey({avatarUrl?, groupId?, fileName})` | 稳定字符串；单聊提供 avatarUrl，群聊提供 groupId；fileName 是文件 ID，不额外带存储扩展名 |
 | chatSource | `parseChatKey(chatKey)` | `{isGroup, avatarUrl, groupId, fileName}`；不可直接用斜线随意拆解转义后的名字 |
 | chatSource | `openChat(chatKey, {pageSize = 30, signal} = {})` | `Promise<ChatHandle>`；pageSize 1–100，一次只取指定聊天，不切换 ST |
+| chatSource | `prefetchCurrentChat({pageSize = 30, signal} = {})` | `Promise<boolean>`；有当前聊天时校验/读取并构建第一页、关闭临时句柄后返回 true；无当前聊天 false；错误抛出，由 UI 静默处理 |
+| chatSource | `clearChatCache()` | 同步清空 LRU；在途旧读取不重新填回/淘汰新缓存，清空后的打开不加入旧请求；已有等待者与句柄仍可完成/读取 |
+| chatSource | `getChatCacheStats()` | 冻结对象 `{entries,bytes,maxEntries,maxBytes,evictions,keys,hits,misses,invalidations,prefetches,pending}`；keys 从最旧到最新，仅键与计数，无正文；pending 为当前缓存代次的在途键数，clear 不重置累计计数 |
 | formatter | `initFormatter()` | `Promise<void>`；先 await，重复调用可复用；APP_READY 也会初始化 |
 | formatter | `renderMessage(handle, index, swipeIndex?)` | `RenderedMessage`；省略 swipeIndex 用模型的 swipeId；从原文重跑一次完整管线 |
 
-所有列表的 `options` 为 `{signal?: AbortSignal}`。`signal` 原样传递给 fetch；取消时抛 `AbortError`，UI 不应弹成失败提示。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
+所有列表的 `options` 为 `{signal?: AbortSignal}`。取消时抛 `AbortError`，UI 不应弹成失败提示。同聊天并发打开共享在途摘要/正文请求（内部独立 signal）；取消单个等待者不取消其他人，最后一人取消才终止共享请求。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
+
+T53 / I041：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。预取也需要最新摘要；完成后再打开仍重新校验，不用 TTL 或先显示旧数据后校验来隐去等待。未改 `src/ui/`。
 
 ### 5.2 数据类型（JSDoc）
 
@@ -198,9 +210,9 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
  * @property {number} pageSize
  * @property {number} pageCount 空聊天为 0
  * @property {boolean} closed
- * @property {(index:number)=>MessageModel} getMessage 只构建此楼的模型，不返回原始消息
+ * @property {(index:number)=>MessageModel} getMessage 按需构建并复用冻结模型，不返回原始消息
  * @property {(pageIndex?:number)=>{pageIndex:number,start:number,end:number,total:number,pageCount:number,messages:readonly MessageModel[]}} page end 不包含；空聊天 page(0) 返回空页
- * @property {()=>void} close 幂等释放原始正文、深度索引与角色快照；之后 page/getMessage/renderMessage 抛 CLOSED
+ * @property {()=>void} close 幂等释放此句柄和角色快照；之后 page/getMessage/renderMessage 抛 CLOSED；原始数组/索引/已构建页由有界 LRU 保留
  */
 /** @typedef {{html:string,reasoningHtml:string,model:MessageModel,swipeIndex:number}} RenderedMessage */
 ```
