@@ -256,7 +256,19 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         status.textContent = '正在渲染…';
         let html;
         try { html = await prepare(entry.block.html, entry.where); }
-        catch (error) { console.warn('[st-reader] HTML 显示前处理失败，按原样渲染', error); html = entry.block.html; }
+        catch (error) {
+            // I033：脱敏没做成时绝不退回原文渲染——连同已经在跑的旧沙箱（可能是脱敏前的原文）一起拆掉，只留提示和重试
+            if (build !== entry.build || destroyed) return;
+            console.warn('[st-reader] HTML 脱敏失败，这一块先不显示', error);
+            entry.view?.destroy();
+            entry.view = null;
+            entry.builtWidth = null;
+            status.textContent = '';
+            entry.els.frame.replaceChildren(h('div', { class: 'stcr-html-fail' },
+                h('span', { text: '脱敏没做成，为了不露出原词，这段 HTML 先不显示。' }),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '再试一次', onclick: () => start(entry) })));
+            return;
+        }
         if (build !== entry.build || !live.has(entry.shell)) return;
         const onHeight = height => {
             entry.height = height;

@@ -130,7 +130,10 @@ export async function openReader({ tab, chatKey } = {}) {
         rememberWidth: width => setPrefs({ htmlWidth: width }),
         // 脱敏显示开着：沙箱里跑的也是换过词的 HTML（只换文字，不碰标签和属性）
         prepare: (html, where) => {
-            const data = getPrefs().redact ? session.redact : null;
+            if (!getPrefs().redact) return html;
+            // 脱敏开着却没读到屏蔽词 / 规则：不能当成"没有要换的"去渲染原文（I033）
+            if (!session.redact) throw new Error('屏蔽词或替换规则没读出来');
+            const data = session.redact;
             if (!hasRedaction(data)) return html;
             return maskHtmlString(html, { ...htmlMaskBase(session, where.model), maskWords: data.words, rules: data.rules, autoReplaceNames: false, applyReplaceRules: true });
         },
@@ -1261,8 +1264,11 @@ async function maskedCodeText(text, model) {
     }
     const masked = await maskHtmlString(text, options);
     if (/<(html|body|!doctype)\b/i.test(text)) return masked;
-    const doc = new DOMParser().parseFromString(masked, 'text/html'); // 惰性文档：不执行脚本、不加载资源，只用来取回片段
-    return doc.head.innerHTML + doc.body.innerHTML;
+    // 取回片段（I034）：用 <template> 解析——内容落在没有浏览上下文的惰性文档里，不执行脚本、不加载图片 / iframe；
+    // html/head/body 外壳标签被丢掉，里面的节点按原顺序保留。不再用宿主 DOMParser（MDN：惰性解析仍可能加载资源）。
+    const template = document.createElement('template');
+    template.innerHTML = masked;
+    return template.innerHTML;
 }
 
 async function copyMasked(text, mes, button) {
