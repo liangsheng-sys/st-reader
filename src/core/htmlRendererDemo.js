@@ -8,9 +8,10 @@ export function showHtmlRendererDemo() {
     if (document.getElementById('stcr_html_demo')) throw new Error('请先关闭已有 HTML 演示');
     const panel = document.createElement('section'); panel.id = 'stcr_html_demo';
     panel.style.cssText = 'position:fixed;inset:20px;z-index:2147483000;overflow:auto;background:#f5f4ef;color:#203a32;padding:20px;border:3px solid #507668;font:16px/1.6 sans-serif;';
-    const title = document.createElement('h2'); title.textContent = 'T44a · 完全虚构 HTML 验收（默认断网）'; panel.append(title);
-    const note = document.createElement('p'); note.textContent = '选样本、调宽度；游戏可点击两件物品。PNG 导出初始 HTML：秘密会遮盖，灯塔替换为某地。'; panel.append(note);
-    let current = PHONE_HTML, width = 390, scale = 2, handle, preview, closed = false, revision = 0, busy = false;
+    const title = document.createElement('h2'); title.textContent = 'I032 · 当前画面与外链截图验收（完全虚构）'; panel.append(title);
+    const note = document.createElement('p'); note.textContent = '选网页游戏，点击物品，再生成截图：当前结局会保留。可切初始画面对比。外链素材默认带入；秘密会遮盖，灯塔替换为某地。'; panel.append(note);
+    let current = GAME_HTML, width = 390, scale = 2, handle, preview, closed = false, revision = 0, busy = false;
+    let captureCurrent = true, allowNetwork = true, frozenSource = null, captureController;
     const urls = new Set(), controls = document.createElement('div'), liveStatus = document.createElement('p'), stage = document.createElement('div');
     const exportControls = document.createElement('div'), status = document.createElement('p'), output = document.createElement('div'), croppedOutput = document.createElement('div');
     stage.style.cssText = 'overflow:auto;padding:10px;background:#cfd9d2;';
@@ -33,10 +34,10 @@ export function showHtmlRendererDemo() {
         // 用输入状态锁定导出操作，不在拖动期间反复改命中样式。
         preview?.setDisabled(busy);
     };
-    const invalidate = () => { revision++; clearPreview(); status.textContent = `请生成脱敏预览，再自由框选；当前 ${scale} 倍清晰度。`; refreshActions(); };
+    const invalidate = () => { revision++; captureController?.abort(); frozenSource = null; clearPreview(); status.textContent = `请生成脱敏预览，再自由框选；当前 ${scale} 倍清晰度。`; refreshActions(); };
     const render = async () => {
         invalidate(); const request = revision; handle?.destroy();
-        handle = createSandbox(current, { width, onHeight: height => { liveStatus.textContent = `排版宽度 ${width}px · 自动高度 ${height}px · 外链关闭`; } }); stage.replaceChildren(handle.iframe);
+        handle = createSandbox(current, { width, allowNetwork, onHeight: height => { liveStatus.textContent = `排版宽度 ${width}px · 自动高度 ${height}px`; } }); stage.replaceChildren(handle.iframe);
         try { await handle.ready; } catch (error) { if (!closed && request === revision) liveStatus.textContent = error.message; }
     };
     button(controls, '手机聊天', () => { current = PHONE_HTML; render(); }); button(controls, '网页游戏', () => { current = GAME_HTML; render(); });
@@ -48,6 +49,11 @@ export function showHtmlRendererDemo() {
     }
     scaleLabel.append('PNG 清晰度 ', scaleSelect); exportControls.append(scaleLabel);
     scaleSelect.onchange = () => { scale = Number(scaleSelect.value); invalidate(); };
+    const sourceSelect = document.createElement('select'); sourceSelect.setAttribute('aria-label', '截图来源');
+    for (const [value, label] of [['current', '截当前画面'], ['initial', '截初始画面']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; sourceSelect.append(option); }
+    sourceSelect.onchange = () => { captureCurrent = sourceSelect.value === 'current'; invalidate(); }; exportControls.append(sourceSelect);
+    const networkLabel = document.createElement('label'), network = document.createElement('input'); network.type = 'checkbox'; network.checked = true;
+    network.onchange = () => { allowNetwork = network.checked; render(); }; networkLabel.append(network, ' 带上外链素材'); exportControls.append(networkLabel);
     const maskOptions = { maskWords: ['秘密'], rules: [{ from: '灯塔', to: { kind: 'text', value: '某地' } }] };
     const imageAndLink = async (blob, logicalWidth, filename, label) => {
         const url = URL.createObjectURL(blob); urls.add(url);
@@ -59,10 +65,13 @@ export function showHtmlRendererDemo() {
     };
     const runExport = async crop => {
         if (busy || closed) return;
-        const request = revision, source = current, requestWidth = width, requestScale = scale;
+        const request = revision, requestWidth = width, requestScale = scale;
+        captureController = new AbortController(); const signal = captureController.signal;
         busy = true; refreshActions(); status.textContent = `正在生成 ${requestScale} 倍脱敏 PNG…`;
         try {
-            const blob = await exportRenderedHtml(source, { width: requestWidth, scale: requestScale, ...maskOptions, crop });
+            const source = crop && frozenSource ? frozenSource : captureCurrent ? await handle.snapshot({ signal }) : current;
+            const warnings = [];
+            const blob = await exportRenderedHtml(source, { width: requestWidth, scale: requestScale, ...maskOptions, crop, allowNetwork, signal, onWarning: message => warnings.push(message) });
             if (closed || request !== revision) return;
             const result = await imageAndLink(blob, crop?.w ?? requestWidth, crop ? 'st-reader-html-crop.png' : 'st-reader-html-full.png', crop ? '保存选区 PNG' : '保存完整 PNG');
             if (closed || request !== revision) { URL.revokeObjectURL(result.url); urls.delete(result.url); return; }
@@ -72,6 +81,7 @@ export function showHtmlRendererDemo() {
                 status.textContent = `选区已生成：${result.image.naturalWidth}×${result.image.naturalHeight}px，保留 ${requestScale} 倍清晰度。`;
                 croppedOutput.scrollIntoView({ block: 'nearest' });
             } else {
+                frozenSource = source;
                 // 新图解码成功后再替换，失败时保留旧预览。
                 preview?.destroy();
                 for (const url of urls) if (url !== result.url) { URL.revokeObjectURL(url); urls.delete(url); }
@@ -87,6 +97,7 @@ export function showHtmlRendererDemo() {
                 status.textContent = `完整 PNG 已生成：${result.image.naturalWidth}×${result.image.naturalHeight}px（${requestScale} 倍）。`;
                 output.scrollIntoView({ block: 'start' });
             }
+            if (warnings.length) status.textContent += ' 部分素材未带入：' + warnings.join('；');
         } catch (error) { if (!closed && request === revision) status.textContent = error.message; }
         finally { busy = false; refreshActions(); }
     };
@@ -97,6 +108,6 @@ export function showHtmlRendererDemo() {
     const footer = document.createElement('div'); panel.append(footer);
     const footerCrop = button(footer, '生成选区 PNG', () => { if (preview?.selection) runExport(preview.selection); });
     const footerClear = button(footer, '清除选区', () => clearButton.click());
-    const close = () => { closed = true; revision++; handle?.destroy(); clearPreview(); panel.remove(); };
+    const close = () => { closed = true; revision++; captureController?.abort(); handle?.destroy(); clearPreview(); panel.remove(); };
     button(controls, '关闭演示', close); document.body.append(panel); render(); return { close };
 }

@@ -37,6 +37,11 @@ if (isDevInstance(window.location)) {
             const { testHtmlRendererBrowser } = await import('./src/core/htmlRendererBrowser.test.js');
             results.push(...testHtmlRendererLogic(), ...await testHtmlRendererBrowser());
         }
+        if (options.htmlSnapshot ?? runCore) {
+            const { testHtmlSnapshotLogic } = await import('./src/core/htmlSnapshot.test.js');
+            const { testHtmlSnapshotBrowser } = await import('./src/core/htmlSnapshotBrowser.test.js');
+            results.push(...testHtmlSnapshotLogic(), ...await testHtmlSnapshotBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));

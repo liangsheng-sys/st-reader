@@ -38,7 +38,7 @@ ST Reader：SillyTavern（下称 ST）的第三方 UI 扩展，在 ST 页面内�
 7. **数据铁律（D03/D04）**：开发只用 `E:\st-reader\.dev\` 下的独立实例与合成数据。任何 AI 不得读、写、列出、复制 `F:\Claude\xinllm\SillyTavern\data\`（或任何真实 ST 数据目录）里的 `chats`、`group chats`、`characters`、`settings.json`。安装到真实 ST 由人类双击脚本完成。
 8. **磁盘铁律**：C 盘、F 盘几乎满。不写 C 盘、不写 F 盘、不下载大文件、不装全局工具、不建 node_modules。临时文件只放 `.tmp/`，结束清理。
 9. 纯 ESM 原生 JS + CSS，无打包器。第三方库只允许单文件 vendored 进 `vendor/` 且登记 `LICENSES.md`；无明确许可的不许用。
-10. 扩展不得发起任何出站网络请求（只访问同源 `/api/*` 的只读接口）。
+10. 扩展业务只访问同源 `/api/*` 只读接口，不新增自有第三方服务或遥测。D22/D23 是人类明确授权的例外：用户 HTML 可加载外链；HTML 截图默认按 CORS、GET；跨站不带凭据，ST 同源资源保留当前会话 读取并内嵌其引用的图片、字体、样式，显式断网仍可用。D02、数据与磁盘铁律不变。
 11. 有新点子写进 `01_REQUIREMENTS.md` 末尾"v2 候选"区，不进 v1。
 
 ## 任务状态

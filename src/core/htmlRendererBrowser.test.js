@@ -71,7 +71,7 @@ export async function testHtmlRendererBrowser() {
         await test('静态副本去脚本、事件、跳转与远端资源，保留样式及 data 图片', async () => {
             const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
             const source = '<body onload="parent.bad=1"><meta http-equiv="refresh" content="0;url=https://st-reader-fixture.invalid/"><style>p{color:rgb(18,52,86);background-image:url(https://st-reader-fixture.invalid/bg.png)}</style><p onclick="bad()">虚构</p><script>parent.bad=1</script><iframe srcdoc="bad"></iframe><template><script>bad()</script><b onclick="bad()">模板</b></template><img src="' + canvas.toDataURL() + '"></body>';
-            const snapshot = await renderStatic(source, { width: 390 });
+            const snapshot = await renderStatic(source, { width: 390, allowNetwork: false });
             try {
                 assert(snapshot.iframe.getAttribute('sandbox') === 'allow-same-origin' && !snapshot.document.querySelector('script,iframe,[onclick],[onload]'), '静态执行入口未清理');
                 assert(!snapshot.document.querySelector('template').content.querySelector('script,[onclick]'), '模板执行入口漏清理');
@@ -153,9 +153,9 @@ export async function testHtmlRendererBrowser() {
             const snapshots = await Promise.all([renderStatic('<body>甲</body>'), renderStatic('<body>乙</body>')]);
             assert(snapshots[0].iframe !== snapshots[1].iframe, '复用了同一静态 iframe'); snapshots.forEach(snapshot => snapshot.destroy());
         });
-        await test('手机与游戏样本都能导出初始静态 PNG，导出不接受联网权限', async () => {
+        await test('手机与游戏样本可显式断网导出初始静态 PNG', async () => {
             for (const [html, width] of [[PHONE_HTML, 390], [GAME_HTML, 768]]) {
-                const result = await pixels(await exportRenderedHtml(html, { width, maskWords: ['秘密'], allowNetwork: true }));
+                const result = await pixels(await exportRenderedHtml(html, { width, maskWords: ['秘密'], allowNetwork: false }));
                 assert(result.width === width * 2 && result.height > 400, '合成样本高清 PNG 尺寸错误');
                 let visible = 0; for (let i = 3; i < result.data.length; i += 4) if (result.data[i]) visible++;
                 assert(visible > 10000, '合成样本截图为空');

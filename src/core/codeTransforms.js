@@ -37,7 +37,7 @@ export async function maskHtmlString(html, options = {}) {
     });
 }
 
-/** core 内部共用：在禁网解析文档中同步变换，再序列化；不把用户节点挂进活动文档。 */
+/** core 内部共用：在禁网解析文档中变换（可异步）再序列化；不把用户节点挂进活动文档。 */
 export async function transformHtmlOffline(html, transform) {
     if (typeof html !== 'string') throw new TypeError('HTML 必须为字符串');
     if (!globalThis.document?.body) throw new Error('HTML 脱敏需要浏览器 DOMParser 环境');
@@ -56,7 +56,7 @@ export async function transformHtmlOffline(html, transform) {
         await loaded;
         // 解析文档继承这个 realm 的 CSP；不用宿主页的 DOMParser，以免资源在解析时请求外链。
         const realm = frame.contentWindow, doc = new realm.DOMParser().parseFromString(html, 'text/html');
-        transform(doc);
+        await transform(doc);
         const serializer = new realm.XMLSerializer();
         return [...doc.childNodes].map(node => node.nodeType === 1 ? node.outerHTML : serializer.serializeToString(node)).join('');
     } finally { clearTimeout(timer); frame.remove(); }

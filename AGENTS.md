@@ -14,7 +14,7 @@
 - **数据铁律（D03）**：只用 `E:\st-reader\.dev\` 下的开发实例与合成数据。不得读、列、复制 `F:\Claude\xinllm\SillyTavern\data\` 下任何内容（可以读 `F:\Claude\xinllm\SillyTavern\public\`、`src\` 源码来核对 API）。`--dataRoot` 永远指向 `E:\st-reader\.dev\data`。
 - **磁盘铁律**：不写 C 盘、不写 F 盘、不 `npm install`、不建 node_modules、不装全局工具、不下载 >5 MB 的文件。临时文件只放 `.tmp/`，任务结束前清理。
 - **无依赖**：纯 ESM 原生 JS。需要第三方库时只允许单文件 vendored 进 `vendor/`（当前只批准 `modern-screenshot`，MIT），并登记 `docs/LICENSES.md`。
-- **无出站请求**：扩展只访问同源 `/api/*` 只读接口。
+- **网络边界（D22/D23）**：扩展业务只访问同源 `/api/*` 只读接口，不新增自有第三方服务或遥测；用户 HTML 可加载外链，HTML 截图默认读取并内嵌它引用的展示资源（按浏览器 CORS，GET；跨站不带凭据，ST 同源资源保留当前会话）。显式断网仍可用；D02 禁写聊天与宿主隔离不变。
 - 每个任务一个分支 `task/<ID>-<短名>`，完成后提交，并在 `docs/handoff/` 写交接信（模板见该目录 README）。
 - 不做任务卡以外的"顺手优化"、不重构别人的代码（`src/ui/` 是 Opus 的）。发现问题写进 `docs/06_ISSUES.md`。
 - 代码注释与文档用中文，标识符用英文。

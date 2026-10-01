@@ -513,49 +513,55 @@ Node 纯逻辑纳入 `node dev/selftest.mjs`；浏览器完整 `await window.stc
 
 T41 验收返修（I027）：网址自动触发和手动调用经过同一个串行队列；每次调用保留自己的选项和结果，前一轮失败不妨碍后一轮。T41 临时 DOM 审计按测试前的节点身份集合核对新增残留，既有节点不算成本轮泄漏，也不删除它们；真正新增的残留仍使测试失败，报出数量和标记类型，不输出聊天内容。专项包含“保留既有节点”和“刻意新增残留仍能检出”的反例验证。
 
-### 5.13 T44a HTML 渲染合同（D15/D16）
+### 5.13 HTML 渲染与当前画面合同（T44a / I032；D15/D22/D23）
 
-从 `../core/htmlRenderer.js` 导入。本模块不读取聊天、不读写 store、不改变宿主选中角色或候选。T44b 负责楼内按钮、独立截图窗口和裁剪框。按 D22，UI 默认允许 HTTPS 外链，Aa 可整体关闭、每块可断网，不再逐次确认；UI 必须每次显式传 allowNetwork。core 缺省断网与静态导出始终断网的合同不变。
+从 `../core/htmlRenderer.js` 导入。本模块不读取聊天、不读写 store、不改变宿主选中角色或候选。T44b 负责楼内按钮、独立截图窗口和裁剪框。按 D22，UI 默认允许 HTTPS 外链，Aa 可整体关闭、每块可断网，不再逐次确认；UI 必须每次显式传 allowNetwork。交互 core 缺省 allowNetwork:false 不变；D23 将 renderStatic/exportRenderedHtml 的默认值改为 true，先内嵌用户 HTML 的展示资源，再在禁网、禁脚本的静态 iframe 中排版与截图。
 
 | 签名 | 返回与约定 |
 |---|---|
 | `detectHtmlBlocks(rawText)` | 同步 `Array<{start,end,html,kind:'fenced'|'raw'}>`；start/end 是原字符串 UTF-16 偏移，end 不含。围栏区间含开闭围栏行及其行末换行，html 只有内部代码；裸 HTML 区间为全文 |
 | `buildSrcdoc(html,{allowNetwork=false,width=390}={})` | 同步 srcdoc 字符串；每次生成新随机 token，包含 CSP、隔离外壳及 ResizeObserver 高度上报脚本。仅生成字符串，不挂载或请求网络 |
-| `createSandbox(html,{width=390,allowNetwork=false,onHeight?}={})` | 同步 `{iframe,ready,update,destroy}`；iframe 尚未挂载，sandbox 仅 `allow-scripts`。UI 应立即 append，再 await ready；ready 为 `Promise<handle>`，收到首次有效高度消息才完成 |
+| `createSandbox(html,{width=390,allowNetwork=false,onHeight?}={})` | 同步 `{iframe,ready,update,destroy,snapshot}`；iframe 尚未挂载，sandbox 仅 `allow-scripts`。UI 应立即 append，再 await ready；ready 为 `Promise<handle>`，收到首次有效高度消息才完成 |
 | `handle.update(html?,{width?,allowNetwork=false,onHeight?}={})` | 返回本次 ready Promise，替换 srcdoc、轮换 token，旧加载 Promise 拒绝。省略 html 保留原文，省略 width 保留宽度；**allowNetwork 每次默认 false**，需要继续允许时必须显式传 true |
-| `handle.destroy()` | 幂等；移除 iframe、消息监听和超时，拒绝未完成的 ready；销毁后 update 抛错 |
-| `renderStatic(html,{width=390}={})` | `Promise<{iframe,document,element,width,height,destroy}>`；已挂到页面外的同源静态 iframe，sandbox 仅 `allow-same-origin`、无脚本能力，始终断网。element 是文档根，调用者必须 finally destroy |
-| `exportRenderedHtml(html,{width=390,scale=2,maskWords=[],rules=[],assets=[],crop?,...maskOptions}={})` | `Promise<Blob>`，image/png；先 await maskHtmlString → renderStatic → 离线截图 → 裁剪。scale 只接受整数 1/2/3，默认 2；crop 是 `{x,y,w,h}` 的 CSS 文档整数像素坐标，省略则全文。PNG 尺寸为选区宽高各乘 scale，不自动下载 |
+| `handle.snapshot({timeoutMs=10000,signal?}={})` | `Promise<string>`；等待 ready 后取当前 DOM，只读活文档。800 万字符 / 5 万元素上限，同时最多 8 个请求；timeoutMs 取 1–30000 毫秒，包含等待 ready。超时、取消、重建、销毁均拒绝并清理 |
+| `handle.destroy()` | 幂等；移除 iframe、消息监听和超时，拒绝未完成的 ready 与 snapshot；销毁后 update/snapshot 拒绝 |
+| `renderStatic(html,{width=390,allowNetwork=true,baseUrl=document.baseURI,onWarning?,signal?,fetchFn?}={})` | `Promise<{iframe,document,element,width,height,warnings,destroy}>`；先安全清洗并内嵌展示资源，之后挂载同源静态 iframe，sandbox 仅 allow-same-origin、无脚本且 CSP 禁网。warnings 为资源降级提示数组；调用者必须 finally destroy |
+| `exportRenderedHtml(html,{width=390,scale=2,allowNetwork=true,alreadyMasked=false,maskWords=[],rules=[],assets=[],crop?,baseUrl?,onWarning?,signal?,fetchFn?,...maskOptions}={})` | `Promise<Blob>`，image/png；先 await maskHtmlString → renderStatic（默认含外链展示资源）→ 离线栅格化 → 裁剪。scale 只接受整数 1/2/3，默认 2；crop 是 `{x,y,w,h}` 的 CSS 文档整数像素坐标，省略则全文。PNG 尺寸为选区宽高各乘 scale，不自动下载 |
 
 识别：支持反引号/波浪号围栏（≥3 个、闭合符同种且不短于开头）、多个围栏、CRLF、未闭合围栏延续到末尾；只有内部含真实 `<body>` 起始标签才返回。存在任何围栏时不再把整篇当裸 HTML。裸 HTML 需含 html/body/style 起始标签且至少两个标签，标签字符占去空白结构文本至少 12%；忽略注释与行内代码，CSS/脚本正文不参与密度计算。普通 Markdown 代码、仅有 b 标签或长正文里偶然提到标签不识别；启发式不能取代 HTML 语义分析，UI 始终保留原文入口。
 
 交互文档的 CSP 默认包含 `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:`，并禁止 object、base、表单提交和网络连接。允许外链时只在 style/script/img/font/connect/media 指令追加 `https:`，不开放明文 HTTP，也不赋予同源、弹窗、表单或顶层导航能力。外部资源的地址来自输入 HTML，core 没有固定第三方服务，也不保存允许状态。
 
-默认断网还在可信外壳的离线 DOMParser 文档中先移除声明式 link/src/srcset、外部 script、资源 CSS（保留内联脚本/事件用于游戏交互）；用户原字符串不变。这样带外链字体/CSS 的合成样本在**内容文档**的 performance 资源列表中没有外链条目。没有清空 performance 或伪造条目：单靠 CSP 时 Chrome 会记录已被拒绝的资源，因此预处理与 CSP 两者都保留。脚本运行后主动创建的外链仍由 CSP 阻断，浏览器可能记录这些被拒绝的尝试。显式允许网络时不做这一步资源移除；静态导出始终做。
+默认断网还在可信外壳的离线 DOMParser 文档中先移除声明式 link/src/srcset、外部 script、资源 CSS（保留内联脚本/事件用于游戏交互）；用户原字符串不变。这样带外链字体/CSS 的合成样本在**内容文档**的 performance 资源列表中没有外链条目。没有清空 performance 或伪造条目：单靠 CSP 时 Chrome 会记录已被拒绝的资源，因此预处理与 CSP 两者都保留。脚本运行后主动创建的外链仍由 CSP 阻断，浏览器可能记录这些被拒绝的尝试。显式允许交互网络时不做这一步资源移除。D23 的静态导出先将外链 CSS/图片/字体转为 data 资源，再去掉尚未内嵌的 URL；显式 allowNetwork:false 时直接去除外链，绝不调用资源读取器。
 
 交互 iframe 内还有一层可信外壳：只加载 about:srcdoc 子文档，外壳与用户内容都不给 allow-same-origin；用户脚本无法更改外壳的 frame-src。这使内容脚本通过 location 或链接发起的整页外链导航也受约束。高度消息由外壳核对内层 source/token 后转发，宿主再次核对 iframe.contentWindow/token/有限高度；旧 token、其他窗口与越界值不生效。width 限 1–8192 整数，动态高度限 1–16384；首次高度等待 15 秒，未挂载或加载失败会拒绝并销毁。UI 关闭/翻页/重建时必须 destroy，onHeight 用于展示或布局，不能把消息当宿主命令。
 
 首次高度及变更上报使用微任务，不能依赖 requestAnimationFrame：Chrome 会暂停视口外跨源 iframe 的动画帧，阅读器预加载或自动测试时仍必须完成 ready。ResizeObserver、MutationObserver、字体就绪、load/resize 共同触发测量；同一高度不重复发送。宽度保持指定像素，较窄父容器由 UI 提供横向滚动，不能通过 max-width 悄悄改变排版宽度。
 
-静态副本去 script（包括模板和 SVG 内脚本）、事件属性、iframe/object/embed、meta/link/base、导航/表单目标、SVG 动画；去远端图片与含远端 URL 的 CSS 声明，保留无网络展示 CSS、data/blob 图片和 data 字体。CSS 动画/过渡停止。字体/图片解码失败会拒绝，不联网补资源；外链样式和字体使用本地回退，所以离线 PNG 与已手动允许联网的交互视图可能不同。静态文档最高 16384 CSS px；实际高清整图最多 3200 万像素、每边不超过 32768 像素，在分配截图画布前校验。超限明确拒绝并建议降低倍数或减少内容，不能静默缩小。先截整图再裁剪，小裁剪不能绕过原图上限。所有失败路径释放自己的 iframe/计时器/位图。
+静态副本去 script（包括模板和 SVG 内脚本）、事件属性、iframe/object/embed、meta/link/base、导航/表单目标、SVG 动画；去远端图片与含远端 URL 的 CSS 声明，保留无网络展示 CSS、data/blob 图片和 data 字体。CSS 动画/过渡停止。D23 默认只读拉取 HTML 的 link stylesheet、CSS @import/url、img 与 SVG image 等引用，解析 CSS 相对地址并内嵌为 data；跨站按 CORS 且 credentials:omit，同源资源使用 same-origin 会话。没有固定服务域名、代理或上传。重复 URL 在单次准备内缓存；单资源 5 MB、累计 20 MB、最多 128 项、单请求 12 秒、样式嵌套 8 层。CORS/网络/限额失败通过 onWarning 与 warnings 提示并去除该资源，保留其余内容；解码错误仍拒绝，不生成损坏图片。静态文档与最终截图器始终禁网，截图器不会再自行补资源。静态文档最高 16384 CSS px；实际高清整图最多 3200 万像素、每边不超过 32768 像素，在分配截图画布前校验。超限明确拒绝并建议降低倍数或减少内容，不能静默缩小。先截整图再裁剪，小裁剪不能绕过原图上限。所有失败路径释放自己的 iframe/计时器/位图。
 
 I029 验收返修：原来硬编码 scale=1，在高像素密度屏幕或放大查看时容易模糊。现直接让截图器以 scale 重新栅格化文字和矢量内容，不把已生成的 1 倍 PNG 拉大；裁剪源坐标、目标宽高同时乘 scale，不再降回 1 倍。原文排版 width 与 crop 的 CSS 坐标含义不变；需要旧尺寸时显式传 scale:1。例如 width=768 的完整 PNG 默认宽 1536；crop={x:100,y:50,w:300,h:180} 默认输出 600×360。输入中的低分辨率位图不会凭空获得更多细节。
 
 开发演示已移除固定左上角入口。在**脱敏的静态 PNG** 上任意拖出选区、拖动内部移动、拖四角改大小、清除后重画，支持反向拖动和方向键微调（Shift 为 10 CSS px，Escape 清除）。预览按 CSS 排版宽显示、较窄时等比例缩小；换算使用图片实际 getBoundingClientRect 与 CSS 文档尺寸，不能用屏幕像素直接裁剪。样本/排版宽度/清晰度变化会清除过期预览，关闭或切换后到达的旧异步结果被丢弃，Blob URL 随替换/关闭释放。T44b 可参考内部 htmlCrop.js / htmlCropPreview.js；正式 UI 的接线仍由 Opus 完成。
 
-导出取传入的**初始 HTML**，不读不透明源交互 iframe 的当前 DOM；脚本运行后产生的结局、canvas 图像或网络内容不进入静态图。若需要某种结局的图片，调用方须提供对应静态 HTML。脱敏边界沿用 §5.12：只替换文本节点，不跨标签；不修改属性、CSS 文本或图片像素，故 CSS 生成内容/表单 value/图片中的名字不在文本脱敏范围内。assets 不触发图片读取，字符串替换为 `[图片]`；文字背景色仍不插入新 span。不能把这个出口说成对任意 HTML 全部可见内容进行 OCR 脱敏。
+导出取传入的 HTML 字符串；可传初始 HTML，也可传 await handle.snapshot() 的当前画面。快照通道经过内容 → 可信外壳 → 宿主，逐跳核对 source/token/requestId，回包仍是不可信 HTML，绝不直接写入宿主。序列化在脱离页面的克隆中进行，不重跑游戏、不写活 DOM；保留动态文本/类名/样式、details、勾选状态、可读 canvas/视频像素、CSSOM/采用的样式表及动画当前值。表单可见值转换为惰性文本后才脱敏；密码仅保留占位符，文件输入不带值。滚动提示存在 data-stcr-shot-scroll，renderStatic 完成字体/图片/布局后还原，PNG 开启 restoreScrollPosition。开放 Shadow DOM 或受 CORS 污染的画布明确拒绝；关闭的 Shadow DOM、仅 JS 内存状态、跨域不可读像素与图片中的文字不是通用可还原/OCR 范围。脱敏边界沿用 §5.12：只替换文本节点，不跨标签；不修改属性、CSS 文本或图片像素，故 CSS 生成内容/表单 value/图片中的名字不在文本脱敏范围内。assets 不触发图片读取，字符串替换为 `[图片]`；文字背景色仍不插入新 span。不能把这个出口说成对任意 HTML 全部可见内容进行 OCR 脱敏。
 
 ```js
-const view = createSandbox(block.html, { width: 390, onHeight: height => updateHeightLabel(height) });
+const view = createSandbox(block.html, { width: 390, allowNetwork: true, onHeight: height => updateHeightLabel(height) });
 container.append(view.iframe);
 await view.ready;
 // D22：UI 按 Aa 默认值或本次逐块选择显式传入；core 省略此项仍为 false。
 await view.update(block.html, { width: 768, allowNetwork: true });
-// 同一段原 HTML 的离线初始静态图，裁剪坐标不能直接使用缩放后的屏幕坐标。
-const png = await exportRenderedHtml(block.html, { width: 768, scale: 2, maskWords: ['虚构秘密'], rules: [], crop: { x: 100, y: 50, w: 300, h: 180 } }); // 600×360 PNG
+// 当前画面快照；默认带上 HTML 引用的展示资源，不重跑游戏。
+const currentHtml = await view.snapshot();
+const png = await exportRenderedHtml(currentHtml, { width: 768, scale: 2, maskWords: ['虚构秘密'], rules: [], crop: { x: 100, y: 50, w: 300, h: 180 } }); // 600×360 PNG
 view.destroy();
 ```
 
-`transformHtmlOffline` 为 T41/T44a 共用的内部解析适配器，不改变 maskHtmlString 的异步签名；`offlineCaptureGuard` 为 T14/HTML 共用的拒绝 fetchFn 和资源错误检查。未改 src/ui。开发自测入口为 `await stcrSelfTest({core:false,htmlRenderer:true})`；交互演示为 `await stcrHtmlDemo()`，仅在 localhost:8100 安装。
+**已脱敏快照**：UI 若在创建交互沙箱前已应用阅读脱敏，导出须传 alreadyMasked:true；这会关闭自动名字与我的规则的再次替换（避免 A→B 又变 C），但追加 maskWords 仍有效。界面须说明取自当前显示，不能承诺关闭替换开关能恢复原词。此模式不对脚本后来新增的文本或表单值重跑替换规则；这些内容仍可用屏蔽词遮盖。它不是按新规则重新计算全部当前画面的原始文本映射。未脱敏沙箱传 false，截图规则正常应用。长图与当前可视滚动是不同选择；展开长图后滚动区自然回到顶部，保留当前画面时不要先展开。
+
+**UI 接入通知（I032）**：entryFor 增加由 view.snapshot 提供的调用入口；截图窗口打开时捕获一次当前 HTML，之后宽度/清晰度/裁剪都复用这份快照，避免用户继续点击游戏后裁剪另一个结局。onWarning 显示在窗口内；保留显式断网时向 renderStatic/exportRenderedHtml 都传 false。关闭/切换可用 AbortController 取消。默认资源读取遵守浏览器 CORS；不调用后端代理。
+
+`transformHtmlOffline` 为 T41/T44a/I032 共用的内部解析适配器（现可等待异步变换），不改变 maskHtmlString 的异步签名；`offlineCaptureGuard` 为 T14/HTML 共用的拒绝 fetchFn 和资源错误检查。未改 src/ui。I032 专项为 `await stcrSelfTest({core:false,htmlSnapshot:true})`，含实际 PNG、外链资源替身与已有 Ny 本地字体的外链模拟。开发自测入口为 `await stcrSelfTest({core:false,htmlRenderer:true})`；交互演示为 `await stcrHtmlDemo()`，仅在 localhost:8100 安装。
 
 策略依据：[CSP frame-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-src) 与 [CSP 规范](https://www.w3.org/TR/CSP/)。除了检查 CSP 字符串，本卡还在浏览器中检查内容窗口的 performance 资源记录及子框架请求，避免仅凭属性字符串判定断网。

@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 // D15/D16：交互文档永远不与宿主同源；不导入 ST 上下文或存储。
 import { removeNetworkResources } from './htmlResources.js';
+import { installSnapshotChannel } from './htmlSnapshot.js';
 const MAX_HEIGHT = 16384;
 export function htmlWidth(width = 390) {
     if (!Number.isInteger(width) || width < 1 || width > 8192) throw new RangeError('HTML 宽度须为 1–8192 的整数');
@@ -65,8 +66,23 @@ function shellBootstrap(source, token, neutralize) {
     const child = document.createElement('iframe');
     child.setAttribute('sandbox', 'allow-scripts'); child.setAttribute('title', 'HTML 内容'); child.referrerPolicy = 'no-referrer';
     child.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;';
+    const requests = new Map();
     addEventListener('message', event => {
         const data = event.data;
+        if (data?.token !== token) return;
+        if (event.source === parent && data.type === 'stcr:html-snapshot-cancel' && requests.has(data.requestId)) {
+            clearTimeout(requests.get(data.requestId)); requests.delete(data.requestId); return;
+        }
+        if (event.source === parent && data.type === 'stcr:html-snapshot-request' && typeof data.requestId === 'string' && data.requestId.length <= 80 && requests.size < 8 && !requests.has(data.requestId)) {
+            requests.set(data.requestId, setTimeout(() => requests.delete(data.requestId), 30000));
+            child.contentWindow.postMessage(data, '*'); return;
+        }
+        if (event.source === child.contentWindow && data.type === 'stcr:html-snapshot-result' && requests.has(data.requestId)) {
+            clearTimeout(requests.get(data.requestId)); requests.delete(data.requestId);
+            if (typeof data.html === 'string' && data.html.length <= 8_000_000) parent.postMessage({ type: data.type, token, requestId: data.requestId, html: data.html }, '*');
+            else parent.postMessage({ type: data.type, token, requestId: data.requestId, error: typeof data.error === 'string' ? data.error.slice(0, 240) : '快照响应无效或过大' }, '*');
+            return;
+        }
         if (event.source === child.contentWindow && data?.type === 'stcr:html-height' && data.token === token
             && Number.isFinite(data.height) && data.height > 0 && data.height <= 16384) parent.postMessage(data, '*');
     });
@@ -78,7 +94,7 @@ function shellBootstrap(source, token, neutralize) {
 }
 function assemble(html, { allowNetwork = false, width = 390 } = {}, token = crypto.randomUUID()) {
     requireHtml(html); htmlWidth(width);
-    const content = `<!doctype html>${meta(policy(allowNetwork))}<meta name="viewport" content="width=${width},initial-scale=1"><script>(${reportHeight})(${jsonScript(token)})</script>${html}`;
+    const content = `<!doctype html>${meta(policy(allowNetwork))}<meta name="viewport" content="width=${width},initial-scale=1"><script>(${reportHeight})(${jsonScript(token)});(${installSnapshotChannel})(${jsonScript(token)})</script>${html}`;
     // 可信外壳的 frame-src 只允许 srcdoc：也阻止内容脚本通过 location/链接导航绕过资源 CSP。
     return `<!doctype html><html><head>${meta(policy(allowNetwork, true))}<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}</style></head><body><script>(${shellBootstrap})(${jsonScript(content)},${jsonScript(token)},${allowNetwork ? 'null' : `(${removeNetworkResources})`})</script></body></html>`;
 }
@@ -92,11 +108,43 @@ export function createSandbox(html, options = {}) {
     iframe.setAttribute('sandbox', 'allow-scripts'); iframe.setAttribute('title', '阅读器 HTML 沙箱'); iframe.referrerPolicy = 'no-referrer';
     iframe.style.cssText = 'display:block;border:0;max-width:none;flex-shrink:0;height:150px;';
     let token, timer, resolveReady, rejectReady, destroyed = false, currentOptions, currentHtml;
-    const handle = { iframe, ready: null, update, destroy };
+    const pending = new Map();
+    const handle = { iframe, ready: null, update, destroy, snapshot };
+    function cancelSnapshots(message) { for (const call of [...pending.values()]) call.finish(new Error(message)); }
+    async function snapshot({ timeoutMs = 10000, signal } = {}) {
+        if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw new RangeError('快照等待时间须为 1–30000 毫秒');
+        const generation = token;
+        if (destroyed) throw new Error('HTML 沙箱已销毁');
+        if (signal?.aborted) throw signal.reason ?? new Error('快照已取消');
+        if (pending.size >= 8) throw new Error('快照请求过多，请等待上一张完成');
+        return new Promise((resolve, reject) => {
+            const requestId = crypto.randomUUID(); let expiry;
+            const abort = () => finish(signal.reason ?? new Error('快照已取消'));
+            const finish = (error, html) => {
+                if (!pending.has(requestId)) return;
+                clearTimeout(expiry); signal?.removeEventListener('abort', abort); pending.delete(requestId);
+                if (error && token === generation) iframe.contentWindow?.postMessage({ type: 'stcr:html-snapshot-cancel', token: generation, requestId }, '*');
+                error ? reject(error) : resolve(html);
+            };
+            expiry = setTimeout(() => finish(new Error('当前画面快照超时，请重试')), timeoutMs);
+            pending.set(requestId, { finish }); signal?.addEventListener('abort', abort, { once: true });
+            handle.ready.then(() => {
+                if (!pending.has(requestId)) return;
+                if (destroyed || token !== generation) { finish(new Error('HTML 沙箱已重建或销毁')); return; }
+                iframe.contentWindow.postMessage({ type: 'stcr:html-snapshot-request', token, requestId }, '*');
+            }, error => finish(error));
+        });
+    }
     function receive(event) {
         const data = event.data;
-        if (destroyed || event.source !== iframe.contentWindow || data?.type !== 'stcr:html-height' || data.token !== token
-            || !Number.isFinite(data.height) || data.height <= 0 || data.height > MAX_HEIGHT) return;
+        if (destroyed || event.source !== iframe.contentWindow || data?.token !== token) return;
+        if (data.type === 'stcr:html-snapshot-result') {
+            const call = pending.get(data.requestId); if (!call) return;
+            if (typeof data.html === 'string' && data.html.length <= 8_000_000) call.finish(null, data.html);
+            else call.finish(new Error(typeof data.error === 'string' ? data.error.slice(0, 240) : '快照响应无效或过大'));
+            return;
+        }
+        if (data.type !== 'stcr:html-height' || !Number.isFinite(data.height) || data.height <= 0 || data.height > MAX_HEIGHT) return;
         iframe.style.height = `${Math.ceil(data.height)}px`; clearTimeout(timer); resolveReady(handle);
         currentOptions.onHeight?.(Math.ceil(data.height));
     }
@@ -105,7 +153,7 @@ export function createSandbox(html, options = {}) {
         const width = htmlWidth(nextOptions.width ?? currentOptions?.width), allowNetwork = nextOptions.allowNetwork ?? false;
         if (nextOptions.onHeight !== undefined && typeof nextOptions.onHeight !== 'function') throw new TypeError('onHeight 必须为函数');
         const nextToken = crypto.randomUUID(), source = assemble(nextHtml, { width, allowNetwork }, nextToken);
-        clearTimeout(timer); rejectReady?.(new Error('HTML 沙箱已重建'));
+        clearTimeout(timer); rejectReady?.(new Error('HTML 沙箱已重建')); cancelSnapshots('HTML 沙箱已重建');
         currentHtml = nextHtml; currentOptions = { ...nextOptions, width, allowNetwork }; token = nextToken;
         iframe.style.width = `${width}px`; iframe.style.height = '150px';
         handle.ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
@@ -116,6 +164,7 @@ export function createSandbox(html, options = {}) {
     }
     function destroy() {
         if (destroyed) return; destroyed = true; clearTimeout(timer);
+        cancelSnapshots('HTML 沙箱已销毁');
         window.removeEventListener('message', receive); iframe.remove(); rejectReady?.(new Error('HTML 沙箱已销毁'));
     }
     update(html, options); window.addEventListener('message', receive);

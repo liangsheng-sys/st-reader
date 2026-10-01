@@ -27,7 +27,8 @@ for (const [kind, hits] of Object.entries(report)) {
     console.log(`${kind}：全仓库 ${hits.length} 行`);
     const extension = hits.filter(line => isExtensionFile(line.split(':')[0]));
     console.log(`  扩展运行文件：${extension.length} 行${extension.length ? '\n  ' + extension.join('\n  ') : ''}`);
-    if (kind === 'forbiddenPaths') failed ||= extension.some(line => !line.startsWith('src/core/readonlyGuard.js:'));
+    // I032 的纯函数测试将禁写路径作为“须拒绝”的输入，不发送请求；调用/赋值检查仍不豁免。
+    if (kind === 'forbiddenPaths') failed ||= extension.some(line => !['src/core/readonlyGuard.js:', 'src/core/htmlSnapshot.test.js:'].some(prefix => line.startsWith(prefix)));
     if (kind === 'forbiddenCalls' || kind === 'hostWrites') failed ||= extension.length > 0;
 }
 const trackedData = execFileSync('git', ['ls-files', '.dev', '.tmp', 'docs/*.png'], { cwd: root, encoding: 'utf8' }).trim();
