@@ -3,6 +3,7 @@ import { createSandbox, renderStatic, exportRenderedHtml } from './htmlRenderer.
 import { maskHtmlString, transformHtmlOffline } from './codeTransforms.js';
 import { PHONE_HTML, GAME_HTML } from '../../dev/fixtures/html.mjs';
 import { createCropPreview } from './htmlCropPreview.js';
+import { testHtmlBoundaryBrowser } from './htmlBoundaryBrowser.test.js';
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const selector = '[data-stcr-html-frame],[data-stcr-html-static],[data-stcr-parse-frame]';
@@ -29,6 +30,7 @@ export async function testHtmlRendererBrowser() {
     root.style.cssText = 'position:fixed;left:-20000px;top:0;width:1400px'; document.body.append(root);
     const test = async (name, run) => { try { await run(); results.push({ name: `T44a ${name}`, passed: true }); } catch (error) { results.push({ name: `T44a ${name}`, passed: false, error: error.message }); console.error(`[st-reader] T44a ${name}`, error); } };
     try {
+        results.push(...await testHtmlBoundaryBrowser());
         await test('手机样本渲染、父页面隔离、外链字体/CSS 的 performance 资源条目为零', async () => {
             const marker = crypto.randomUUID(), report = waitReport(marker);
             const probe = `<script>addEventListener('load',()=>setTimeout(()=>{let isolated=false;try{parent.parent.document.body}catch{isolated=true}parent.parent.postMessage({stcrTest:${JSON.stringify(marker)},isolated,resources:performance.getEntriesByType('resource').map(x=>x.name),text:document.querySelector('header').textContent},'*')},200))</script>`;

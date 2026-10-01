@@ -20,6 +20,7 @@
 - **禁用**（D02）：`/api/chats/save|rename|delete|import|group/save|group/delete|group/import`，以及 context 上的 `saveChat, deleteMessage, deleteLastMessage, renameChat, clearChat, addOneMessage, updateChatMetadata, saveMetadata`。
 - 服务端 CLI：`--dataRoot`、`--configPath`、`--port`、`--listen`。开发实例见 D03。
 - T10 启动器：`dev/start-dev-st.cmd` → 原生 Node `start-dev-st.mjs`，首次从 `dev/config.dev.yaml` 创建被忽略的 `.dev/config.yaml`；固定 D03 数据路径，创建扩展目录联接，临时目录固定在 `.tmp/`。`--import dev/isolate-dev-st.mjs` 只在开发进程内将 `PUBLIC_DIRECTORIES.globalExtensions/backups` 指向 `.dev/`，防止管理扩展时宿主对 F 盘全局扩展执行 Git 检查（I007），不修改宿主文件。
+- T51 / I039：开发预载模块还复用 ST 已安装的 Express，在开发进程内让 public 静态中间件跳过 `/scripts/extensions/third-party/`，交由 ST 后续的扩展路由从 `.dev` 用户/全局目录读取。否则宿主 public 中的旧同名副本会抢先返回，令开发联接失效。未安装依赖，未写 F 盘；运行源码与 HTTP 响应逐字节核验。
 - T10 只读保护在扩展模块载入时安装（早于 `APP_READY`），仅对本机 HTTP 8100 默认启用；D02 七个路径不分 HTTP 方法拦截，抛 `StcrReadonlyError` 并记录 `console.error`。此为整个开发窗口的 fetch 断言，不替代静态审计，不覆盖 XHR 或宿主直接函数调用。只跑 13 项保护测试用 `stcrSelfTest({core:false})` 或 `?stcrSelfTest=1&core=0`。
 - T11 的 Node 自检追加 8 项样本/落盘验证。浏览器 `stcrSelfTest({fixtures:true})` 共 18 项；打开星灯后附加 `{font:true, rendered:true}` 共 21 项，检查原生显示及 Ny 字体数据库/FontFace。
 - T14 后 `node dev/selftest.mjs` 共 **68 项**（13 保护 + 8 样本 + 15 T12 + 14 T13 + 18 T14）；`await window.stcrSelfTest()` 共 **99 项**（此前70项 + 18 T14 纯逻辑 + 11 T14 浏览器）。先在宿主打开雾岚，使星灯未选中，关闭阅读器，并按手册导入 Ny 测试字体。网址 `?stcrSelfTest=1&coreWhenChat=1` 运行同一套检查。重跑 T13 及以前用 `{cardExport:false}`（70项）；仅 T12 用 `{persistence:false,cardExport:false}`（45项）；仅 T14 用 `{core:false,persistence:false,cardExport:true}`（42项，含13项保护）。跨页面存储实证仍为 `stcrStorageProbe('write')`，刷新后 `stcrStorageProbe('read')`。T14 没有写字体数据库；导出不发网络请求，临时 DOM finally 清理。
@@ -519,7 +520,7 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 
 | 签名 | 返回与约定 |
 |---|---|
-| `detectHtmlBlocks(rawText)` | 同步 `Array<{start,end,html,kind:'fenced'|'raw'}>`；start/end 是原字符串 UTF-16 偏移，end 不含。围栏区间含开闭围栏行及其行末换行，html 只有内部代码；裸 HTML 区间为全文 |
+| `detectHtmlBlocks(rawText)` | 同步 `Array<{start,end,html,kind:'fenced'|'raw'}>`；start/end 是原字符串 UTF-16 偏移，end 不含。围栏区间含开闭围栏行及其行末换行，html 只有内部代码；T51/D26 裸 HTML 只含标签区间，`html === rawText.slice(start,end)`，可返回多段，前后及段间散文不包含在内 |
 | `buildSrcdoc(html,{allowNetwork=false,width=390}={})` | 同步 srcdoc 字符串；每次生成新随机 token，包含 CSP、隔离外壳及 ResizeObserver 高度上报脚本。仅生成字符串，不挂载或请求网络 |
 | `createSandbox(html,{width=390,allowNetwork=false,onHeight?}={})` | 同步 `{iframe,ready,update,destroy,snapshot}`；iframe 尚未挂载，sandbox 仅 `allow-scripts`。UI 应立即 append，再 await ready；ready 为 `Promise<handle>`，收到首次有效高度消息才完成 |
 | `handle.update(html?,{width?,allowNetwork=false,onHeight?}={})` | 返回本次 ready Promise，替换 srcdoc、轮换 token，旧加载 Promise 拒绝。省略 html 保留原文，省略 width 保留宽度；**allowNetwork 每次默认 false**，需要继续允许时必须显式传 true |
@@ -530,11 +531,17 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 
 识别：支持反引号/波浪号围栏（≥3 个、闭合符同种且不短于开头）、多个围栏、CRLF、未闭合围栏延续到末尾；只有内部含真实 `<body>` 起始标签才返回。存在任何围栏时不再把整篇当裸 HTML。裸 HTML 需含 html/body/style 起始标签且至少两个标签，标签字符占去空白结构文本至少 12%；忽略注释与行内代码，CSS/脚本正文不参与密度计算。普通 Markdown 代码、仅有 b 标签或长正文里偶然提到标签不识别；启发式不能取代 HTML 语义分析，UI 始终保留原文入口。
 
+**T51 / D26 边界细则**：上述裸 HTML 识别门槛不变。通过门槛后，从第一个块级起始标签（style/div/section/html/body 等）开始，保留到该段最后一个已闭合的顶层标签，区间不含尾随换行；DOCTYPE、前置注释和散文留在原文。嵌套块里的文字属于 HTML；顶层兄弟标签之间只有空白/注释时合成一段（典型为 style + section），有散文时分成两段。已闭合的 html/body 文档后再开始一份 html/body，即使只隔空白也拆开。返回按原文排序且不重叠。按标签配对计算，属性引号内的 `>`、style/script/textarea/title/xmp 正文里的伪标签不改变边界；没有闭合的片段保留原文，不以吞掉整楼来猜测修复。它不是浏览器的完整容错树构造器，省略闭合标签的畸形 HTML 不保证识别。
+
+**给 UI（I038）**：签名与四个字段均未改，但 raw 的“永远整楼/只有一段”假设已失效。按 start/end 切出前后及段间原文，交给原有正文格式化/脱敏与锚点管线；逐块把 block.html 交给 createSandbox。不能在改写后的 HTML 字符串上套用原文偏移，也不能继续整体隐藏 `.mes_text`。人类明确指定本次 UI 接线留给 Opus，因此 T51 未改 `src/ui/`；正式阅读器尚待接线，开发演示只证明 core 合同。
+
 交互文档的 CSP 默认包含 `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:`，并禁止 object、base、表单提交和网络连接。允许外链时只在 style/script/img/font/connect/media 指令追加 `https:`，不开放明文 HTTP，也不赋予同源、弹窗、表单或顶层导航能力。外部资源的地址来自输入 HTML，core 没有固定第三方服务，也不保存允许状态。
 
 默认断网还在可信外壳的离线 DOMParser 文档中先移除声明式 link/src/srcset、外部 script、资源 CSS（保留内联脚本/事件用于游戏交互）；用户原字符串不变。这样带外链字体/CSS 的合成样本在**内容文档**的 performance 资源列表中没有外链条目。没有清空 performance 或伪造条目：单靠 CSP 时 Chrome 会记录已被拒绝的资源，因此预处理与 CSP 两者都保留。脚本运行后主动创建的外链仍由 CSP 阻断，浏览器可能记录这些被拒绝的尝试。显式允许交互网络时不做这一步资源移除。D23 的静态导出先将外链 CSS/图片/字体转为 data 资源，再去掉尚未内嵌的 URL；显式 allowNetwork:false 时直接去除外链，绝不调用资源读取器。
 
 交互 iframe 内还有一层可信外壳：只加载 about:srcdoc 子文档，外壳与用户内容都不给 allow-same-origin；用户脚本无法更改外壳的 frame-src。这使内容脚本通过 location 或链接发起的整页外链导航也受约束。高度消息由外壳核对内层 source/token 后转发，宿主再次核对 iframe.contentWindow/token/有限高度；旧 token、其他窗口与越界值不生效。width 限 1–8192 整数，动态高度限 1–16384；首次高度等待 15 秒，未挂载或加载失败会拒绝并销毁。UI 关闭/翻页/重建时必须 destroy，onHeight 用于展示或布局，不能把消息当宿主命令。
+
+T51 透明默认值：内外两层 iframe 都设 `allowtransparency="true"` 与 `background:transparent`，外壳 html/body 透明；内容前置 `@layer{:where(html,body){background:transparent}}`，使用首个匿名层与零特异性，不使用行内样式或 important 压住内容。内容自己的 body/html 样式、行内背景、通配选择器与后续 @layer 均照常覆盖默认值；断网/联网模式相同。UI 外框样式及宽度属于 T52，不由 core 移除。`await stcrSelfTest({core:false,htmlRenderer:true})` 包含两层 computed style、散文不进实际快照、多段独立性与清理验证；`await stcrHtmlBoundaryDemo()` 展示完全虚构的 T51 混排样本（仅开发实例）。
 
 首次高度及变更上报使用微任务，不能依赖 requestAnimationFrame：Chrome 会暂停视口外跨源 iframe 的动画帧，阅读器预加载或自动测试时仍必须完成 ready。ResizeObserver、MutationObserver、字体就绪、load/resize 共同触发测量；同一高度不重复发送。宽度保持指定像素，较窄父容器由 UI 提供横向滚动，不能通过 max-width 悄悄改变排版宽度。
 

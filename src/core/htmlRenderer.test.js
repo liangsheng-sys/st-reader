@@ -1,6 +1,6 @@
 // ST Reader — AGPL-3.0
 import { detectHtmlBlocks, buildSrcdoc } from './htmlRenderer.js';
-import { PHONE_HTML, GAME_HTML, HTML_MESSAGES } from '../../dev/fixtures/html.mjs';
+import { PHONE_HTML, GAME_HTML, HTML_MESSAGES, SCENE_HTML, MIXED_HTML, MULTI_HTML, SECOND_SCENE_HTML } from '../../dev/fixtures/html.mjs';
 import { captureGeometry, previewPoint, dragCrop } from './htmlCrop.js';
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 export function testHtmlRendererLogic() {
@@ -23,6 +23,44 @@ export function testHtmlRendererLogic() {
     });
     test('裸 HTML 支持 body/html/style 且 CSS 长度不稀释结构', () => {
         for (const text of ['<body>短文</body>', '<html><p>短文</p></html>', `<style>${'/*虚构*/'.repeat(100)}</style><div>短文</div>`]) assert(detectHtmlBlocks(text).length === 1, '裸 HTML 漏识别');
+    });
+    test('T51 标题与尾声留正文，裸区间严格等于第一个块级标签到末闭合标签', () => {
+        const [block] = detectHtmlBlocks(MIXED_HTML);
+        assert(block?.html === SCENE_HTML && block.start === MIXED_HTML.indexOf('<style>'), '前言进入了 HTML');
+        assert(block.end === block.start + SCENE_HTML.length && MIXED_HTML.slice(block.start, block.end) === block.html, '末尾散文进入了 HTML');
+        assert(Object.keys(block).sort().join(',') === 'end,html,kind,start', '返回字段发生变化');
+    });
+    test('T51 同楼两段按原文顺序独立返回，段间散文不进入任何 iframe', () => {
+        const blocks = detectHtmlBlocks(MULTI_HTML);
+        assert(blocks.length === 2 && blocks[0].html === SCENE_HTML && blocks[1].html === SECOND_SCENE_HTML, '多段没有拆开');
+        assert(blocks[0].end < blocks[1].start && MULTI_HTML.slice(blocks[0].end, blocks[1].start).includes('旅人走过一段散文'), '散文边界错误');
+        for (const block of blocks) assert(MULTI_HTML.slice(block.start, block.end) === block.html, '切片不等于 HTML');
+    });
+    test('T51 两份独立 html/body 文档即使仅隔空白也各自返回', () => {
+        for (const tag of ['html', 'body']) {
+            const a = `<${tag}><div>虚构甲</div></${tag}>`, b = `<${tag}><div>虚构乙</div></${tag}>`;
+            const blocks = detectHtmlBlocks(`${a}\n\n${b}`);
+            assert(blocks.length === 2 && blocks[0].html === a && blocks[1].html === b, '独立文档合并到同一个 iframe');
+        }
+    });
+    test('T51 中文 emoji、CRLF、DOCTYPE、注释与行内代码不改变 UTF-16 偏移', () => {
+        const html = '<HTML><BODY><div>虚构😀</div></BODY></HTML>';
+        const text = `标题😀\r\n<!--<body>假的</body>-->\r\n\`<style>假的</style>\`\r\n<!doctype html>${html}\r\n尾声`;
+        const blocks = detectHtmlBlocks(text);
+        assert(blocks.length === 1 && blocks[0].html === html && blocks[0].start === text.indexOf('<HTML>'), '偏移或排除标记错误');
+        assert(blocks[0].end === text.indexOf('\r\n尾声'), '吞掉末尾换行');
+    });
+    test('T51 CSS/脚本伪标签、引号内大于号、嵌套和 void 标签不截断边界', () => {
+        const html = '<div data-note=" > <body> "><style>.x:after{content:"</div><body>"}</style><section><img alt=虚构><br><p>内文</p></section><script>const s="</div><style>";</script></div>';
+        const [block] = detectHtmlBlocks(`前言\n${html}\n尾声`);
+        assert(block?.html === html, '伪标签或嵌套截断了正文');
+        assert(!detectHtmlBlocks('<script>const s="<body></body>";</script>').length, '脚本字符串误判为文档');
+    });
+    test('T51 空白与注释连接 style 和内容，无闭合块不吞全文', () => {
+        const html = '<style>p{color:red}</style>\n<!--段内注释-->\n<section><p>虚构</p></section>';
+        assert(detectHtmlBlocks(`前言\n${html}\n尾声`)[0]?.html === html, '相邻兄弟标签被拆开');
+        assert(!detectHtmlBlocks('前言\n<body><div>未闭合\n尾声').length, '未闭合片段吞掉散文');
+        assert(detectHtmlBlocks('<style></style><div>完成</div>\n尾声\n<section>未完成')[0]?.html === '<style></style><div>完成</div>', '未闭合下一段污染已完成区间');
     });
     test('默认 CSP、可信外壳导航限制、随机 token 与高度脚本俱全', () => {
         const a = buildSrcdoc('<body>虚构</body>'), b = buildSrcdoc('<body>虚构</body>');

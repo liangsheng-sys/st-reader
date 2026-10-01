@@ -16,12 +16,20 @@ export async function testFixtures() {
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
     await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
-        assert.equal(chats[1].messages.length, 8);
+        assert.equal(chats[1].messages.length, 10);
         assert.match(chats[1].messages[6].mes, /^<!doctype html>/);
         assert.match(chats[1].messages[6].mes, /st-reader-fixture\.invalid/);
         assert.match(chats[1].messages[7].mes, /^```html/);
         assert.match(chats[1].messages[7].mes, /onclick/);
         assert.ok(chats[1].messages.slice(6).every(message => message.extra.stcr_fixture && message.mes.includes('虚构')));
+    });
+    await test('T51 纸舟追加场景标题散文、带 style 的大段 HTML、尾声与同楼两段样本', () => {
+        const [mixed, multi] = chats[1].messages.slice(8).map(message => message.mes);
+        assert.match(mixed, /^『纸月观测站』\n<style>/);
+        assert.match(mixed, /<\/section>\n合上虚构的观测簿/);
+        assert.ok(mixed.length > 1200);
+        assert.equal((multi.match(/<style>/g) ?? []).length, 2);
+        assert.match(multi, /旅人走过一段散文/);
     });
     await test('I013 宿主补字段/更改当前 chat 后 PNG 仍有效，关键字段或正则变化仍拒绝', () => {
         const expected = makeCard(CHARACTERS[0]), changed = structuredClone(expected);

@@ -66,6 +66,10 @@ if (isDevInstance(window.location)) {
         const { showHtmlRendererDemo } = await import('./src/core/htmlRendererDemo.js');
         return showHtmlRendererDemo();
     };
+    window.stcrHtmlBoundaryDemo = async () => {
+        const { showHtmlBoundaryDemo } = await import('./src/core/htmlBoundaryDemo.js');
+        return showHtmlBoundaryDemo();
+    };
 }
 
 export function stReaderActivate() {

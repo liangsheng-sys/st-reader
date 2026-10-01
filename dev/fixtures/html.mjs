@@ -23,4 +23,18 @@ main{max-width:900px;margin:auto;border:2px solid #d4ba75;padding:22px}h1{font-s
 <button id="lantern">举起纸灯</button><button id="bell">摇响铜铃</button><p id="ending">尚未选择。所有人物、地点与事件均为合成样本。</p>
 </section><aside>物品栏<br>纸灯 × 1<br>铜铃 × 1<br>空白日记 × 1</aside></div></main>
 <script>document.getElementById('lantern').onclick=()=>{document.getElementById('ending').textContent='纸影变成了飞鸟：星灯与你沿着晨光回家。';};document.getElementById('bell').onclick=()=>{document.getElementById('ending').textContent='钟声唤醒了纸舟：测试旅人写下一个新的开头。';};</script></body></html>`;
-export const HTML_MESSAGES = [PHONE_HTML, `\`\`\`html\n${GAME_HTML}\n\`\`\``];
+// T51：散文与网页混排，全部为新编的虚构场景；第一段故意不设 html/body 底色。
+export const SCENE_HTML = `<style>
+.paper-sky{max-width:680px;margin:12px auto;color:#315044;font:17px/1.8 serif}
+.paper-sky header{padding:22px;background:#d8e6d9;border-radius:18px 18px 0 0}
+.paper-sky h2{margin:0;font-size:27px}.paper-sky .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;padding:18px}
+.paper-sky article{background:#e6eddf;border:1px solid #9bb6a2;border-radius:12px;padding:14px}
+.paper-sky p{margin:8px 0}.paper-sky footer{padding:14px;border-top:1px dashed #7d9987;text-align:center}
+</style>
+<section class="paper-sky"><header><h2>纸月观测站 · 完全虚构</h2><p>今晚的星图由纸片与想象组成。</p></header>
+<div class="cards">${['纸风车', '玻璃雨', '蓝色纸船', '月光信笺', '云朵标本', '微光种子'].map((name, i) => `<article><h3>观测 ${i + 1} · ${name}</h3><p>虚构观测员记录了一段温柔的天气。沿着窗边的细线，寻找下一枚纸星。</p><p>本页为合成样本，不包含真实人物或聊天。</p></article>`).join('\n')}</div>
+<footer>观测完成，可以回到书页继续阅读。</footer></section>`;
+export const MIXED_HTML = `『纸月观测站』\n${SCENE_HTML}\n合上虚构的观测簿，故事仍在书页上继续。`;
+export const SECOND_SCENE_HTML = '<style>body{background:#e3ecf5;color:#24384d}.blue-post{padding:24px;border:2px dashed #7491ae}</style><section class="blue-post"><h2>第二站：虚构蓝邮局</h2><p>这一段有自己的 body 底色，透明默认值不能覆盖它。</p></section>';
+export const MULTI_HTML = `『两座虚构站台』\n${SCENE_HTML}\n旅人走过一段散文，来到第二座站台。\n${SECOND_SCENE_HTML}\n两张网页已经结束，这句仍是正文。`;
+export const HTML_MESSAGES = [PHONE_HTML, `\`\`\`html\n${GAME_HTML}\n\`\`\``, MIXED_HTML, MULTI_HTML];

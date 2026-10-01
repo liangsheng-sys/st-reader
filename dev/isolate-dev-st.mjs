@@ -1,5 +1,6 @@
 // ST Reader — AGPL-3.0
 import { PUBLIC_DIRECTORIES } from 'file:///F:/Claude/xinllm/SillyTavern/src/constants.js';
+import express from 'file:///F:/Claude/xinllm/SillyTavern/node_modules/express/index.js';
 
 // 仅调整当前开发进程的内存常量，不改写宿主源码。
 // ST 的“管理扩展”会对全局扩展检查 Git 更新，必须隔离整个目录，不能只禁用前端脚本。
@@ -10,3 +11,13 @@ if (args[args.indexOf('--dataRoot') + 1] !== 'E:\\st-reader\\.dev\\data'
 }
 PUBLIC_DIRECTORIES.globalExtensions = 'E:\\st-reader\\.dev\\global-extensions';
 PUBLIC_DIRECTORIES.backups = 'E:\\st-reader\\.dev\\program-backups';
+
+// ST 先挂 public 静态路由，再挂用户扩展路由。宿主 public 下若有同名旧副本，
+// 会越过上面的 globalExtensions 隔离并遮蔽开发联接。仅在本开发进程跳过该前缀，
+// 让 ST 自己的后续扩展路由从 .dev 用户/全局目录读取；不改宿主文件，不复制其数据。
+const serveStatic = express.static;
+express.static = function (root, options) {
+    const middleware = serveStatic(root, options);
+    return (req, res, next) => /^\/scripts\/extensions\/third-party(?:\/|$)/i.test(req.path)
+        ? next() : middleware(req, res, next);
+};

@@ -11,14 +11,15 @@ try {
     const chat = makeSmallChats()[1], relative = `chats/${path.parse(chat.character.avatar).name}/${chat.file}.jsonl`;
     const file = assertDevPath(path.join(USER_ROOT, relative)), manifestPath = assertDevPath(path.join(DEV_ROOT, 'fixtures/manifest.json'));
     const lines = [makeHeader(chat.character), ...chat.messages].map(row => `${JSON.stringify(row)}\n`);
-    const previous = lines.slice(0, 7).join(''), next = lines.join(''), actual = fs.readFileSync(file, 'utf8');
+    const known = [lines.slice(0, 7).join(''), lines.slice(0, 9).join(''), lines.join('')];
+    const next = known.at(-1), actual = fs.readFileSync(file, 'utf8');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')), record = manifest.files.find(item => item.path === relative);
-    if (!record || (actual !== previous && actual !== next)) throw new Error('纸舟样本不等于已知合成版本，停止追加，不覆盖现有改动');
+    if (!record || !known.includes(actual)) throw new Error('纸舟样本不等于已知合成版本，停止追加，不覆盖现有改动');
     const hash = text => createHash('sha256').update(text).digest('hex');
     // 允许上次写完聊天、尚未更新清单时安全重跑；旧清单必须仍是已知版本。
-    if (![hash(previous), hash(next)].includes(record.sha256)) throw new Error('纸舟清单不是已知合成版本');
-    if (actual === previous) writeDevFile(file, next);
+    if (!known.map(hash).includes(record.sha256)) throw new Error('纸舟清单不是已知合成版本');
+    if (actual !== next) writeDevFile(file, next);
     Object.assign(record, { bytes: Buffer.byteLength(next), sha256: hash(next) });
     writeDevFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log('T44a 纸舟第 7、8 楼已就绪（裸 HTML 手机聊天 / 围栏网页游戏）；其余样本与设置不变。');
+    console.log('纸舟第 7–10 楼已就绪：手机、游戏、T51 散文混排与同楼两段 HTML；其余样本与设置不变。');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

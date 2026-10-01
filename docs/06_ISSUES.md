@@ -63,4 +63,5 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 | I035 | 2026-10-01 | Fable | 公开仓库的 `docs/`、`dev/start-dev-st.mjs`、`dev/isolate-dev-st.mjs`、`install/junction.mjs` 写死本机路径 `F:/Claude/xinllm/SillyTavern`（无用户名）。不影响安全；若作者想隐去，改为读 `.dev/local.json` 或环境变量 | 发布后观感 | open（可选，不阻塞 0.1.0） |
 | I036 | 2026-10-01 | Fable | 人类把含真实聊天文字的截图放进 `docs/feedback/`，原 `.gitignore` 的 `docs/*.png` 不覆盖子目录。已改为 `docs/**/*.png` 与 `docs/**/*.jpg`，核对当前未跟踪。规则：反馈截图一律放 `docs/feedback/`，永不入库 | 隐私 | 已处理 |
 | I037 | 2026-10-01 | 人类 | 二次安装反馈 5 条：正文居中、HTML 块边界 / 白框 / 宽度 / 裁切、重开速度、版本与更新、使用说明。规划者拆为 D24–D27 与 M5 T50–T58 | M5 | 已处理（已拆卡） |
-
+| I038 | 2026-10-01 | astra / 人类 | T51 的 detectHtmlBlocks 四字段与签名不变，但 raw 改为局部区间且可返回多段。当前 `src/ui/htmlBlocks.js#findHtmlBlocks` 只收一段 raw，attach 仍整体隐藏 `.mes_text`，故只更新 core 无法完成正式阅读器混排。人类在本次会话明确答复“UI 接线留给 Opus”。Opus 需按原文 start/end 分开格式化散文和每段 HTML、保留脱敏/原文/锚点一致性，不把原文偏移套在格式化后的 HTML 上；详见 03 §5.13 | T51 UI / T52 | core 待验收；UI 接线 open。未改 src/ui；开发专用 `stcrHtmlBoundaryDemo()` 与浏览器自测可验 core，不能据此声称正式阅读器已完成混排 |
+| I039 | 2026-10-01 | astra | T51 浏览器实测发现 8100 提供旧版扩展资源，即使 .dev 联接指向仓库根；宿主 public 静态路由先于用户扩展路由，同名旧副本遮蔽开发联接。只改开发进程预载模块，让静态中间件跳过第三方扩展前缀，交由 ST 原有后续路由读取 .dev；复用宿主已装 Express，不安装/复制依赖，不改宿主源码或 F 盘 | 开发验收 / T51 | 已处理；重启后 index.js、htmlRenderer.js、fixture 的 HTTP 响应与 E 盘源码逐字节一致。正式 ST 的安装位置优先级不在本卡修改 |

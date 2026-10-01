@@ -9,7 +9,60 @@ export function htmlWidth(width = 390) {
 }
 const requireHtml = html => { if (typeof html !== 'string') throw new TypeError('HTML 必须为字符串'); return html; };
 
-/** 返回 UTF-16 原文区间；围栏区间含围栏行，html 只含内部代码；裸 HTML 区间为全文。 */
+const BLOCK_TAGS = new Set('html head body style address article aside blockquote details dialog div dl dt dd fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr main menu nav ol p pre section table ul'.split(' '));
+const VOID_TAGS = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
+
+// 只用于找原文边界，不修复或执行 HTML。保留原始偏移，属性内的 >、CSS/脚本里的伪标签不参与配对。
+function detectRawHtml(rawText) {
+    const tokens = [], pattern = /<!--[\s\S]*?(?:-->|$)|`+[^`]*`+|<\/?([a-z][\w:-]*)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi;
+    let cursor = 0, tagLength = 0, structuralLength = 0, hasDocumentTag = false;
+    for (let match; (match = pattern.exec(rawText));) {
+        structuralLength += rawText.slice(cursor, match.index).replace(/\s/g, '').length;
+        cursor = pattern.lastIndex;
+        if (!match[1]) continue; // 注释与行内代码不参与识别密度，但仍留在原文。
+        const name = match[1].toLowerCase(), closing = match[0].startsWith('</');
+        const token = { name, closing, start: match.index, end: cursor, void: VOID_TAGS.has(name) || /\/\s*>$/.test(match[0]) };
+        tokens.push(token); tagLength += match[0].length; structuralLength += match[0].replace(/\s/g, '').length;
+        if (!closing && ['html', 'body', 'style'].includes(name)) hasDocumentTag = true;
+        if (!closing && ['script', 'style', 'textarea', 'title', 'xmp'].includes(name)) {
+            const closePattern = new RegExp(`</${name}\\s*>`, 'gi'); closePattern.lastIndex = cursor;
+            const close = closePattern.exec(rawText);
+            if (!close) { cursor = rawText.length; break; }
+            tokens.push({ name, closing: true, start: close.index, end: closePattern.lastIndex });
+            tagLength += close[0].length; structuralLength += close[0].replace(/\s/g, '').length;
+            if (!['script', 'style'].includes(name)) structuralLength += rawText.slice(cursor, close.index).replace(/\s/g, '').length;
+            cursor = pattern.lastIndex = closePattern.lastIndex;
+        }
+    }
+    structuralLength += rawText.slice(cursor).replace(/\s/g, '').length;
+    // 沿用 D15 的识别门槛；D26 只收窄区间，不把散文偶然提到的标签或普通内联 HTML 变成网页。
+    if (!hasDocumentTag || tokens.length < 2 || tagLength / Math.max(1, structuralLength) < .12) return [];
+    const blocks = [], stack = [];
+    let start = null, end = null, closedDocument = false;
+    const finish = () => {
+        if (start !== null && end !== null) blocks.push({ start, end, html: rawText.slice(start, end), kind: 'raw' });
+        start = end = null; closedDocument = false; stack.length = 0;
+    };
+    for (const token of tokens) {
+        // 顶层标签之间只有空白/注释则属同一段（例如 style + div）；遇到散文另起一段。
+        if (start !== null && !stack.length && end !== null && (rawText.slice(end, token.start).replace(/<!--[\s\S]*?-->/g, '').trim()
+            || (closedDocument && !token.closing && ['html', 'body'].includes(token.name)))) finish();
+        if (start === null) {
+            if (token.closing || !BLOCK_TAGS.has(token.name)) continue;
+            start = token.start;
+        }
+        if (token.closing) {
+            const index = stack.lastIndexOf(token.name);
+            if (index < 0) continue;
+            stack.length = index;
+            if (!stack.length) { end = token.end; closedDocument ||= ['html', 'body'].includes(token.name); }
+        } else if (!token.void) stack.push(token.name);
+    }
+    finish();
+    return blocks;
+}
+
+/** 返回 UTF-16 原文区间；围栏区间含围栏行，html 只含内部代码；裸 HTML 不含前后或段间散文。 */
 export function detectHtmlBlocks(rawText) {
     requireHtml(rawText);
     const blocks = []; let open = null, sawFence = false;
@@ -26,13 +79,7 @@ export function detectHtmlBlocks(rawText) {
     }
     if (open) { const html = rawText.slice(open.content); if (hasBody(html)) blocks.push({ start: open.start, end: rawText.length, html, kind: 'fenced' }); }
     if (sawFence) return blocks;
-    // 不把注释、行内代码或脚本字符串里的标记当成正文结构；CSS/脚本长度不稀释标签密度。
-    const structural = rawText.replace(/<!--[\s\S]*?-->/g, '').replace(/`+[^`]*`+/g, '')
-        .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '<$1></$1>');
-    if (!/<(?:html|body|style)(?:\s[^<>]*|\s*)>/i.test(structural)) return [];
-    const tags = structural.match(/<\/?[a-z][\w:-]*(?:\s[^<>]*?)?\s*\/?>/gi) ?? [];
-    const density = tags.join('').length / Math.max(1, structural.replace(/\s/g, '').length);
-    return tags.length >= 2 && density >= .12 ? [{ start: 0, end: rawText.length, html: rawText, kind: 'raw' }] : [];
+    return detectRawHtml(rawText);
 }
 
 function policy(allowNetwork, shell = false) {
@@ -65,6 +112,7 @@ function reportHeight(token) {
 function shellBootstrap(source, token, neutralize) {
     const child = document.createElement('iframe');
     child.setAttribute('sandbox', 'allow-scripts'); child.setAttribute('title', 'HTML 内容'); child.referrerPolicy = 'no-referrer';
+    child.setAttribute('allowtransparency', 'true');
     child.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;';
     const requests = new Map();
     addEventListener('message', event => {
@@ -94,7 +142,8 @@ function shellBootstrap(source, token, neutralize) {
 }
 function assemble(html, { allowNetwork = false, width = 390 } = {}, token = crypto.randomUUID()) {
     requireHtml(html); htmlWidth(width);
-    const content = `<!doctype html>${meta(policy(allowNetwork))}<meta name="viewport" content="width=${width},initial-scale=1"><script>(${reportHeight})(${jsonScript(token)});(${installSnapshotChannel})(${jsonScript(token)})</script>${html}`;
+    // 最先声明的匿名层、零特异性：内容自己的 body/html 背景（含 @layer）可覆盖默认透明底。
+    const content = `<!doctype html>${meta(policy(allowNetwork))}<meta name="viewport" content="width=${width},initial-scale=1"><style>@layer{:where(html,body){background:transparent}}</style><script>(${reportHeight})(${jsonScript(token)});(${installSnapshotChannel})(${jsonScript(token)})</script>${html}`;
     // 可信外壳的 frame-src 只允许 srcdoc：也阻止内容脚本通过 location/链接导航绕过资源 CSP。
     return `<!doctype html><html><head>${meta(policy(allowNetwork, true))}<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}</style></head><body><script>(${shellBootstrap})(${jsonScript(content)},${jsonScript(token)},${allowNetwork ? 'null' : `(${removeNetworkResources})`})</script></body></html>`;
 }
@@ -106,7 +155,8 @@ export function buildSrcdoc(html, options = {}) { return assemble(html, options)
 export function createSandbox(html, options = {}) {
     const iframe = document.createElement('iframe'); iframe.dataset.stcrHtmlFrame = '1';
     iframe.setAttribute('sandbox', 'allow-scripts'); iframe.setAttribute('title', '阅读器 HTML 沙箱'); iframe.referrerPolicy = 'no-referrer';
-    iframe.style.cssText = 'display:block;border:0;max-width:none;flex-shrink:0;height:150px;';
+    iframe.setAttribute('allowtransparency', 'true');
+    iframe.style.cssText = 'display:block;border:0;max-width:none;flex-shrink:0;height:150px;background:transparent;';
     let token, timer, resolveReady, rejectReady, destroyed = false, currentOptions, currentHtml;
     const pending = new Map();
     const handle = { iframe, ready: null, update, destroy, snapshot };
