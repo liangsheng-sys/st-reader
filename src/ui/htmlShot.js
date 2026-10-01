@@ -1,49 +1,104 @@
 // ST Reader — AGPL-3.0
 // HTML 渲染截图（T44b、F10a）：把一段 HTML 的**脱敏静态图**做成 PNG，可以在预览上框选一部分只导出那一块。
 // 截图全由 core 完成（exportRenderedHtml：先 maskHtmlString 换词、再离线静态渲染、再截图，始终断网，03 §5.13）；
-// 这里只管：选宽度 / 清晰度 / 名字开关，显示预览，框选，保存。框选坐标用 core 的 CSS 文档坐标（htmlCrop / htmlCropPreview）。
-// 预览是"这段 HTML 刚打开时的样子"：游戏里点出来的结局、脚本画的图、网上的字体图片都不会出现（core 边界）。
+// 这里只管：选宽度 / 清晰度 / 长图、屏蔽词与替换规则（和分享卡片同一张表）、显示预览、框选、保存。
+// 框选坐标用 core 的 CSS 文档坐标（htmlCrop / htmlCropPreview）。
+// T44b 验收后：①屏蔽词、临时词、名字开关、管理替换规则都搬进这里，不用再去卡片工作台；②"长图"：把 HTML 里
+// 固定高度的滚动区（例如手机聊天界面的消息列表）展开，所有内容出现在一张图里。
+// 预览是"这段 HTML 刚打开时的样子"：游戏里点出来的结局、脚本画的图、网上的字体图片都不会出现（core 边界，06 I032）。
 
-import { exportRenderedHtml } from '../core/htmlRenderer.js';
+import { exportRenderedHtml, renderStatic } from '../core/htmlRenderer.js';
 import { createCropPreview } from '../core/htmlCropPreview.js';
+import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
 import { HTML_WIDTHS } from './htmlBlocks.js';
-import { cardFileName } from './logic.js';
+import { cardFileName, cleanMaskWord } from './logic.js';
+import { createRulesManager } from './rulesUi.js';
 
 const SCALES = [{ id: 1, label: '1 倍' }, { id: 2, label: '2 倍' }, { id: 3, label: '3 倍' }];
+
+/**
+ * 长图：在离线静态副本上找出"装不下、被裁掉或要滚动"的区域，把它们放开（高度自动、取消最大高度、不被压缩），
+ * 一层层往外直到不再有被裁的内容，然后把放开后的文档交回去截图。只改样式，不碰文字。
+ * 静态副本已经去掉脚本和外链（core renderStatic），这里读写的是同源、无脚本的那一份。
+ * @returns {Promise<{html:string, count:number}>} count = 展开了几处；0 表示原样
+ */
+export async function unfoldScrollAreas(html, width) {
+    const snap = await renderStatic(html, { width });
+    try {
+        const doc = snap.document;
+        const win = doc.defaultView;
+        const clips = new Set(['auto', 'scroll', 'hidden', 'clip', 'overlay']);
+        let count = 0;
+        for (let pass = 0; pass < 6; pass++) {
+            let changed = 0;
+            for (const el of [doc.documentElement, doc.body, ...doc.body.querySelectorAll('*')]) {
+                if (el.dataset?.stcrUnfold) continue;
+                const cs = win.getComputedStyle(el);
+                if (!clips.has(cs.overflowY) || el.scrollHeight <= el.clientHeight + 2) continue;
+                // 刻意截断的文字（省略号、行数限制）不展开
+                if (cs.textOverflow === 'ellipsis' || (cs.webkitLineClamp && cs.webkitLineClamp !== 'none')) continue;
+                el.style.setProperty('height', 'auto', 'important');
+                el.style.setProperty('max-height', 'none', 'important');
+                el.style.setProperty('flex-shrink', '0', 'important');
+                if (cs.overflowY !== 'hidden' && cs.overflowY !== 'clip') el.style.setProperty('overflow-y', 'visible', 'important');
+                el.dataset.stcrUnfold = '1';
+                changed++;
+            }
+            count += changed;
+            if (!changed) break;
+            void doc.body.offsetHeight; // 让下一轮量到放开后的尺寸
+        }
+        for (const el of doc.querySelectorAll('[data-stcr-unfold]')) delete el.dataset.stcrUnfold;
+        return count ? { html: `<!doctype html>${doc.documentElement.outerHTML}`, count } : { html, count: 0 };
+    } finally { snap.destroy(); }
+}
 
 /**
  * @param {object} opts
  * @param {HTMLElement} opts.root #stcr_root
  * @param {(message:string)=>void} opts.toast
- * @param {(where:object, names:{autoNames:boolean, myRules:boolean})=>Promise<object>} opts.maskOptions 屏蔽词 / 规则 / 名字 → core 的脱敏参数
- * @param {()=>void} [opts.onClose]
+ * @param {(message:string, ok:string)=>Promise<boolean>} opts.confirm
+ * @param {(where:object, flags:{autoNames:boolean, myRules:boolean})=>Promise<object>} opts.maskOptions 屏蔽词 / 规则 / 名字 → core 的脱敏参数
+ * @param {()=>string|null} opts.getChatKey 管理规则时的默认作用范围
+ * @param {()=>string[]} opts.autoNames 当前聊天的角色名、你的名字（规则编辑里提示）
+ * @param {()=>void} [opts.onClose] 关掉时（屏蔽词 / 规则可能改过）
  */
-export function createHtmlShot({ root, toast, maskOptions, onClose }) {
+export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, autoNames, onClose }) {
     let st = null; // 打开着的一次
 
     function open({ html, where, width, widthChoice }) {
         close();
         const fit = typeof width === 'number' ? width : 600;
-        const mine = { html, where, fitWidth: fit, width: widthChoice === 'fit' ? 'fit' : widthChoice ?? 390, scale: 2,
-            autoNames: true, myRules: true, run: 0, busy: false, blob: null, url: null, preview: null, cssHeight: 0 };
+        const mine = { html, where, fitWidth: fit, width: widthChoice === 'fit' ? 'fit' : widthChoice ?? 390, scale: 2, unfold: true,
+            autoNames: true, myRules: true, permanent: [], temp: [], run: 0, busy: false, blob: null, url: null, preview: null, cssHeight: 0,
+            exportHtml: html, unfolded: 0, changed: false, rulesPage: null };
         st = mine;
         mine.els = buildDom(mine);
         root.append(mine.els.dialog);
         mine.els.dialog.focus({ preventScroll: true });
+        store.maskWords.list().then(words => { if (st === mine) { mine.permanent = words; syncWords(mine); } }).catch(() => {});
         sync(mine);
         refresh(mine);
     }
 
     function buildDom(mine) {
-        const seg = (items, key) => h('div', { class: 'stcr-seg', role: 'group' },
+        const seg = (items, key) => h('div', { class: 'stcr-seg stcr-studio-seg', role: 'group' },
             ...items.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', [`data-${key}`]: String(item.id), text: item.label, title: item.title ?? '' })));
-        const widths = seg(HTML_WIDTHS, 'shot-width');
-        const scales = seg(SCALES, 'shot-scale');
         const sw = (label, key, hint) => {
             const input = h('input', { type: 'checkbox', role: 'switch', class: 'stcr-switch-input', 'data-shot-flag': key });
-            return h('label', { class: 'stcr-switch stcr-set-switch', title: hint }, input, h('span', { class: 'stcr-switch-track', 'aria-hidden': 'true' }), h('span', { class: 'stcr-set-switch-label', text: label }));
+            const hintEl = hint ? h('small', { class: 'stcr-studio-hint', text: hint }) : null;
+            return { el: h('label', { class: 'stcr-switch stcr-studio-switch' }, input, h('span', { class: 'stcr-switch-track', 'aria-hidden': 'true' }),
+                h('span', { class: 'stcr-studio-switch-label', text: label }), hintEl), hint: hintEl };
         };
+        const section = (title, ...children) => h('section', { class: 'stcr-studio-sec' }, h('h3', { class: 'stcr-studio-sec-title', text: title }), ...children);
+        const addForm = (key, placeholder, label) => h('form', { class: 'stcr-studio-add', 'data-shot-add': key },
+            h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', placeholder, 'aria-label': label }),
+            h('button', { type: 'submit', class: 'stcr-btn stcr-text-btn', text: '添加' }));
+
+        const widths = seg(HTML_WIDTHS, 'shot-width');
+        const scales = seg(SCALES, 'shot-scale');
+        const unfold = sw('长图', 'unfold', '把里面的滚动区（比如聊天记录列表）展开，所有内容出现在一张图里');
         const saveAll = h('button', { type: 'button', class: 'stcr-btn stcr-studio-export', 'data-shot': 'save-all' },
             h('i', { class: 'fa-solid fa-download', 'aria-hidden': 'true' }), h('span', { text: '保存整张' }));
         const saveCrop = h('button', { type: 'button', class: 'stcr-btn stcr-studio-export', 'data-shot': 'save-crop', disabled: true },
@@ -52,22 +107,31 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
         const cropInfo = h('span', { class: 'stcr-shot-crop-info' });
         const status = h('div', { class: 'stcr-shot-status', role: 'status', 'aria-live': 'polite' });
         const slot = h('div', { class: 'stcr-shot-slot' });
+        const wordChips = h('div', { class: 'stcr-studio-chips' });
+        const tempChips = h('div', { class: 'stcr-studio-chips' });
         const head = h('header', { class: 'stcr-studio-head' },
             iconButton('fa-xmark', '关闭（Esc）', { 'data-shot': 'close' }),
             h('h2', { class: 'stcr-studio-title', text: '截图分享' }),
             h('span', { class: 'stcr-studio-sub', text: `第 ${mine.where.index + 1} 楼 · HTML` }),
             saveCrop, saveAll);
-        const tools = h('div', { class: 'stcr-shot-tools' },
-            h('span', { class: 'stcr-set-label', text: '宽度' }), widths,
-            h('span', { class: 'stcr-set-label', text: '清晰度' }), scales,
-            sw('自动名字', 'autoNames', '角色名、你的名字换成 char / user'),
-            sw('我的规则', 'myRules', '按"管理替换规则"里的规则替换'));
+        const sideMain = h('div', { class: 'stcr-studio-side-main' },
+            section('宽度', widths),
+            section('清晰度', scales),
+            section('长度', unfold.el),
+            section('名字替换', sw('自动名字', 'autoNames', '角色名、你的名字换成 char / user').el, sw('我的规则', 'myRules', '比如"灯塔 → 某地"').el,
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-studio-rules', 'data-shot': 'rules', title: '自己定"某个词总是换成什么"' },
+                    h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理替换规则…')),
+            section('屏蔽词（永久）', wordChips, addForm('permanent', '输入要遮住的词，回车添加', '添加屏蔽词'),
+                h('p', { class: 'stcr-studio-hint', text: '和分享卡片、脱敏显示是同一张表。遮住的词在图上变成 █。' })),
+            section('临时遮住（只这张图）', tempChips, addForm('temp', '只在这张图上遮住的词', '添加临时遮住的词')));
+        const rulesHost = h('div', { class: 'stcr-studio-side-rules', hidden: true });
+        const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '截图设置' }, sideMain, rulesHost);
         const foot = h('div', { class: 'stcr-shot-foot' }, cropInfo, clearBtn);
         const stage = h('div', { class: 'stcr-shot-stage' },
-            h('p', { class: 'stcr-shot-tip', text: '在图上按住拖一下，可以只框一部分；框里拖动能移动，四个角能调大小。屏蔽词已遮住、名字按开关替换。截的是这段 HTML 刚打开时的样子（游戏里点出来的结局、网上的字体和图片不会出现）。' }),
+            h('p', { class: 'stcr-shot-tip', text: '在图上按住拖一下，可以只框一部分；框里拖动能移动，四个角能调大小。截的是这段 HTML 刚打开时的样子：游戏里点出来的结局、网上的字体和图片不会出现。' }),
             status, slot, foot);
         const dialog = h('div', { class: 'stcr-studio stcr-shot', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'HTML 截图分享', tabindex: '-1' },
-            head, h('div', { class: 'stcr-shot-body' }, tools, stage));
+            head, h('div', { class: 'stcr-studio-body' }, stage, side));
 
         dialog.addEventListener('click', event => {
             const t = event.target;
@@ -75,13 +139,23 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
             if (width) { mine.width = width === 'fit' ? 'fit' : Number(width); sync(mine); refresh(mine); return; }
             const scale = t.closest('[data-shot-scale]')?.dataset.shotScale;
             if (scale) { mine.scale = Number(scale); sync(mine); refresh(mine); return; }
+            const drop = t.closest('[data-word-drop]');
+            if (drop) { dropWord(mine, drop.dataset.wordKind, drop.dataset.wordDrop); return; }
             switch (t.closest('[data-shot]')?.dataset.shot) {
                 case 'close': close(); return;
                 case 'save-all': save(mine, false); return;
                 case 'save-crop': save(mine, true); return;
                 case 'clear': mine.preview?.clear(); return;
+                case 'rules': showRules(mine); return;
                 default:
             }
+        });
+        dialog.addEventListener('submit', event => {
+            const form = event.target.closest('[data-shot-add]');
+            if (!form) return;
+            event.preventDefault();
+            const input = form.querySelector('input');
+            addWord(mine, form.dataset.shotAdd, input.value).then(ok => { if (ok) input.value = ''; });
         });
         dialog.addEventListener('change', event => {
             const key = event.target.dataset?.shotFlag;
@@ -90,9 +164,13 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
             refresh(mine);
         });
         dialog.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && !event.target.closest('[data-stcr-crop-box]')) { event.preventDefault(); event.stopPropagation(); close(); }
+            if (event.key !== 'Escape' || event.target.closest('[data-stcr-crop-box]')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!mine.els.rulesHost.hidden) { if (!mine.rulesPage?.isEditing()) hideRules(mine); return; }
+            close();
         });
-        return { dialog, widths, scales, saveAll, saveCrop, clearBtn, cropInfo, status, slot, stage };
+        return { dialog, widths, scales, unfoldHint: unfold.hint, saveAll, saveCrop, clearBtn, cropInfo, status, slot, stage, side, sideMain, rulesHost, wordChips, tempChips };
     }
 
     function sync(mine) {
@@ -101,17 +179,89 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
         for (const input of mine.els.dialog.querySelectorAll('[data-shot-flag]')) input.checked = mine[input.dataset.shotFlag];
     }
 
+    function chips(list, kind) {
+        if (!list.length) return [h('span', { class: 'stcr-studio-hint', text: kind === 'temp' ? '没有。' : '还没有屏蔽词。' })];
+        return list.map(word => h('span', { class: `stcr-word-chip${kind === 'temp' ? ' stcr-word-chip--temp' : ''}` }, h('span', { text: word }),
+            iconButton('fa-xmark', kind === 'temp' ? `不再遮住：${word}` : `从屏蔽词里移除：${word}`, { class: 'stcr-word-x', 'data-word-drop': word, 'data-word-kind': kind })));
+    }
+    function syncWords(mine) {
+        mine.els.wordChips.replaceChildren(...chips(mine.permanent, 'permanent'));
+        mine.els.tempChips.replaceChildren(...chips(mine.temp, 'temp'));
+    }
+
+    async function addWord(mine, kind, value) {
+        const word = cleanMaskWord(value);
+        if (!word) { if (String(value ?? '').trim()) toast('一个词最多 40 个字'); return false; }
+        if (mine.permanent.includes(word) || (kind === 'temp' && mine.temp.includes(word))) { toast(`"${word}"已经遮住了`); return true; }
+        if (kind === 'temp') mine.temp = [...mine.temp, word];
+        else {
+            try { mine.permanent = await store.maskWords.add(word); }
+            catch (error) { toast(`屏蔽词没保存上：${error.message ?? error}`); return false; }
+            if (st !== mine) return false;
+            mine.temp = mine.temp.filter(w => w !== word);
+            mine.changed = true;
+            toast(`已加入屏蔽词：${word}`);
+        }
+        syncWords(mine);
+        refresh(mine);
+        return true;
+    }
+    async function dropWord(mine, kind, word) {
+        if (kind === 'temp') mine.temp = mine.temp.filter(w => w !== word);
+        else {
+            try { mine.permanent = await store.maskWords.remove(word); }
+            catch (error) { toast(`没移除成：${error.message ?? error}`); return; }
+            if (st !== mine) return;
+            mine.changed = true;
+            toast(`已移除屏蔽词：${word}`);
+        }
+        syncWords(mine);
+        refresh(mine);
+    }
+
+    /** 右侧切到"管理替换规则"（和卡片工作台同一个管理页）；规则一改就重做预览。 */
+    function showRules(mine) {
+        const { els } = mine;
+        mine.rulesPage ??= createRulesManager({ host: els.dialog, chatKey: getChatKey(), toast, autoNames,
+            confirm: (message, ok) => confirm(message, ok),
+            onChange: () => { mine.changed = true; refresh(mine); },
+            onBack: () => hideRules(mine) });
+        mine.rulesPage.el.querySelector('.stcr-rules-back')?.lastChild?.replaceWith(' 返回截图设置');
+        els.rulesHost.replaceChildren(mine.rulesPage.el);
+        els.sideMain.hidden = true;
+        els.rulesHost.hidden = false;
+        els.side.scrollTop = 0;
+        mine.rulesPage.load().catch(error => toast(`规则读取失败：${error.message ?? error}`));
+    }
+    function hideRules(mine) {
+        mine.els.rulesHost.hidden = true;
+        mine.els.sideMain.hidden = false;
+        mine.els.side.scrollTop = 0;
+    }
+
     const cssWidth = mine => (mine.width === 'fit' ? mine.fitWidth : mine.width);
 
-    /** 宽度 / 清晰度 / 名字开关变了：重新生成预览（旧图与选区作废）。 */
+    /** 本次截图的脱敏参数：存着的屏蔽词 + 临时词。 */
+    async function options(mine) {
+        const base = await maskOptions(mine.where, { autoNames: mine.autoNames, myRules: mine.myRules });
+        return { ...base, maskWords: [...new Set([...base.maskWords, ...mine.temp])] };
+    }
+
+    /** 任何设置变了：重新生成预览（旧图与选区作废）。 */
     async function refresh(mine) {
         const run = ++mine.run;
         dropPreview(mine);
         setBusy(mine, true, '正在生成脱敏截图…');
         try {
-            const options = await maskOptions(mine.where, { autoNames: mine.autoNames, myRules: mine.myRules });
             const width = cssWidth(mine);
-            const blob = await exportRenderedHtml(mine.html, { ...options, width, scale: mine.scale });
+            const [opts, unfolded] = await Promise.all([options(mine),
+                mine.unfold ? unfoldScrollAreas(mine.html, width) : Promise.resolve({ html: mine.html, count: 0 })]);
+            if (st !== mine || run !== mine.run) return;
+            mine.exportHtml = unfolded.html;
+            mine.unfolded = unfolded.count;
+            if (mine.els.unfoldHint) mine.els.unfoldHint.textContent = !mine.unfold ? '把里面的滚动区（比如聊天记录列表）展开，所有内容出现在一张图里'
+                : unfolded.count ? `已展开 ${unfolded.count} 处滚动区，所有内容都在这张图里` : '这段 HTML 里没有要展开的滚动区';
+            const blob = await exportRenderedHtml(mine.exportHtml, { ...opts, width, scale: mine.scale });
             if (st !== mine || run !== mine.run) return;
             const url = URL.createObjectURL(blob);
             const img = new Image();
@@ -130,7 +280,8 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
         } catch (error) {
             if (st !== mine || run !== mine.run) return;
             console.error('[st-reader] HTML 截图失败', error);
-            setBusy(mine, false, `截图没做出来：${error?.message ?? error}`, true);
+            const tooBig = error instanceof RangeError && mine.unfold ? '（展开后太长了：试试关掉"长图"、降低清晰度，或框一部分）' : '';
+            setBusy(mine, false, `截图没做出来：${error?.message ?? error}${tooBig}`, true);
         }
     }
 
@@ -172,8 +323,7 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
         if (selection) {
             setBusy(mine, true, '正在导出选区…');
             try {
-                const options = await maskOptions(mine.where, { autoNames: mine.autoNames, myRules: mine.myRules });
-                blob = await exportRenderedHtml(mine.html, { ...options, width: mine.previewWidth, scale: mine.scale, crop: selection });
+                blob = await exportRenderedHtml(mine.exportHtml, { ...await options(mine), width: mine.previewWidth, scale: mine.scale, crop: selection });
             } catch (error) {
                 if (st !== mine || run !== mine.run) return;
                 console.error('[st-reader] HTML 选区导出失败', error);
@@ -200,7 +350,7 @@ export function createHtmlShot({ root, toast, maskOptions, onClose }) {
         mine.run++;
         dropPreview(mine);
         mine.els.dialog.remove();
-        onClose?.();
+        onClose?.({ changed: mine.changed });
     }
 
     return { open, close, isOpen: () => st !== null };

@@ -136,9 +136,16 @@ export async function openReader({ tab, chatKey } = {}) {
         },
     });
     session.htmlShot = createHtmlShot({
-        root, toast: say,
+        root, toast: say, confirm: (message, ok) => confirmDialog(message, ok),
         maskOptions: (where, flags) => htmlMaskOptions(session, where.model, flags),
-        onClose: () => { if (S === session) session.scroller.focus({ preventScroll: true }); },
+        getChatKey: () => (session.handle ? session.chatKey : null),
+        autoNames: () => (session.handle ? [session.handle.header.userName, session.handle.header.characterName].filter(Boolean) : []),
+        onClose: ({ changed } = {}) => {
+            if (S !== session) return;
+            session.scroller.focus({ preventScroll: true });
+            // 截图窗口里改了屏蔽词 / 规则：脱敏显示开着就重读并重排（与卡片工作台相同）
+            if (changed && getPrefs().redact) loadRedaction(session).then(() => { if (S === session) { refreshSideTexts(session); rerender(captureAnchor()); } });
+        },
     });
     session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
     root.querySelector('.stcr-body').prepend(session.drawer.el);

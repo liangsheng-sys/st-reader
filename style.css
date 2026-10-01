@@ -251,16 +251,7 @@
 #stcr_root .stcr-html-src--hidden { display: none !important; }
 #stcr_root.stcr-mode-paged .stcr-html-stage { max-width: 100%; }
 
-/* HTML 截图（F10a）：沿用卡片工作台的外框，左边一列设置，右边预览 + 框选 */
-#stcr_root .stcr-shot-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
-#stcr_root .stcr-shot-tools {
-    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
-    padding: 22px 20px; border-right: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); font-size: 13px; overflow-y: auto;
-}
-#stcr_root .stcr-shot-tools .stcr-set-label { margin-top: 6px; }
-#stcr_root .stcr-shot-tools .stcr-seg { flex-wrap: nowrap; }
-#stcr_root .stcr-shot-tools .stcr-seg-btn { padding: 4px 11px; font-size: 12.5px; }
-#stcr_root .stcr-shot-tools .stcr-set-switch { margin-top: 6px; }
+/* HTML 截图（F10a）：沿用卡片工作台的外框与右侧设置栏，左边预览 + 框选 */
 #stcr_root .stcr-shot-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; overflow: auto; padding: 22px 24px 48px; }
 #stcr_root .stcr-shot-tip { max-width: 720px; margin: 0; color: var(--stcr-faint); font-size: 12.5px; line-height: 1.6; text-align: center; }
 #stcr_root .stcr-shot-status { min-height: 1.2em; color: var(--stcr-faint); font-size: 13px; }
@@ -270,11 +261,7 @@
 #stcr_root .stcr-shot-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; color: var(--stcr-faint); font-size: 12.5px; }
 #stcr_root .stcr-shot .stcr-studio-export + .stcr-studio-export { margin-left: 4px; }
 #stcr_root .stcr-shot .stcr-studio-export:disabled { opacity: .45; cursor: default; }
-@media (max-width: 999px) {
-    #stcr_root .stcr-shot-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-    #stcr_root .stcr-shot-tools { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px 14px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--stcr-border) 60%, transparent); }
-    #stcr_root .stcr-shot-tools .stcr-set-label, #stcr_root .stcr-shot-tools .stcr-set-switch { margin-top: 0; }
-}
+#stcr_root .stcr-shot .stcr-studio-seg { flex-wrap: nowrap; align-self: flex-start; }
 
 /* 隐藏用户楼后的细线："— 你 · 3 条 —" */
 #stcr_root .stcr-fold {
