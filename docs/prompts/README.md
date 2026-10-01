@@ -17,4 +17,6 @@
 | `astra_T30.md` | Codex / astra | T23b 已通过、T31 复查已出；**先做 T01 清 F 盘** |
 | `astra_T40-T46.md` | Codex / astra | M4 先做，T40 完成后再给 Opus |
 | `opus_T42-T45.md` | Claude Code / Opus | T40 已合到 main；T44b 等 T44a |
+| `astra_T51-T54a.md` | Codex / astra | M5，可与 Opus 并行 |
+| `opus_T50-T55.md` | Claude Code / Opus | M5；T54b 等 T54a |
 

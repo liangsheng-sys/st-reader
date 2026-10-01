@@ -61,4 +61,6 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 
 核对依据：[MDN outerHTML（序列化边界与 Shadow DOM）](https://developer.mozilla.org/en-US/docs/Web/API/Element/outerHTML)、[MDN postMessage（来源校验）](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage)、[MDN 跨域图片与 canvas](https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/CORS_enabled_image)。以上是结合本项目两层沙箱、T41 脱敏及 D22 的工程评估，尚未经新 snapshot 实现的浏览器验证。
 | I035 | 2026-10-01 | Fable | 公开仓库的 `docs/`、`dev/start-dev-st.mjs`、`dev/isolate-dev-st.mjs`、`install/junction.mjs` 写死本机路径 `F:/Claude/xinllm/SillyTavern`（无用户名）。不影响安全；若作者想隐去，改为读 `.dev/local.json` 或环境变量 | 发布后观感 | open（可选，不阻塞 0.1.0） |
+| I036 | 2026-10-01 | Fable | 人类把含真实聊天文字的截图放进 `docs/feedback/`，原 `.gitignore` 的 `docs/*.png` 不覆盖子目录。已改为 `docs/**/*.png` 与 `docs/**/*.jpg`，核对当前未跟踪。规则：反馈截图一律放 `docs/feedback/`，永不入库 | 隐私 | 已处理 |
+| I037 | 2026-10-01 | 人类 | 二次安装反馈 5 条：正文居中、HTML 块边界 / 白框 / 宽度 / 裁切、重开速度、版本与更新、使用说明。规划者拆为 D24–D27 与 M5 T50–T58 | M5 | 已处理（已拆卡） |
 
