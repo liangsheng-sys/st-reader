@@ -60,3 +60,5 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 **建议实现时的验收**：两种虚构游戏分支各截出对应结局；表单中的屏蔽词不可见；关闭长图保持滚动位置、开启后显示全部；错 token/source、重建/销毁中请求、超时/超量输入均拒绝且不泄漏；已脱敏副本不串换；不支持项有明确反馈；PNG 默认 2 倍与自由裁剪保留；宿主/活沙箱前后快照一致，静态导出零外链。交付前再把最终签名写入 03 §5.13，并通知 UI 接线。本次不新增未实现的合同方法。
 
 核对依据：[MDN outerHTML（序列化边界与 Shadow DOM）](https://developer.mozilla.org/en-US/docs/Web/API/Element/outerHTML)、[MDN postMessage（来源校验）](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage)、[MDN 跨域图片与 canvas](https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/CORS_enabled_image)。以上是结合本项目两层沙箱、T41 脱敏及 D22 的工程评估，尚未经新 snapshot 实现的浏览器验证。
+| I035 | 2026-10-01 | Fable | 公开仓库的 `docs/`、`dev/start-dev-st.mjs`、`dev/isolate-dev-st.mjs`、`install/junction.mjs` 写死本机路径 `F:/Claude/xinllm/SillyTavern`（无用户名）。不影响安全；若作者想隐去，改为读 `.dev/local.json` 或环境变量 | 发布后观感 | open（可选，不阻塞 0.1.0） |
+
