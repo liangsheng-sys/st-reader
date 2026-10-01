@@ -165,6 +165,7 @@ export async function openReader({ tab, chatKey } = {}) {
     applyPrefs(getPrefs());
     session.cleanup.push(onPrefsChange(onPrefs));
     session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
+    session.cleanup.push(followHostWidth(root));
     document.body.append(root);
     document.body.classList.add('stcr-reader-open');
     session.scroller.focus({ preventScroll: true });
@@ -180,6 +181,24 @@ export async function openReader({ tab, chatKey } = {}) {
     else if (!chatKey && !current) session.drawer.open('recent');
     else if (getPrefs().drawerPinned && wide()) session.drawer.open();
     if (getPrefs().panelPinned && wide()) session.panel.open();
+}
+
+/**
+ * "跟随 ST"的正文宽度（D27）：量宿主聊天栏（#sheld，没有就 #chat）此刻实际渲染出来多宽，写进 --stcr-host-width。
+ * 不用 --sheldWidth 变量——主题、移动端规则、扩展都可能让实际宽度和它不一样。窗口或 ST 设置变了跟着变。只读，不改宿主。
+ */
+function followHostWidth(root) {
+    const host = document.getElementById('sheld') ?? document.getElementById('chat');
+    if (!host) return () => {};
+    const apply = () => {
+        const width = host.getBoundingClientRect().width;
+        if (width >= 200) root.style.setProperty('--stcr-host-width', `${width}px`);
+        else root.style.removeProperty('--stcr-host-width'); // 宿主被隐藏 / 折叠：退回 ST 的宽度变量
+    };
+    const ro = new ResizeObserver(apply);
+    ro.observe(host);
+    apply();
+    return () => ro.disconnect();
 }
 
 export function closeReader() {

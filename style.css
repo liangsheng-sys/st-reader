@@ -116,7 +116,8 @@
     /* 在主题字号上加减（02 §1.8）；ST 的行高等规则都基于 --mainFontSize，一起跟着变 */
     --mainFontSize: calc(var(--fontScale, 1) * 15px + var(--stcr-font-delta, 0px));
     font-size: var(--mainFontSize);
-    max-width: var(--stcr-width, var(--sheldWidth, 50vw));
+    /* 宽度：Aa 里设了就用设的；"跟随 ST" = 宿主聊天栏此刻的实际宽度（D27，reader.js 量出来写进变量） */
+    max-width: var(--stcr-width, var(--stcr-host-width, var(--sheldWidth, 50vw)));
     min-height: 100%;
     margin: 0 auto;
     padding: 12px 0 40vh; /* 末尾留白：最后一楼也能翻到页面上半部分 */
@@ -240,16 +241,17 @@
 #stcr_root .stcr-html--source .stcr-html-widths,
 #stcr_root .stcr-html--source .stcr-html-net,
 #stcr_root .stcr-html--source .stcr-html-stage { display: none; }
-#stcr_root .stcr-html-stage {
-    position: relative; max-width: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
-    border-radius: 10px; background: color-mix(in srgb, var(--stcr-text) 5%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stcr-border) 60%, transparent);
-}
-#stcr_root .stcr-html-frame { display: flex; justify-content: center; min-width: max-content; }
-#stcr_root .stcr-html-frame > iframe { background: #fff; color-scheme: normal; }
-#stcr_root .stcr-html-fail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 18px; color: var(--stcr-faint); font-size: 13px; }
+/* 没有外框、没有底色（D26/D27）：HTML 自己决定底色，和正文融为一体。伸出 / 缩小由 htmlBlocks.layout 设宽高。 */
+#stcr_root .stcr-html-stage { position: relative; max-width: none; overflow: hidden; }
+/* ST 给 .mes_block 设了 overflow-x: hidden，伸出正文栏的部分会被它裁掉（反馈 2 截图 3）。只放开有 HTML 块的楼。 */
+#stcr_root #stcr_chat .mes_block:has(> .mes_text > .stcr-html) { overflow: visible; }
+/* 不用 flex 居中：内容比外框宽时 flex 居中会把左边推到看不见的地方（反馈 2 截图 3 的左侧被裁） */
+#stcr_root .stcr-html-frame { transform-origin: 0 0; }
+/* color-scheme 与内容文档一致，浏览器才不会给透明 iframe 垫一层不透明底 */
+#stcr_root .stcr-html-frame > iframe { margin: 0 auto; background: transparent; color-scheme: normal; }
+#stcr_root .stcr-html-fail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 18px; color: var(--stcr-faint); font-size: 13px;
+    border-radius: 10px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stcr-border) 60%, transparent); }
 #stcr_root .stcr-html-src--hidden { display: none !important; }
-#stcr_root.stcr-mode-paged .stcr-html-stage { max-width: 100%; }
 
 /* HTML 截图（F10a）：沿用卡片工作台的外框与右侧设置栏，左边预览 + 框选 */
 #stcr_root .stcr-shot-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; overflow: auto; padding: 22px 24px 48px; }
