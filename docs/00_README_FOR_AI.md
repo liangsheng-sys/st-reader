@@ -27,6 +27,9 @@ ST Reader：SillyTavern（下称 ST）的第三方 UI 扩展，在 ST 页面内�
 | `research/` | 调研与对比 | 规划者 / astra |
 | `LICENSES.md` | 所有第三方库、字体、素材的许可记录 | 引入者 |
 | `SETUP_WINDOWS.md` | 人类安装、启动开发实例、联接到真实 ST 的步骤 | 规划者 / astra |
+| `发布指南.md` | 人类在 GitHub 建仓、推送、发 Release、社区发帖与以后更新；先整合发布 main | astra |
+
+仓库根 [README](../README.md) 为公开使用说明，[CHANGELOG](../CHANGELOG.md) 记录发布版本；外链披露以 D22/D23 为准。
 
 ## 通用规则
 1. 只做自己任务卡上的事。任务卡在 `04_TASKS.md`。
