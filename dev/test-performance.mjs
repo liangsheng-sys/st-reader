@@ -9,7 +9,7 @@ import { assertDevPath, DEV_ROOT, PROJECT_ROOT, writeDevFile } from './fixtures/
 const origin = 'http://localhost:8100';
 const htmlHeight = process.argv.includes('--html-height'), updateService = process.argv.includes('--update-service');
 const chatCache = process.argv.includes('--chat-cache');
-const task = chatCache ? 't53' : updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
+const task = chatCache ? 't57' : updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const chromePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(file => fs.existsSync(file));
 let browser, socket, profile;
@@ -53,7 +53,7 @@ try {
         const url = new URL(event.request.url);
         const remote = /^https?:$/.test(url.protocol) && url.origin !== origin;
         const forbidden = /^\/api\/chats\/(?:save|rename|delete|import|group\/(?:save|delete|import))(?:\/|$)/i.test(url.pathname);
-        const devGit = updateService && /^\/api\/extensions\/(version|update)$/.test(url.pathname);
+        const devGit = /^\/api\/extensions\/(version|update)$/.test(url.pathname);
         if (remote || forbidden || devGit) { blocked.push({ url: url.origin + url.pathname, reason: forbidden ? 'D02' : devGit ? '开发目录 Git' : '外网' }); await send('Fetch.failRequest', { requestId: event.requestId, errorReason: 'BlockedByClient' }); }
         else { requests.push(url.pathname); await send('Fetch.continueRequest', { requestId: event.requestId }); }
     });
@@ -81,7 +81,7 @@ try {
         await evaluate('document.fonts.ready.then(()=>true)');
     }
     await delay(3000);
-    console.log(chatCache ? '开发页面已就绪，开始 T53 重开自测…' : updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
+    console.log(chatCache ? '开发页面已就绪，开始 T57 缓存首屏与后台校验自测…' : updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
     if (process.argv.includes('--profile')) { await send('Profiler.enable'); await send('Profiler.start'); }
     let failure, report;
     if (chatCache) {
@@ -110,7 +110,7 @@ try {
     if (chatCache) {
         // 真正跨页面刷新；先留下一个小聊天缓存，再刷新，不能用新工厂实例冒充刷新实证。
         await evaluate(`(async()=>{const s=await import('/scripts/extensions/third-party/st-reader/src/core/chatSource.js');const h=await s.openChat(s.makeChatKey({avatarUrl:'STCR_T11_Mist.png',fileName:'STCR-03-普通阅读'}));h.page(0);h.close();if(s.getChatCacheStats().entries!==1)throw Error('刷新前缓存未建立')})()`);
-        await send('Page.navigate', { url: `${origin}/?t53Refresh=1` }); await delay(1000);
+        await send('Page.navigate', { url: `${origin}/?t57Refresh=1` }); await delay(1000);
         for (let i = 0; ; i++) { if (await evaluate('Boolean(window.stcrSelfTest && document.querySelector("#stcr_topbar_button"))')) break; if (i > 120) throw new Error('刷新超时'); await delay(250); }
         report.refreshEmpty = await evaluate(`import('/scripts/extensions/third-party/st-reader/src/core/chatSource.js').then(s=>s.getChatCacheStats().entries===0)`);
         if (!report.refreshEmpty) failure = new Error('刷新后正文缓存非空');
@@ -130,6 +130,12 @@ try {
             report ??= {}; report.fullBrowserCount = full.length;
             console.log(`浏览器完整自测通过：${full.length} 项`);
         } catch (error) { failure = error; }
+    }
+    if (process.argv.includes('--ui-browser')) {
+        const ui = await evaluate("import('/scripts/extensions/third-party/st-reader/src/ui/uiBrowser.test.js').then(m=>m.testTextAlignBrowser())");
+        report ??= {}; report.uiBrowser = ui;
+        if (ui.some(item => !item.passed)) failure = new Error('界面主题浏览器回归失败');
+        else console.log(`界面主题浏览器自测通过：${ui.length} 项`);
     }
     const output = { date: new Date().toISOString(), fixture, ...report, blocked, requestPaths: [...new Set(requests)], passed: !failure && !blocked.length };
     const reportText = JSON.stringify(output, null, 2) + '\n';

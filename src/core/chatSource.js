@@ -51,9 +51,9 @@ function summary(row, owner) {
 }
 
 /** 注入读取器仅供纯逻辑测试；默认实例只使用上述同源白名单。 */
-export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true } = {}) {
+export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now } = {}) {
     const cache = createMemoryChatCache({ maxEntries: cacheEntries, maxBytes: cacheBytes }), pending = new Map();
-    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0 };
+    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0 };
     let generation = 0, automaticPrefetch = null;
     const abortCheck = signal => { if (signal?.aborted) throw signal.reason ?? new DOMException('已取消', 'AbortError'); };
     function fingerprint(row) {
@@ -62,26 +62,78 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             || !['string', 'number'].includes(typeof date) || date === '') return null;
         return JSON.stringify([size, normalizeDate(date) ?? String(date), row.message_count ?? row.chat_items ?? null]);
     }
-    async function readEntry(chatKey, signal, epoch) {
-        const key = parseChatKey(chatKey);
+    async function readSummary(key, signal) {
         const rows = listResult(await read('/api/chats/search', key.isGroup ? { query: '', group_id: key.groupId } : { query: '', avatar_url: key.avatarUrl }, { signal }));
         abortCheck(signal);
-        const info = rows.find(row => String(row.file_id ?? (key.isGroup ? row.file_name : String(row.file_name).replace(/\.jsonl$/i, ''))) === key.fileName);
-        const previous = epoch === generation ? cache.peek(chatKey) : null, version = info ? fingerprint(info) : null;
-        if (previous && version !== null && previous.version === version) { counts.hits++; cache.touch(previous); return previous; }
-        if (previous) { cache.remove(chatKey); counts.invalidations++; }
+        return rows.find(row => String(row.file_id ?? (key.isGroup ? row.file_name : String(row.file_name).replace(/\.jsonl$/i, ''))) === key.fileName);
+    }
+    async function readEntry(chatKey, signal, isCurrent) {
+        const key = parseChatKey(chatKey);
+        let group = null;
+        let cards;
+        if (key.isGroup) {
+            group = listResult(await read('/api/groups/all', {}, { signal })).find(item => String(item.id) === key.groupId);
+            if (!group || !group.chats?.includes(key.fileName)) throw new StcrDataError('NOT_FOUND', '群聊或聊天文件不存在');
+            cards = await Promise.all((group.members ?? []).map(avatar => read('/api/characters/get', { avatar_url: component(avatar) }, { signal }).catch(error => {
+                if (error.code === 'HTTP_404') return { avatar, name: avatar, data: {} };
+                throw error;
+            })));
+        } else cards = [await read('/api/characters/get', { avatar_url: key.avatarUrl }, { signal })];
+        abortCheck(signal);
+        cards = cards.map(card => freezeJson(structuredClone(card)));
+        const info = await readSummary(key, signal), version = info ? fingerprint(info) : null;
         if (!info) throw new StcrDataError('NOT_FOUND', '聊天文件不存在或已被移除');
         counts.misses++;
         const raw = await read(key.isGroup ? '/api/chats/group/get' : '/api/chats/get', key.isGroup ? { id: key.fileName } : { avatar_url: key.avatarUrl, file_name: key.fileName }, { signal });
         abortCheck(signal);
         if (!Array.isArray(raw)) throw new StcrDataError('INVALID_RESPONSE', '聊天 API 返回格式错误');
-        const { messages } = parseChatRows(raw, { isGroup: key.isGroup });
+        const { messages, header } = parseChatRows(raw, { isGroup: key.isGroup,
+            userName: key.isGroup ? raw.find(message => message?.is_user)?.name ?? getContext().name1 : getContext().name1,
+            characterName: key.isGroup ? group.name : cards[0]?.name, metadata: group?.chat_metadata });
         const depths = calculateDepths(messages);
-        const entry = { key: chatKey, version, rows: raw, messages, depths, models: new Map(), pages: new Map(),
-            bytes: estimateJsonBytes(raw) + depths.byteLength + messages.length * 8 + 256 };
-        // 摘要在正文请求之前读取：期间文件再变化，下次校验会失效，不能把旧正文绑定到较新的摘要。
-        if (version !== null && epoch === generation) cache.put(entry);
+        const entry = { key: chatKey, version, rows: raw, messages, depths, cards, header, models: new Map(), pages: new Map(),
+            listeners: new Set(), staleEvent: null, validation: null, validationJob: null, validationController: null,
+            bytes: estimateJsonBytes(raw) + estimateJsonBytes(cards) + estimateJsonBytes(header) + depths.byteLength + messages.length * 8 + 512 };
+        // 先取摘要再取正文；期间发生变化会在下次后台校验发现，不用新摘要替旧正文背书。
+        if (version !== null && isCurrent()) cache.put(entry);
         return entry;
+    }
+    function validateEntry(entry) {
+        if (entry.validationJob) return entry.validationJob;
+        const age = entry.validation ? now() - entry.validation.checkedAt : -1;
+        if (age >= 0 && age < 60_000) return Promise.resolve(entry.validation);
+        const epoch = generation, controller = new AbortController(), started = performance.now();
+        entry.validationController = controller;
+        const timeout = setTimeout(() => controller.abort(), 20_000);
+        const current = () => epoch === generation && cache.has(entry) && !controller.signal.aborted;
+        const result = (state, extra = {}) => Object.freeze({ state, checkedAt: now(), durationMs: performance.now() - started, ...extra });
+        counts.validations++;
+        // 返回句柄不等待这里。所有错误转换成结果；失败不是“已确认最新”。
+        const job = Promise.resolve().then(async () => {
+            try {
+                const info = await readSummary(parseChatKey(entry.key), controller.signal);
+                if (!current()) return result('discarded');
+                const version = info ? fingerprint(info) : null;
+                if (info && version === null) throw new StcrDataError('INCOMPLETE_SUMMARY', '摘要字段不完整，未能校验');
+                if (!info || version !== entry.version) {
+                    if (!entry.staleEvent) {
+                        counts.invalidations++;
+                        entry.staleEvent = Object.freeze({ chatKey: entry.key, reason: info ? 'changed' : 'missing', checkedAt: now() });
+                        for (const listener of [...entry.listeners]) listener(entry.staleEvent);
+                    }
+                }
+                return entry.validation = result(entry.staleEvent ? 'stale' : 'fresh');
+            } catch (error) {
+                // 清缓存、淘汰或显式重载后的迟到响应不通知新旧 UI，也不填回缓存。
+                if (epoch !== generation || !cache.has(entry)) return result('discarded');
+                return entry.validation = result('error', { code: controller.signal.aborted ? 'TIMEOUT' : error.code ?? 'VALIDATION_FAILED' });
+            } finally {
+                clearTimeout(timeout);
+                if (entry.validationJob === job) { entry.validationJob = null; entry.validationController = null; }
+            }
+        });
+        entry.validationJob = job;
+        return job;
     }
     function acquireEntry(chatKey, signal) {
         abortCheck(signal);
@@ -90,7 +142,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             const controller = new AbortController(), epoch = generation;
             job = { controller, users: 0, done: false };
             const current = job;
-            job.promise = Promise.resolve().then(() => readEntry(chatKey, controller.signal, epoch)).finally(() => {
+            job.promise = Promise.resolve().then(() => readEntry(chatKey, controller.signal, () => epoch === generation && pending.get(chatKey) === current)).finally(() => {
                 current.done = true; if (pending.get(chatKey) === current) pending.delete(chatKey);
             });
             job.promise.catch(() => {}); pending.set(chatKey, job);
@@ -161,38 +213,46 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         const avatarUrl = current.characters?.[current.characterId]?.avatar;
         return avatarUrl ? makeChatKey({ avatarUrl, fileName }) : null;
     }
-    /** @param {string} chatKey 稳定聊天键 @param {{pageSize?:number,signal?:AbortSignal}} [options] @returns {Promise<ChatHandle>} */
-    async function openChat(chatKey, { pageSize = 30, signal } = {}) {
+    /** @param {string} chatKey 稳定聊天键 @param {{pageSize?:number,signal?:AbortSignal,reload?:boolean}} [options] @returns {Promise<ChatHandle>} */
+    async function openChat(chatKey, { pageSize = 30, signal, reload = false } = {}) {
         if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new RangeError('每页楼数需为 1–100');
         const key = parseChatKey(chatKey);
         chatKey = makeChatKey(key.isGroup ? { groupId: key.groupId, fileName: key.fileName } : { avatarUrl: key.avatarUrl, fileName: key.fileName });
         abortCheck(signal);
-        let group = null;
-        let cards;
-        if (key.isGroup) {
-            group = listResult(await read('/api/groups/all', {}, { signal })).find(item => String(item.id) === key.groupId);
-            if (!group || !group.chats?.includes(key.fileName)) throw new StcrDataError('NOT_FOUND', '群聊或聊天文件不存在');
-            cards = await Promise.all((group.members ?? []).map(avatar => read('/api/characters/get', { avatar_url: component(avatar) }, { signal }).catch(error => {
-                if (error.code === 'HTTP_404') return { avatar, name: avatar, data: {} };
-                throw error;
-            })));
-        } else cards = [await read('/api/characters/get', { avatar_url: key.avatarUrl }, { signal })];
+        if (typeof reload !== 'boolean') throw new TypeError('reload 必须为布尔值');
+        if (reload) { cache.remove(chatKey); pending.delete(chatKey); }
+        let entry = cache.peek(chatKey);
+        const cacheHit = Boolean(entry);
+        if (entry) { counts.hits++; cache.touch(entry); }
+        else entry = await acquireEntry(chatKey, signal);
         abortCheck(signal);
-        cards = cards.map(card => freezeJson(structuredClone(card)));
-        let entry = await acquireEntry(chatKey, signal);
-        abortCheck(signal);
-        const parsed = parseChatRows(entry.rows, { isGroup: key.isGroup, userName: key.isGroup ? entry.messages.find(message => message?.is_user)?.name ?? getContext().name1 : getContext().name1,
-            characterName: key.isGroup ? group.name : cards[0]?.name, metadata: group?.chat_metadata });
-        parsed.messages = null;
-        const total = entry.messages.length;
-        const header = parsed.header;
+        const total = entry.messages.length, header = entry.header;
+        const validation = cacheHit ? validateEntry(entry) : Promise.resolve(Object.freeze({ state: 'loaded', checkedAt: null, durationMs: 0 }));
+        const subscriptions = new Set();
         let closed = false;
         function ensureOpen() { if (closed) throw new StcrDataError('CLOSED', '聊天已关闭，请重新打开'); }
         function checkIndex(index) { ensureOpen(); if (!Number.isInteger(index) || index < 0 || index >= total) throw new RangeError('楼层编号越界'); }
         const handle = {
             chatKey: makeChatKey(key.isGroup ? { groupId: key.groupId, fileName: key.fileName } : { avatarUrl: key.avatarUrl, fileName: key.fileName }),
             title: key.fileName, isGroup: key.isGroup, header, total, pageSize, pageCount: Math.ceil(total / pageSize),
+            cacheHit, validation,
             get closed() { return closed; },
+            get stale() { ensureOpen(); return Boolean(entry.staleEvent); },
+            onStale(callback) {
+                ensureOpen();
+                if (typeof callback !== 'function') throw new TypeError('变化通知必须为函数');
+                const target = entry; let active = true, delivered = false;
+                const listener = event => {
+                    if (!active || closed || delivered) return;
+                    delivered = true;
+                    try { callback(event); } catch (error) { console.error('[st-reader] 聊天变化通知失败：', error); }
+                };
+                const unsubscribe = () => { active = false; target.listeners.delete(listener); subscriptions.delete(unsubscribe); };
+                target.listeners.add(listener); subscriptions.add(unsubscribe);
+                // 校验可能早于 UI 订阅完成；晚订阅补发一次，close/退订可取消。
+                if (target.staleEvent) queueMicrotask(() => listener(target.staleEvent));
+                return unsubscribe;
+            },
             getMessage(index) {
                 checkIndex(index);
                 const cached = entry.models.get(index); if (cached) return cached;
@@ -203,6 +263,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             getRegexContext(index) {
                 checkIndex(index);
                 const message = entry.messages[index];
+                const cards = entry.cards;
                 const matches = cards.filter(card => card.name === message.name);
                 const card = key.isGroup ? message.is_user ? null : cards.find(card => card.avatar === message.original_avatar) ?? (matches.length === 1 ? matches[0] : null) : cards[0];
                 return Object.freeze({ userName: header.userName, characterName: key.isGroup ? card?.name ?? message.name : header.characterName,
@@ -218,7 +279,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
                 if (cache.has(entry)) { entry.pages.set(pageKey, page); cache.grow(entry, 256 + page.messages.length * 8); }
                 return page;
             },
-            close() { closed = true; entry = null; cards = null; },
+            close() { if (closed) return; closed = true; for (const unsubscribe of [...subscriptions]) unsubscribe(); entry = null; },
         };
         return Object.freeze(handle);
     }
@@ -264,6 +325,10 @@ export const { listCharacters, listGroups, listRecent, listByCharacter, listByGr
  * @property {number} pageSize
  * @property {number} pageCount
  * @property {boolean} closed
+ * @property {boolean} cacheHit 本次是否直接命中内存
+ * @property {boolean} stale 此快照是否已发现变化；关闭后不可读取
+ * @property {Promise<{state:string,checkedAt:number|null,durationMs:number,code?:string}>} validation 本次后台校验结果；不阻塞首屏
+ * @property {(callback:(event:{chatKey:string,reason:string,checkedAt:number})=>void)=>()=>void} onStale 订阅变化，返回退订函数；close 自动退订
  * @property {(index:number)=>object} getMessage 返回冻结模型；缓存命中可复用同一对象
  * @property {(index:number)=>object} getRegexContext 目标发言者与深度；供 core 内部使用
  * @property {(pageIndex?:number)=>{pageIndex:number,start:number,end:number,total:number,pageCount:number,messages:readonly object[]}} page 零基页码，end 不包含

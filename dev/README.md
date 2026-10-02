@@ -1,6 +1,8 @@
+T57 / 0.2.0：启动开发实例后，双击 `test-release.cmd` 运行 Node、UI、缓存性能与完整浏览器、五套主题 × 三种显示模式和只读审计，最后应显示 `T57 OK.`。T57 交付实测为 Node 167、UI 30、完整浏览器 239、主题界面 16 项全绿；缓存首屏 205.2 / 178.8 / 160.6 ms，后台 677 ms。缓存性能单独跑 `test-chat-cache.cmd`；控制台可运行 `await stcrSelfTest({cachePerformance:true})`。新口径是“缓存命中时首屏渲染完成 <300 ms”，后台校验耗时单独记录，结果缓存 60 秒，发现变化不替换正文。报告 `.dev/fixtures/t57-performance-result.json`，浏览器配置 `.tmp/t57-browser-*` 结束清理。通知与重载合同见 03 §5.14，横幅与抽屉重开预取仍由 T59 接。
+
 开发实例与合成数据。实例数据根固定为 `E:\st-reader\.dev\data`（gitignore），端口 8100。
 
-T54a 版本与更新：先关闭旧的开发服务窗口，重新双击 `start-dev-st.cmd`，等到 listening。打开 `http://localhost:8100/?stcrUpdateDemo=1`，应看到 ST Reader v0.1.0、“开发目录，不可更新”、日志和不能点击的立即更新按钮。这是 core 开发验收面板，正式阅读器入口属于 Opus T54b。
+T54a 版本与更新：先关闭旧的开发服务窗口，重新双击 `start-dev-st.cmd`，等到 listening。打开 `http://localhost:8100/?stcrUpdateDemo=1`，应看到 ST Reader v0.2.0、“开发目录，不可更新”、日志和不能点击的立即更新按钮。这是 core 开发验收面板，正式阅读器入口属于 Opus T54b。
 
 双击 `test-update-service.cmd` 自动跑专项与完整浏览器回归（210 项），出现 `T54a OK.` 即通过。无需打开控制台；若想单测，F12 → Console 输入 `await stcrSelfTest({core:false,updateService:true})`，预期 36 项全绿。Node 全量现为 145 项、UI 30 项。报告为 `.dev/fixtures/t54a-performance-result.json`，截图为 `.dev/fixtures/t54a-update-demo.png`，均不入库；独立浏览器缓存只在 `.tmp/t54a-browser-*`，结束自动清理。检查/更新响应的成功、全局安装、无远端与错误分支用替身验证，真实开发联接零 Git 请求；不在工作仓库实际拉取代码。只读明细见 [T54a 交接](../docs/handoff/2026-10-02_astra_to_human_T54a.md)。
 
@@ -15,7 +17,7 @@ T54a 版本与更新：先关闭旧的开发服务窗口，重新双击 `start-d
 
 I041 高度回归（2026-10-02）：启动 8100 开发实例后，双击 `test-html-height.cmd`，用已有浏览器在 1366 / 1024 两种视口各验纸月样本 390 / 768 / 1200 排版宽度、断网/允许外链、动态收起展开、脱离文档流与内部滚动、重建及外层等比缩放；随后跑完整浏览器回归。等价命令 `node dev/test-performance.mjs --html-height --core-browser`。浏览器配置仅在 `.tmp/i041-browser-*`，完成清理；报告在 `.dev/fixtures/i041-performance*.json`，不入库。控制台单独验为 `await stcrSelfTest({core:false,htmlHeight:true})`；默认完整自测与 htmlRenderer 专项也会包含这些回归。
 
-T53（D24）：
+T53（D24）原交付记录；同步校验与旧性能结论已由上方 T57 / D28 取代：
 - `node dev/selftest.mjs` 为 142 项，`node src/ui/ui.test.js` 为 30 项；`await window.stcrSelfTest()` 完整浏览器 203 项。数字是本卡交付时记录。
 - 缓存专项：关闭阅读器后，在开发实例控制台运行 `await window.stcrSelfTest({core:false,chatCache:true})`，预期 34 项通过（13 保护 + 16 逻辑 + 5 真实 API）。无需选中大聊天，不改宿主选择。
 - 重开计时：开发实例运行期间双击 `test-chat-cache.cmd`，或执行 `node dev/test-performance.mjs --chat-cache --core-browser`。自动使用已有 21.35 MiB / 1600 楼样本，独立浏览器的配置和缓存在 `.tmp/t53-browser-*`，结束清理；不安装浏览器、不下载、不读真实 ST 数据。

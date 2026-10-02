@@ -134,9 +134,9 @@ I009 实证：187208字节的 Ny JetBrainsMono（兼容重复导入别名）实�
 
 T53 内存计量：按 UTF-16 字符串、对象/字段/引用估算，原始数组、深度索引、已构建模型和不同 pageSize 的页均计费；限额为 **150,000,000 字节**，不是整页 JS 堆的硬上限。字符串共享仍保守重复计费；未渲染楼层不提前转模型。超限先淘汰最久未打开项，单项超限可以阅读但不缓存。仍在使用的句柄保有独立旧快照直到 close，不会因别的打开动作淘汰而读坏；这些活动引用及 DOM、格式化结果不属于 LRU 保留量。缓存模块不访问 store、localStorage、IndexedDB 或宿主可变数组。
 
-T53 每次打开/预取先读角色/群信息，再用 `/api/chats/search` 的 `file_size`、`last_mes`（另比较楼数）校验；未变化复用原始数组、冻结模型和页，不再发正文 get。缺摘要字段则不保留；文件消失报 NOT_FOUND；请求失败不拿旧缓存冒充最新。宿主提供的是格式化后大小和最后消息日期，不是精确 mtime/hash；**同大小、同末消息日期、同楼数的原地改字无法靠该摘要发现**。不能声称检测了任意文件变化；刷新可强制重读。
+T57 / D28 修订：缓存命中直接返回包含角色、群组与正文快照的句柄，首屏不等网络；首次命中或距离上次校验完成已满 60 秒时，在后台调用一次 `/api/chats/search` 比较 file_size / last_mes / 楼数。变化只通知句柄订阅者，不自动重取或替换正文。完整接口与失败、重载行为见 §5.14。宿主摘要不是精确 mtime/hash，**同大小、同末消息日期、同楼数的原地改字无法识别**；刷新或显式 reload 强制重读。
 
-T53 性能验收用 `stcrSelfTest({cachePerformance:true})` 或 `dev/test-chat-cache.cmd`；后者还验证真实页面刷新清空与完整浏览器回归。开发实例保留原 21 MB 和 53 MB 样本，不迁走大文件来缩短摘要扫描。当前宿主 search 会逐一读取、解析角色所有聊天，recent 也扫描所选文件；实测重开首帧未达 300 ms，见 I040。缓存功能通过不等于速度指标通过。
+T57 性能验收用 `stcrSelfTest({cachePerformance:true})` 或 `dev/test-chat-cache.cmd`，计时从正式 openReader 调用到首屏 DOM 就绪并完成一次绘制（rAF 后下一任务）。缓存命中首屏必须 <300 ms；后台校验的完整摘要读取耗时单独记录，不计入首屏。后者另验真实页面刷新空缓存与完整浏览器回归。原 21 MB 和 53 MB 样本均保留，没有搬走大文件缩短 search 扫描；T53 旧同步计时失败记录保留在 I040。
 
 ## §5 core ↔ ui 接口（astra 在 T12 填写，Opus 只依赖这里）
 **T12 合同版本 1，2026-09-28。下列已交付接口均有真实实现与可执行测试。** 后续改签名、字段语义或错误行为须登记 06 并在交接信通知 Opus。内部实证接口 `formatWithStrategy`、`loadHostRuntime`、`createChatSource` 不供 UI 依赖。
@@ -155,16 +155,16 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
 | chatSource | `getCurrentChatKey()` | `string \| null`；只读取当前角色/群组及 getCurrentChatId；欢迎页/临时聊天返回 null |
 | chatSource | `makeChatKey({avatarUrl?, groupId?, fileName})` | 稳定字符串；单聊提供 avatarUrl，群聊提供 groupId；fileName 是文件 ID，不额外带存储扩展名 |
 | chatSource | `parseChatKey(chatKey)` | `{isGroup, avatarUrl, groupId, fileName}`；不可直接用斜线随意拆解转义后的名字 |
-| chatSource | `openChat(chatKey, {pageSize = 30, signal} = {})` | `Promise<ChatHandle>`；pageSize 1–100，一次只取指定聊天，不切换 ST |
+| chatSource | `openChat(chatKey, {pageSize = 30, signal, reload = false} = {})` | `Promise<ChatHandle>`；pageSize 1–100，一次只取指定聊天，不切换 ST |
 | chatSource | `prefetchCurrentChat({pageSize = 30, signal} = {})` | `Promise<boolean>`；有当前聊天时校验/读取并构建第一页、关闭临时句柄后返回 true；无当前聊天 false；错误抛出，由 UI 静默处理 |
 | chatSource | `clearChatCache()` | 同步清空 LRU；在途旧读取不重新填回/淘汰新缓存，清空后的打开不加入旧请求；已有等待者与句柄仍可完成/读取 |
-| chatSource | `getChatCacheStats()` | 冻结对象 `{entries,bytes,maxEntries,maxBytes,evictions,keys,hits,misses,invalidations,prefetches,pending}`；keys 从最旧到最新，仅键与计数，无正文；pending 为当前缓存代次的在途键数，clear 不重置累计计数 |
+| chatSource | `getChatCacheStats()` | 冻结对象 `{entries,bytes,maxEntries,maxBytes,evictions,keys,hits,misses,invalidations,prefetches,validations,pending}`；keys 从最旧到最新，仅键与计数，无正文；pending 为当前缓存代次的在途键数，clear 不重置累计计数 |
 | formatter | `initFormatter()` | `Promise<void>`；先 await，重复调用可复用；APP_READY 也会初始化 |
 | formatter | `renderMessage(handle, index, swipeIndex?)` | `RenderedMessage`；省略 swipeIndex 用模型的 swipeId；从原文重跑一次完整管线 |
 
-所有列表的 `options` 为 `{signal?: AbortSignal}`。取消时抛 `AbortError`，UI 不应弹成失败提示。同聊天并发打开共享在途摘要/正文请求（内部独立 signal）；取消单个等待者不取消其他人，最后一人取消才终止共享请求。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
+所有列表的 `options` 为 `{signal?: AbortSignal}`。取消时抛 `AbortError`，UI 不应弹成失败提示。冷读时，同聊天并发打开共享在途角色/摘要/正文请求（内部独立 signal）；取消单个等待者不取消其他人，最后一人取消才终止共享请求。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
 
-T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。预取也需要最新摘要；完成后再打开仍重新校验，不用 TTL 或先显示旧数据后校验来隐去等待。未改 `src/ui/`。
+T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。T57 起预取命中也遵循 D28：直接准备缓存页，后台校验，60 秒内复用结果。T59 负责重展开接线；T57 未改 `src/ui/`。
 
 ### 5.2 数据类型（JSDoc）
 
@@ -213,6 +213,10 @@ T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一
  * @property {number} pageSize
  * @property {number} pageCount 空聊天为 0
  * @property {boolean} closed
+ * @property {boolean} cacheHit 本次命中内存；不代表最新
+ * @property {boolean} stale 已确认发生变化；关闭后抛 CLOSED
+ * @property {Promise<object>} validation 后台结果，首屏不等待；完整字段见 §5.14
+ * @property {(callback:Function)=>Function} onStale 变化订阅，返回退订函数；close 自动退订
  * @property {(index:number)=>MessageModel} getMessage 按需构建并复用冻结模型，不返回原始消息
  * @property {(pageIndex?:number)=>{pageIndex:number,start:number,end:number,total:number,pageCount:number,messages:readonly MessageModel[]}} page end 不包含；空聊天 page(0) 返回空页
  * @property {()=>void} close 幂等释放此句柄和角色快照；之后 page/getMessage/renderMessage 抛 CLOSED；原始数组/索引/已构建页由有界 LRU 保留
@@ -590,12 +594,49 @@ view.destroy();
 
 策略依据：[CSP frame-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-src) 与 [CSP 规范](https://www.w3.org/TR/CSP/)。除了检查 CSP 字符串，本卡还在浏览器中检查内容窗口的 performance 资源记录及子框架请求，避免仅凭属性字符串判定断网。
 
-### 5.15 版本与更新合同（T54a / D25；5.14 留给 T53 分支）
+### 5.14 内存缓存与后台变化通知（T53 / T57；D24 / D28）
+
+缓存只在当前页面内存，默认 3 个聊天、150,000,000 字节估算上限。原始数组、深度索引、冻结角色与 header 快照、已建模型和页均计费。close 只释放本句柄；LRU 淘汰不破坏其他活动句柄。刷新页面清空，不写 store / IndexedDB / localStorage。
+
+| 签名 / 字段 | 约定 |
+|---|---|
+| `openChat(chatKey,{pageSize=30,signal,reload=false}={})` | 仍返回 Promise<ChatHandle>。命中不等待任何网络，直接复用快照；冷读保持只读角色/群组、search 与正文 get 顺序。reload:true 仅丢弃目标键的缓存及其校验结果，然后强制冷读；其他聊天保留，旧活动句柄继续可读。失败抛错，不把空聊天冒充成功 |
+| `handle.cacheHit` | boolean，是否从内存直接返回；可用于诊断，不能当作“文件最新”的保证 |
+| `handle.stale` | boolean，当前快照是否已确认发生变化；关闭后抛 CLOSED。一旦变化便保留标记，直到显式读取新快照 |
+| `handle.onStale(callback)` | callback 为同步函数，收到冻结 `{chatKey,reason:'changed'\|'missing',checkedAt:number}`，时间为毫秒时间戳。返回幂等退订函数；每个订阅至多通知一次。晚于校验订阅也会在微任务补发；关闭/退订可以取消尚未发出的通知。单个回调抛错记录后继续其他回调，不破坏校验 |
+| `handle.validation` | 本次打开对应的 Promise，结果为冻结 `{state:'loaded'\|'fresh'\|'stale'\|'error'\|'discarded',checkedAt:number\|null,durationMs:number,code?:string}`；只用于诊断或额外状态，**首屏不能 await**。冷读返回 loaded、null、0；命中共享同一个在途校验。fresh 是摘要一致；stale 是已确认变化；error 表示未能校验；discarded 表示清空/淘汰/重载后旧校验作废 |
+| `handle.close()` | 幂等，自动退掉本句柄全部通知；不取消其他句柄或该缓存项的后台校验，不自动重取正文 |
+
+第一次缓存命中时后台调一次 search；校验完成后的结果保留 60 秒（包括错误结果，以免连续开关反复打请求），到期后再次打开才重新校验，没有定时轮询。文件大小、末消息日期或楼数变化为 changed，摘要中找不到文件为 missing。缺字段/断网不报“最新”，也不凭空报变化；有旧正文仍可读。后台请求 20 秒超时，错误结果 code 为 TIMEOUT / INCOMPLETE_SUMMARY / HTTP_<状态> / VALIDATION_FAILED。已确认的 stale 不因后续失败或摘要变回而撤销。
+
+clearChatCache、LRU 淘汰和 reload 会中止被移除项的后台请求；即使传输忽略取消，迟到响应也不能通知、重填缓存或污染新快照。冷读共享请求仍由独立 signal 管理，全部等待者取消才中止；显式重载与清缓存隔离在途旧冷读。signal 只负责取得句柄之前的取消，取得后由 close 管理订阅生命周期。
+
+**I042 合同变化通知给 Opus**：命中时角色卡/群 header 也使用已缓存快照，不再每次刷新它们，否则首屏仍依赖网络。显式 reload 或刷新页面会更新；当前扩展设置与正文格式化仍走原管线。修改聊天摘要无法覆盖任意原地改字或只改角色卡的情况，这个限制不能对用户省略。
+
+T59 接线示例（T57 只交付 core，不实现横幅）：
+
+```js
+const handle = await openChat(chatKey, { signal });
+// 立即渲染 handle.page(0)，不要 await handle.validation。
+const unsubscribe = handle.onStale(({ reason }) => {
+    // UI 顶部显示“此聊天有新内容，点击重新加载”；missing 可提示文件已移除。
+    showReloadBanner(reason);
+});
+// 人类点击后：新句柄加载成功再换 UI；失败保留旧正文并提示错误。
+const next = await openChat(chatKey, { reload: true, signal });
+unsubscribe();
+handle.close();
+// 将 next 交给显示管线，并为新句柄重新订阅。
+```
+
+Node 覆盖三种变更、失联/缺字段/删除、60 秒边界、并发、晚订阅/退订、抛错、关闭、清空/淘汰/重载竞态；浏览器以实际只读 API 与正式阅读器计时，变化通知使用响应副本模拟，不修改聊天文件。`dev/test-release.cmd` 依次运行 Node、UI、缓存性能与完整浏览器、五主题 × 三显示模式及只读审计。
+
+### 5.15 版本与更新合同（T54a / D25）
 
 ```js
 import { getVersion, checkUpdate, runUpdate, getChangelog,
     getLastSeenVersion, markVersionSeen } from './src/core/updateService.js';
-const version = await getVersion();                    // '0.1.0'，来自自身 manifest
+const version = await getVersion();                    // '0.2.0'，来自自身 manifest
 const result = await checkUpdate();                    // 下表；不改已读标记
 const sections = await getChangelog();                 // [{ version, markdown }]，文件顺序
 const lastSeen = await getLastSeenVersion();            // string | null
@@ -608,7 +649,7 @@ if (lastSeen !== version) {
 // 人类点击“立即更新”后 await runUpdate()；绝不自动调用。
 ```
 
-`getVersion()` 与 `getChangelog()` 每次 GET 自身同源文件（禁重定向、no-store），读取失败抛 `StcrUpdateError {code,message,status}`。不写死界面版本，也不把 Git commit 当语义版本。日志仅按 `## x.y.z` 切段，可带预发布 / build 与空格分隔的日期；忽略 BOM、统一 CRLF，围栏内的假标题不切段，三级标题留在正文。返回 Markdown 字符串而非可执行 HTML，不请求日志内的链接。T57 才升版本；本卡仍为 0.1.0。
+`getVersion()` 与 `getChangelog()` 每次 GET 自身同源文件（禁重定向、no-store），读取失败抛 `StcrUpdateError {code,message,status}`。不写死界面版本，也不把 Git commit 当语义版本。日志仅按 `## x.y.z` 切段，可带预发布 / build 与空格分隔的日期；忽略 BOM、统一 CRLF，围栏内的假标题不切段，三级标题留在正文。返回 Markdown 字符串而非可执行 HTML，不请求日志内的链接。T54a 交付时为 0.1.0；T57 已升为 0.2.0。
 
 `checkUpdate()` / `runUpdate()` 均返回结果对象，错误也返回 `state:'error'`；所有结果有 `state, message, version`（manifest 未读到时 version 为 null）。状态及附加字段：
 

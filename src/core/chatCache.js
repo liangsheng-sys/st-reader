@@ -24,6 +24,7 @@ export function createMemoryChatCache({ maxEntries = 3, maxBytes = 150_000_000 }
     function remove(key, evicted = false) {
         const entry = entries.get(key); if (!entry) return;
         entries.delete(key); bytes -= entry.bytes;
+        entry.validationController?.abort();
         entry.models.clear(); entry.pages.clear();
         if (evicted) evictions++;
     }
