@@ -14,6 +14,24 @@ export function renderMarkdown(markdown) {
     });
 }
 
+const EXTENSION_ROOT = new URL('../../', import.meta.url);
+const GUIDE_URL = new URL('docs/使用说明.md', EXTENSION_ROOT);
+
+/** 使用说明（T55）：读扩展目录里的 docs/使用说明.md（同源，只是本扩展自己的文件），在面板里显示。 */
+export async function showGuide(docPanel) {
+    let text;
+    try {
+        const response = await fetch(GUIDE_URL, { credentials: 'same-origin', cache: 'no-cache', redirect: 'error' });
+        if (!response.ok) throw new Error(String(response.status));
+        text = await response.text();
+    } catch {
+        docPanel.open({ title: '使用说明', body: h('p', { text: '使用说明没读出来。可以在扩展目录的 docs 文件夹里直接打开"使用说明.md"。' }) });
+        return;
+    }
+    // 第一行大标题和面板标题重复，去掉
+    docPanel.open({ title: '使用说明', body: renderMarkdown(text.replace(/^﻿?#\s[^\n]*\n/, '')) });
+}
+
 /**
  * @param {{root:HTMLElement}} opts
  * @returns {{open:(o:{title:string, body:string|Node, foot?:Node|null, onClose?:()=>void})=>void, close:()=>void, isOpen:()=>boolean}}
@@ -28,7 +46,12 @@ export function createDocPanel({ root }) {
         const content = h('div', { class: 'stcr-doc-body' });
         if (typeof body === 'string') content.innerHTML = body; // 调用方已用 renderMarkdown 清洗
         else content.append(body);
-        for (const a of content.querySelectorAll('a[href]')) a.rel = 'noopener noreferrer';
+        for (const a of content.querySelectorAll('a[href]')) {
+            a.rel = 'noopener noreferrer';
+            // 文档里的相对链接（如 docs/使用说明.md）按扩展目录解析，不然会指到 ST 网站根目录下不存在的地方
+            const href = a.getAttribute('href');
+            if (!/^[a-z][a-z0-9+.-]*:|^#|^\//i.test(href)) a.href = new URL(href, EXTENSION_ROOT).href;
+        }
         const sheet = h('div', { class: 'stcr-doc', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: '-1' },
             h('div', { class: 'stcr-doc-head' },
                 h('h2', { class: 'stcr-doc-title', text: title }),

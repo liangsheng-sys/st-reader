@@ -4,7 +4,7 @@
 // 检查 / 更新只在人类点按钮时发生（ST 会去 github.com 拉取本扩展的目录，不碰聊天）；绝不自动更新。
 
 import { checkUpdate, getChangelog, getLastSeenVersion, getVersion, markVersionSeen, runUpdate } from '../core/updateService.js';
-import { renderMarkdown } from './docPanel.js';
+import { renderMarkdown, showGuide } from './docPanel.js';
 import { h } from './dom.js';
 import { getPrefs, setPrefs } from './prefs.js';
 
@@ -22,11 +22,14 @@ export function createVersionRow({ docPanel }) {
     const reloadBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-ver-reload stcr-on', text: '刷新页面', hidden: true,
         title: '刷新整个页面，让新版本生效（阅读位置、批注都已保存）' });
     const logBtn = h('button', { type: 'button', class: 'stcr-btn stcr-link-btn stcr-ver-log', text: '更新日志', title: '看看每个版本改了什么' });
+    // T55：使用说明放在版本这一行最前面，最容易找到
+    const guideBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-ver-guide', title: '每个功能在哪里点、会发生什么' },
+        h('i', { class: 'fa-solid fa-book-open', 'aria-hidden': 'true' }), ' 使用说明');
     const notice = h('input', { type: 'checkbox', role: 'switch', class: 'stcr-switch-input' });
     const noticeEl = h('label', { class: 'stcr-switch stcr-set-switch stcr-ver-notice', title: '更新后第一次打开阅读器时，告诉你这次改了什么' },
         notice, h('span', { class: 'stcr-switch-track', 'aria-hidden': 'true' }), h('span', { class: 'stcr-set-switch-label', text: '更新后提醒' }));
     const el = h('div', { class: 'stcr-set-item stcr-set-version' }, h('span', { class: 'stcr-set-label', text: '版本' }),
-        h('div', { class: 'stcr-set-ctl' }, name, checkBtn, updateBtn, reloadBtn, status, logBtn, noticeEl));
+        h('div', { class: 'stcr-set-ctl' }, guideBtn, name, checkBtn, updateBtn, reloadBtn, status, logBtn, noticeEl));
 
     let busy = false;
     const say = (text, tone = '') => { status.textContent = text; status.dataset.tone = tone; };
@@ -59,6 +62,7 @@ export function createVersionRow({ docPanel }) {
     updateBtn.addEventListener('click', () => act(runUpdate, '正在更新…（ST 在下载，可能要一会儿）'));
     reloadBtn.addEventListener('click', () => location.reload());
     logBtn.addEventListener('click', () => showChangelog(docPanel));
+    guideBtn.addEventListener('click', () => showGuide(docPanel));
     notice.addEventListener('change', () => setPrefs({ updateNotice: notice.checked }));
 
     return { el, sync: () => { notice.checked = getPrefs().updateNotice; } };

@@ -207,12 +207,14 @@ export async function testUiStatic() {
     await walk(dir);
     const sources = await Promise.all(files.map(async file => ({ file: path.relative(dir, file), text: await readFile(file, 'utf8') })));
     const out = [];
+    // 唯一例外（T55）：使用说明面板读扩展自己的 docs/使用说明.md（同源静态文件，不是 /api）。只放行这一行写法。
+    const allowed = hit => hit.file === 'docPanel.js' && /^\s*const response = await fetch\(GUIDE_URL, \{/.test(hit.text);
     const rule = (name, pattern, why) => {
         const hits = sources.flatMap(({ file, text }) => text.split('\n').map((line, i) => ({ file, line: i + 1, text: line }))
-            .filter(({ text }) => pattern.test(text) && !/^\s*(\/\/|\*|\/\*)/.test(text)));
+            .filter(hit => pattern.test(hit.text) && !/^\s*(\/\/|\*|\/\*)/.test(hit.text) && !allowed(hit)));
         out.push({ name, passed: hits.length === 0, detail: hits.length ? hits.map(h => `${h.file}:${h.line}`).join(', ') : why });
     };
-    rule('界面不直接发请求（只走 03 §5）', /\bfetch\s*\(|XMLHttpRequest|sendBeacon|new\s+WebSocket/, '无 fetch/XHR/beacon/socket');
+    rule('界面不直接发请求（只走 03 §5）', /\bfetch\s*\(|XMLHttpRequest|sendBeacon|new\s+WebSocket/, '无 fetch/XHR/beacon/socket（例外：使用说明读自身 docs 文件）');
     rule('界面不出现 /api/ 地址', /['"`]\/api\//, '无 /api/ 字面量');
     rule('不调用写聊天的宿主方法（D02）', /\b(saveChat|saveChatConditional|saveChatDebounced|deleteMessage|deleteLastMessage|renameChat|clearChat|addOneMessage|updateChatMetadata|saveMetadata|openCharacterChat|openGroupChat|reloadCurrentChat)\s*\(/, '无写聊天/切聊天调用');
     rule('不改 chat / chatMetadata / swipe_id（D02）', /(\.chat\b|chatMetadata|chat_metadata|swipe_id)\s*(\[[^\]]*\])?\s*(=(?!=)|\+\+|--|\.push|\.splice|\.pop|\.shift)/, '无赋值或数组修改');
