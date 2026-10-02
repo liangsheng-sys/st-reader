@@ -42,6 +42,16 @@ const EXTENSION_ID = new URL('../..', import.meta.url).pathname.replace(/^\/scri
 const thumb = file => `/thumbnail?type=avatar&file=${encodeURIComponent(file)}`;
 
 let S = null; // 打开期间的会话状态；关闭即整体丢弃
+/** 本页已经提示过"有新内容"的聊天（D28：同一聊天同一页面会话只提示一次；重新加载成功后清掉，下次变化再提示）。 */
+const staleNoticed = new Set();
+/** 浏览器回归用的故障注入（uiBrowser.test.js）：'open' / 'close' 时在对应流程中途抛错一次。正式使用不会设置。 */
+let testFault = null;
+export function injectReaderFault(stage) { testFault = stage; }
+function maybeFault(stage) {
+    if (testFault !== stage) return;
+    testFault = null;
+    throw new Error(`[st-reader] 测试注入的${stage === 'open' ? '打开' : '关闭'}故障`);
+}
 
 export const isReaderOpen = () => S !== null;
 const wide = () => innerWidth >= WIDE;
@@ -76,6 +86,7 @@ export async function openReader({ tab, chatKey } = {}) {
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
         chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
+        banner: null, staleOff: null, reloading: false,
     };
     S = session;
     session.marks = createMarks({
@@ -169,22 +180,29 @@ export async function openReader({ tab, chatKey } = {}) {
     session.cleanup.push(onPrefsChange(onPrefs));
     session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
     session.cleanup.push(followHostWidth(root));
-    session.cleanup.push(muteHostMessageStyles());
-    document.body.append(root);
-    document.body.classList.add('stcr-reader-open');
-    session.scroller.focus({ preventScroll: true });
-    setTopbarState(true);
-    refreshBackupStatus();
-    if (!highlightSupported()) setTimeout(() => say('这个浏览器太旧，划线能保存但看不到颜色；请升级浏览器。'), 800);
+    session.cleanup.push(muteHostMessageStyles(root, () => { if (S === session) closeReader(); }));
+    try {
+        maybeFault('open');
+        document.body.append(root);
+        document.body.classList.add('stcr-reader-open');
+        session.scroller.focus({ preventScroll: true });
+        setTopbarState(true);
+        refreshBackupStatus();
+        if (!highlightSupported()) setTimeout(() => say('这个浏览器太旧，划线能保存但看不到颜色；请升级浏览器。'), 800);
 
-    const current = getCurrentChatKey();
-    if (chatKey) loadChat(chatKey);
-    else if (current && tab !== 'recent') loadChat(current, { index: stVisibleIndex() });
-    else showEmpty();
-    if (tab) session.drawer.open(tab);
-    else if (!chatKey && !current) session.drawer.open('recent');
-    else if (getPrefs().drawerPinned && wide()) session.drawer.open();
-    if (getPrefs().panelPinned && wide()) session.panel.open();
+        const current = getCurrentChatKey();
+        if (chatKey) loadChat(chatKey);
+        else if (current && tab !== 'recent') loadChat(current, { index: stVisibleIndex() });
+        else showEmpty();
+        if (tab) session.drawer.open(tab);
+        else if (!chatKey && !current) session.drawer.open('recent');
+        else if (getPrefs().drawerPinned && wide()) session.drawer.open();
+        if (getPrefs().panelPinned && wide()) session.panel.open();
+    } catch (error) {
+        // 打开到一半出错：按关闭流程收回（宿主样式恢复、监听移除），再把错误交给入口提示（D29 ③）
+        if (S === session) closeReader();
+        throw error;
+    }
     // 更新后第一次打开：弹"本次更新了什么"（T54b）。读不到就不弹，不挡阅读
     maybeShowWhatsNew(session.docPanel, () => S === session).catch(() => {});
 }
@@ -193,28 +211,55 @@ export async function openReader({ tab, chatKey } = {}) {
  * 宿主聊天里楼内自带的 <style>（ST 给选择器加的前缀是 `.mes_text `）也会命中阅读器的楼层：
  * 例如卡片 CSS 的 `p { background }` 让阅读器整页段落上底色、`text-align: center` 让整页居中（T50/T52 验收）。
  * 阅读器开着时把这些样式表暂停（只设 HTMLStyleElement.disabled，不删、不改文字、不碰聊天数据），关阅读器时原样恢复。
- * 宿主聊天被不透明的阅读器盖着，看不出差别。只动 #chat 里的 <style>（ST 的楼内样式），主题与扩展的样式不受影响。
+ * 宿主聊天被不透明的阅读器盖着，看不出差别。D29：只动 `#chat .mes` 里的 <style>，#chat 外、<head>、主题与扩展的样式一概不碰。
+ * 恢复路径（D29 ③）：正常关闭 / 打开或关闭中途抛错（调用方 try·finally）/ pagehide / 阅读器根节点被移出页面。
+ * 返回的恢复函数可重复调用。onRootLost：根节点被别人移走时通知阅读器收尾。
  */
-function muteHostMessageStyles() {
+function muteHostMessageStyles(root, onRootLost = () => {}) {
     const chat = document.getElementById('chat');
     if (!chat) return () => {};
     const muted = new Set();
+    let done = false;
     const mute = () => {
-        for (const style of chat.querySelectorAll('style')) {
+        for (const style of chat.querySelectorAll('.mes style')) {
             if (style.disabled || muted.has(style)) continue;
             style.disabled = true;
             muted.add(style);
         }
     };
+    const unmute = () => {
+        for (const style of muted) style.disabled = false;
+        muted.clear();
+    };
     mute();
     // ST 在阅读器开着时也可能重绘聊天（换角色、收到新消息）：新出现的楼内样式同样暂停
     const mo = new MutationObserver(records => { if (records.some(r => r.addedNodes.length)) mute(); });
     mo.observe(chat, { childList: true, subtree: true });
-    return () => {
-        mo.disconnect();
-        for (const style of muted) style.disabled = false;
-        muted.clear();
-    };
+    // 离开页面：先恢复（浏览器可能把页面存进往返缓存）；从往返缓存回来、阅读器还在，就再暂停
+    const onHide = () => unmute();
+    const onShow = event => { if (event.persisted && !done && root.isConnected) mute(); };
+    window.addEventListener('pagehide', onHide, true);
+    window.addEventListener('pageshow', onShow, true);
+    // 阅读器根节点被移出页面（别的脚本清了 body 等）：立即恢复，并让阅读器收尾
+    const bodyMo = new MutationObserver(() => {
+        if (root.isConnected || done) return;
+        restore();
+        try { onRootLost(); } catch (error) { console.error('[st-reader] 根节点被移除后收尾失败：', error); }
+    });
+    bodyMo.observe(document.body, { childList: true });
+    function restore() {
+        if (done) return;
+        done = true;
+        try {
+            mo.disconnect();
+            bodyMo.disconnect();
+            window.removeEventListener('pagehide', onHide, true);
+            window.removeEventListener('pageshow', onShow, true);
+        } finally {
+            unmute();
+        }
+    }
+    return restore;
 }
 
 /**
@@ -238,28 +283,37 @@ function followHostWidth(root) {
 export function closeReader() {
     if (!S) return;
     const session = S;
-    closePopover(session); // 批注输入框点外面=保存，这里同理：先保存再关
-    session.studio.close(); // 先关卡片工作台：它可能借用着这个聊天的句柄
-    session.htmlShot.close();
-    session.docPanel.close();
-    session.html.destroy(); // 所有 HTML 沙箱一起销毁
-    S = null;
-    session.token++;
-    session.controller?.abort();
-    flushProgress();
-    session.selUi.hideBubble();
-    session.marks.destroy();
-    session.chat.replaceChildren();
-    session.handle?.close();
-    session.handle = null;
-    session.drawer.destroy();
-    for (const undo of session.cleanup) undo();
-    clearTimeout(session.chromeTimer);
-    clearTimeout(session.statusTimer);
-    session.root.remove();
-    document.body.classList.remove('stcr-reader-open');
-    setTopbarState(false);
-    if (session.restoreFocus instanceof HTMLElement && document.contains(session.restoreFocus)) session.restoreFocus.focus({ preventScroll: true });
+    try {
+        maybeFault('close');
+        closePopover(session); // 批注输入框点外面=保存，这里同理：先保存再关
+        session.studio.close(); // 先关卡片工作台：它可能借用着这个聊天的句柄
+        session.htmlShot.close();
+        session.docPanel.close();
+        session.html.destroy(); // 所有 HTML 沙箱一起销毁
+        S = null;
+        session.token++;
+        session.controller?.abort();
+        flushProgress();
+        session.selUi.hideBubble();
+        session.marks.destroy();
+        session.chat.replaceChildren();
+        session.staleOff?.();
+        session.handle?.close();
+        session.handle = null;
+        session.drawer.destroy();
+    } finally {
+        if (S === session) { S = null; session.token++; } // 中途抛错也不留下"关不掉"的半个阅读器
+        // 宿主样式恢复、全局监听移除必须做完（D29 ③）：每项单独兜住，一项失败不连累其他
+        for (const undo of session.cleanup) {
+            try { undo(); } catch (error) { console.error('[st-reader] 关闭收尾失败：', error); }
+        }
+        clearTimeout(session.chromeTimer);
+        clearTimeout(session.statusTimer);
+        session.root.remove();
+        document.body.classList.remove('stcr-reader-open');
+        setTopbarState(false);
+        if (session.restoreFocus instanceof HTMLElement && document.contains(session.restoreFocus)) session.restoreFocus.focus({ preventScroll: true });
+    }
 }
 
 /** 顶栏书本按钮的亮/灭。按钮由 mount.js 创建。 */
@@ -423,6 +477,8 @@ function onClick(event) {
             case 'close-panel': session.panel.close(); return;
             case 'jump': openJump(); return;
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
+            case 'stale-reload': reloadStale(); return;
+            case 'stale-dismiss': hideStaleBanner(session); session.scroller.focus({ preventScroll: true }); return;
             case 'continue': loadChat(actEl.dataset.key, { index: Number(actEl.dataset.index) }); return;
             case 'open-drawer': session.drawer.open('recent'); return;
             case 'swipe-prev': if (mes) { stepSwipe(mes, -1); if (fromFollow) scrollFloorTop(mes); } return;
@@ -843,8 +899,11 @@ async function refreshBackupStatus() {
 
 // ───────────────────────── 聊天加载 ─────────────────────────
 
-/** 打开一个聊天。连续快速点击时只有最后一次生效，过期结果立即关闭（03 §5.3）。 */
-async function loadChat(chatKey, { index = null, swipe = null } = {}) {
+/**
+ * 打开一个聊天。连续快速点击时只有最后一次生效，过期结果立即关闭（03 §5.3）。
+ * handle：已经读好的句柄（横幅"重新加载"先读成功再换，失败时旧正文不动）；anchor：换完回到这一楼的同一位置。
+ */
+async function loadChat(chatKey, { index = null, swipe = null, handle: ready = null, anchor = null } = {}) {
     const session = S;
     if (!session) return;
     const token = ++session.token;
@@ -858,9 +917,10 @@ async function loadChat(chatKey, { index = null, swipe = null } = {}) {
     session.drawer.markActive();
     showState('loading');
     try {
-        const handle = await openChat(chatKey, { pageSize: PAGE_SIZE, signal: controller.signal });
+        const handle = ready ?? await openChat(chatKey, { pageSize: PAGE_SIZE, signal: controller.signal });
         if (S !== session || token !== session.token) { handle.close(); return; }
         session.handle = handle;
+        watchStale(session, handle);
         session.owner = handle.header.characterName || (handle.isGroup ? '群聊' : '');
         setTitles(session);
         session.root.setAttribute('aria-label', `阅读器：${session.owner} · ${handle.title}`);
@@ -882,6 +942,7 @@ async function loadChat(chatKey, { index = null, swipe = null } = {}) {
         if (Number.isInteger(swipe)) session.swipeView.set(start, swipe);
         showState(null);
         jumpTo(start);
+        if (anchor?.index === start) restoreAnchor(anchor);
     } catch (error) {
         if (error?.name === 'AbortError' || S !== session || token !== session.token) return;
         console.error('[st-reader] 打开聊天失败：', error);
@@ -896,6 +957,9 @@ function releaseChat(session) {
     session.chat.replaceChildren();
     session.firstPage = session.lastPage = -1;
     session.hoverIndex = null;
+    session.staleOff?.();
+    session.staleOff = null;
+    hideStaleBanner(session);
     session.handle?.close();
     session.handle = null;
     session.titleOwner.textContent = '阅读器';
@@ -903,6 +967,63 @@ function releaseChat(session) {
     session.favBtn.hidden = true;
     session.follow.hidden = true;
     session.follow.dataset.key = '';
+}
+
+// ───────────────────────── 有新内容横幅（D28） ─────────────────────────
+
+/** 缓存命中的聊天，后台校验发现 ST 那边已经变了：订阅 core 的通知（03 §5.14），只改阅读器自己的界面。 */
+function watchStale(session, handle) {
+    session.staleOff?.();
+    session.staleOff = handle.onStale(({ chatKey, reason }) => {
+        if (S !== session || session.handle !== handle || staleNoticed.has(chatKey)) return;
+        staleNoticed.add(chatKey);
+        showStaleBanner(session, reason);
+    });
+}
+
+function showStaleBanner(session, reason) {
+    hideStaleBanner(session);
+    const missing = reason === 'missing';
+    const text = missing
+        ? h('span', { class: 'stcr-banner-text', text: '这个聊天在 ST 里找不到了（可能已删除或改名），下面是之前读到的内容' })
+        : h('button', { type: 'button', class: 'stcr-btn stcr-banner-text', 'data-act': 'stale-reload', text: '此聊天有新内容，点击重新加载' });
+    session.banner = h('div', { class: 'stcr-banner', role: 'status' },
+        h('i', { class: `fa-solid ${missing ? 'fa-circle-exclamation' : 'fa-rotate'} stcr-banner-icon`, 'aria-hidden': 'true' }),
+        text,
+        iconButton('fa-xmark', '关闭提示', { class: 'stcr-banner-close', 'data-act': 'stale-dismiss' }));
+    session.main.append(session.banner);
+    session.root.classList.add('stcr-has-banner');
+}
+
+function hideStaleBanner(session) {
+    session.banner?.remove();
+    session.banner = null;
+    session.root.classList.remove('stcr-has-banner');
+}
+
+/** 点横幅：先只读地重新读一遍（reload:true），读成功才换正文并回到原来那一楼；失败旧正文不动，给一句提示。 */
+async function reloadStale() {
+    const session = S;
+    if (!session?.handle || session.reloading) return;
+    const { chatKey, handle } = session;
+    const anchor = captureAnchor();
+    const label = session.banner?.querySelector('.stcr-banner-text');
+    session.reloading = true;
+    if (label) { label.textContent = '正在重新加载…'; label.disabled = true; }
+    try {
+        const next = await openChat(chatKey, { pageSize: PAGE_SIZE, reload: true });
+        if (S !== session || session.handle !== handle) { next.close(); return; }
+        staleNoticed.delete(chatKey); // 换成新快照了：以后再变还会提示
+        await loadChat(chatKey, { index: anchor?.index ?? null, handle: next, anchor });
+        if (S === session && session.handle === next) say('已重新加载');
+    } catch (error) {
+        if (S !== session || session.handle !== handle) return;
+        console.error('[st-reader] 重新加载失败：', error);
+        if (label?.isConnected) { label.textContent = '此聊天有新内容，点击重新加载'; label.disabled = false; }
+        say(`重新加载失败：${describeError(error)} 下面仍是之前的内容。`);
+    } finally {
+        session.reloading = false;
+    }
 }
 
 function showState(kind, error) {

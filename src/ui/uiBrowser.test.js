@@ -4,11 +4,13 @@
 // T50：楼里自带 <style>（如卡片 CSS 写了 p { text-align: center; background: … }）不能让整页正文居中、上底色；
 // 逐套切 ST 自带主题 × 聊天风格（默认 / 气泡 / 文档），每种组合下普通楼 .mes_text 和段落都应左对齐。
 // 会临时切换 ST 的主题和聊天风格（这是 ST 自己的外观设置，ST 会照常保存），跑完切回原来的。不读写任何聊天。
+// T59：跑完主题再接 testHostStylesBrowser（D29 ③）——阅读器打开期间暂停 #chat .mes 里的 <style>，
+// 正常关闭、打开/关闭中途抛错、pagehide、根节点被移走后，宿主这些 <style> 的 disabled 必须全部回到 false。
 
 import { isDevInstance } from '../core/readonlyGuard.js';
 import { buildFloor } from './floorToolbar.js';
 import { h } from './dom.js';
-import { isReaderOpen } from './reader.js';
+import { closeReader, injectReaderFault, isReaderOpen, openReader } from './reader.js';
 
 export const BUILTIN_THEMES = Object.freeze(['Azure', 'Cappuccino', 'Celestial Macaron', 'Dark Lite', 'Dark V 1.0']);
 const DISPLAYS = Object.freeze([['0', '默认'], ['1', '气泡'], ['2', '文档']]);
@@ -85,6 +87,89 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
         $theme.val(before.theme).trigger('change');
         $display.val(before.display).trigger('change');
     }
+    results.push(...await testHostStylesBrowser({ force, quiet: true }));
     console.table(results);
+    return results;
+}
+
+/**
+ * D29 ③ 回归：宿主 #chat .mes 里的 <style> 只在阅读器开着时 disabled，任何关闭路径后全部恢复；
+ * #chat 里 .mes 外的 <style> 和 <head> 里的样式从头到尾不碰。
+ * 临时往 #chat 末尾放一个不带 mesid 的假楼（只有一个空 <style>），跑完移除；不读写聊天数据。会真的打开/关闭几次阅读器。
+ */
+export async function testHostStylesBrowser({ force = false, quiet = false } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    if (isReaderOpen()) throw new Error('请先关闭阅读器再跑');
+    const chat = document.getElementById('chat');
+    if (!chat) throw new Error('页面上没有 #chat');
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `宿主样式：${name}`, passed: !!passed, detail });
+    const style = text => Object.assign(document.createElement('style'), { textContent: `/* stcr 测试：${text} */` });
+    const fakeMes = h('div', { class: 'mes stcr-test-hostmes' }, h('div', { class: 'mes_text' }, style('楼内')));
+    const outside = style('#chat 里 .mes 外');
+    const head = style('head');
+    chat.append(fakeMes, outside);
+    document.head.append(head);
+    const hostStyles = () => [...chat.querySelectorAll('.mes style')];
+    const allBack = () => { const bad = hostStyles().filter(el => el.disabled); return { ok: !bad.length, detail: `${hostStyles().length} 个楼内样式，仍禁用 ${bad.length} 个` }; };
+    const allMuted = () => hostStyles().every(el => el.disabled);
+    const untouched = () => !outside.disabled && !head.disabled;
+    const blockers = [];
+    // 合成的 pagehide/pageshow 只给阅读器自己的监听（它先注册），别的脚本收不到
+    const shield = type => { const stop = event => event.stopImmediatePropagation(); window.addEventListener(type, stop, true); blockers.push([type, stop]); };
+    try {
+        const before = hostStyles().filter(el => el.disabled).length;
+        check('开始前全部启用', before === 0, `禁用 ${before} 个`);
+
+        await openReader();
+        check('打开后楼内样式暂停', allMuted(), `${hostStyles().length} 个`);
+        check('打开后 .mes 外与 head 不碰', untouched());
+        const late = style('打开后新出现的楼内');
+        fakeMes.querySelector('.mes_text').append(late);
+        await wait(30);
+        check('打开期间新出现的楼内样式也暂停', late.disabled);
+        closeReader();
+        let r = allBack();
+        check('正常关闭后全部恢复', r.ok && !isReaderOpen(), r.detail);
+
+        injectReaderFault('open');
+        let threw = false;
+        try { await openReader(); } catch { threw = true; }
+        r = allBack();
+        check('打开中途抛错后全部恢复、阅读器不残留', threw && r.ok && !isReaderOpen() && !document.getElementById('stcr_root'), `抛错=${threw}；${r.detail}`);
+
+        await openReader();
+        injectReaderFault('close');
+        threw = false;
+        try { closeReader(); } catch { threw = true; }
+        r = allBack();
+        check('关闭中途抛错后全部恢复、阅读器不残留', threw && r.ok && !isReaderOpen() && !document.getElementById('stcr_root'), `抛错=${threw}；${r.detail}`);
+
+        await openReader();
+        shield('pagehide'); shield('pageshow');
+        window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+        r = allBack();
+        check('pagehide 后全部恢复', r.ok, r.detail);
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        check('从往返缓存回来、阅读器还开着：重新暂停', allMuted());
+        closeReader();
+        r = allBack();
+        check('之后关闭仍全部恢复', r.ok, r.detail);
+
+        await openReader();
+        document.getElementById('stcr_root')?.remove();
+        await wait(30);
+        r = allBack();
+        check('根节点被移走后全部恢复、阅读器收尾', r.ok && !isReaderOpen(), r.detail);
+        check('全程 .mes 外与 head 未被禁用', untouched());
+    } finally {
+        for (const [type, stop] of blockers) window.removeEventListener(type, stop, true);
+        if (isReaderOpen()) try { closeReader(); } catch { /* 已在上面记录 */ }
+        injectReaderFault(null);
+        fakeMes.remove();
+        outside.remove();
+        head.remove();
+    }
+    if (!quiet) console.table(results);
     return results;
 }

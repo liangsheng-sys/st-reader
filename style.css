@@ -1452,3 +1452,32 @@
 /* 长条样式里版本单独占顶上一行（其余项照常横排） */
 #stcr_root .stcr-settings--bar .stcr-set-more > .stcr-set-version { flex-basis: 100%; }
 #stcr_root .stcr-set-version .stcr-set-ctl { row-gap: 4px; }
+
+/* 有新内容横幅（T59 / D28）：缓存里的聊天在 ST 那边变了。正文顶部居中一条主题色胶囊，点文字重新加载，× 关掉。 */
+#stcr_root .stcr-banner {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    z-index: 5; /* 盖过跟随条（4），低于提示气泡（10） */
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: max-content;
+    max-width: calc(100% - 24px);
+    padding: 2px 4px 2px 14px;
+    border: 1px solid color-mix(in srgb, var(--stcr-accent) 60%, transparent);
+    border-radius: 999px;
+    background-color: var(--stcr-panel);
+    background-image: linear-gradient(color-mix(in srgb, var(--stcr-accent) 18%, transparent), color-mix(in srgb, var(--stcr-accent) 18%, transparent));
+    box-shadow: 0 4px 16px var(--stcr-shadow);
+    font-size: 13px;
+    animation: stcr-fade .2s ease-out;
+}
+#stcr_root .stcr-banner-icon { flex: none; color: var(--stcr-accent); }
+#stcr_root .stcr-banner-text { padding: 6px 2px; color: var(--stcr-text); text-align: left; }
+#stcr_root button.stcr-banner-text { cursor: pointer; }
+#stcr_root button.stcr-banner-text:hover { text-decoration: underline; text-underline-offset: 3px; }
+#stcr_root button.stcr-banner-text:disabled { cursor: progress; opacity: .7; text-decoration: none; }
+#stcr_root .stcr-banner-close { flex: none; min-width: 28px; height: 28px; font-size: 12px; }
+#stcr_root.stcr-has-banner .stcr-follow { top: 52px; }
