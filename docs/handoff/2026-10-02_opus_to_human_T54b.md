@@ -1,6 +1,6 @@
 # T54b 交接：阅读器里能看版本、检查更新、一键更新；更新后告诉你改了什么
 
-分支：`task/T54b-update-ui`，从 astra 的 `task/T54a-update-core`（含 main、I041）开始。不含 T50/T52（在 `task/T52-width` 上），合并时互不冲突的代码文件只有 `reader.js`、`style.css` 两处需要一起合。
+分支：`task/T54b-update-ui`，从 astra 的 `task/T54a-update-core`（含 main、I041）开始。不含 T50/T52（在 `task/T52-width` 上）。已用 git 试合：两条分支的代码文件自动合并无冲突，只有 `docs/04_TASKS.md`、`docs/06_ISSUES.md` 的状态行需要手工合。
 
 ## 做了什么
 
