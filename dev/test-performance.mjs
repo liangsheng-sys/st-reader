@@ -7,7 +7,8 @@ import { assertDevPath, DEV_ROOT, PROJECT_ROOT, writeDevFile } from './fixtures/
 
 // 使用本机已有 Chrome/Edge 和 Node 内置 CDP WebSocket；不装依赖，不访问真实 ST。
 const origin = 'http://localhost:8100';
-const htmlHeight = process.argv.includes('--html-height'), task = htmlHeight ? 'i041' : 't30';
+const htmlHeight = process.argv.includes('--html-height'), updateService = process.argv.includes('--update-service');
+const task = updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const chromePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(file => fs.existsSync(file));
 let browser, socket, profile;
@@ -25,9 +26,9 @@ async function evaluate(expression) {
 }
 try {
     if (!chromePath) throw new Error('请使用本机已安装的 Chrome 或 Edge；此脚本不会下载浏览器。');
-    const fixture = htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
+    const fixture = updateService ? { synthetic: true, name: '版本服务与开发目录' } : htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
         : JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'fixtures/performance.json'))));
-    if (!htmlHeight && fixture.bytes < 50 * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
+    if (!htmlHeight && !updateService && fixture.bytes < 50 * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
     const response = await fetch(`${origin}/`, { signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('先启动开发实例');
     const tempRoot = path.join(PROJECT_ROOT, '.tmp');
     if (fs.lstatSync(tempRoot).isSymbolicLink()) throw new Error('.tmp 不能是联接');
@@ -51,7 +52,8 @@ try {
         const url = new URL(event.request.url);
         const remote = /^https?:$/.test(url.protocol) && url.origin !== origin;
         const forbidden = /^\/api\/chats\/(?:save|rename|delete|import|group\/(?:save|delete|import))(?:\/|$)/i.test(url.pathname);
-        if (remote || forbidden) { blocked.push({ url: url.origin + url.pathname, reason: forbidden ? 'D02' : '外网' }); await send('Fetch.failRequest', { requestId: event.requestId, errorReason: 'BlockedByClient' }); }
+        const devGit = updateService && /^\/api\/extensions\/(version|update)$/.test(url.pathname);
+        if (remote || forbidden || devGit) { blocked.push({ url: url.origin + url.pathname, reason: forbidden ? 'D02' : devGit ? '开发目录 Git' : '外网' }); await send('Fetch.failRequest', { requestId: event.requestId, errorReason: 'BlockedByClient' }); }
         else { requests.push(url.pathname); await send('Fetch.continueRequest', { requestId: event.requestId }); }
     });
     await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
@@ -78,10 +80,19 @@ try {
         await evaluate('document.fonts.ready.then(()=>true)');
     }
     await delay(3000);
-    console.log(htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
+    console.log(updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
     if (process.argv.includes('--profile')) { await send('Profiler.enable'); await send('Profiler.start'); }
     let failure, report;
-    if (htmlHeight) {
+    if (updateService) {
+        try { await evaluate('window.stcrSelfTest({core:false,updateService:true})'); } catch (error) { failure = error; }
+        report = await evaluate('window.stcrUpdateReport');
+        if (!failure) {
+            await evaluate('window.stcrUpdateDemo()');
+            const shot = await send('Page.captureScreenshot', { format: 'png' });
+            writeDevFile(path.join(DEV_ROOT, 'fixtures/t54a-update-demo.png'), Buffer.from(shot.data, 'base64'));
+            await evaluate('document.querySelector("#stcr_update_demo").close()');
+        }
+    } else if (htmlHeight) {
         report = { cases: [] };
         for (const width of [1366, 1024]) {
             await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });

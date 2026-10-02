@@ -46,6 +46,11 @@ if (isDevInstance(window.location)) {
             const { testHtmlHeightBrowser } = await import('./src/core/htmlHeightBrowser.test.js');
             results.push(...await testHtmlHeightBrowser());
         }
+        if (options.updateService ?? runCore) {
+            const { testUpdateServiceLogic } = await import('./src/core/updateService.test.js');
+            const { testUpdateServiceBrowser } = await import('./src/core/updateServiceBrowser.test.js');
+            results.push(...await testUpdateServiceLogic(), ...await testUpdateServiceBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
@@ -55,7 +60,7 @@ if (isDevInstance(window.location)) {
             results.push(...await testPerformanceBrowser());
         }
         console.table(results);
-        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore ? '检查仅调用同源只读 API。' : '未发送任何测试请求。'}`);
+        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore || options.updateService ? '检查仅读取同源资源与只读 API；更新接口使用替身。' : '未发送任何测试请求。'}`);
         return results;
     });
     window.stcrStorageProbe = async phase => {
@@ -73,6 +78,10 @@ if (isDevInstance(window.location)) {
     window.stcrHtmlBoundaryDemo = async () => {
         const { showHtmlBoundaryDemo } = await import('./src/core/htmlBoundaryDemo.js');
         return showHtmlBoundaryDemo();
+    };
+    window.stcrUpdateDemo = async () => {
+        const { showUpdateServiceDemo } = await import('./src/core/updateServiceBrowser.test.js');
+        return showUpdateServiceDemo();
     };
 }
 
@@ -102,6 +111,7 @@ eventSource.on(event_types.APP_READY, async () => {
     if (isDevInstance(window.location) && probe) window.stcrStorageProbe(probe).catch(error => console.error('[st-reader] 刷新验证失败：', error));
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrExportDemo') === '1') window.stcrExportDemo().catch(error => console.error('[st-reader] PNG 演示失败：', error));
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrHtmlDemo') === '1') window.stcrHtmlDemo().catch(error => console.error('[st-reader] HTML 演示失败：', error));
+    if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrUpdateDemo') === '1') window.stcrUpdateDemo().catch(error => console.error('[st-reader] 版本演示失败：', error));
     // 开发验收也可用网址参数触发；与控制台的一行命令运行同一套测试。
     if (isDevInstance(window.location) && new URLSearchParams(window.location.search).get('stcrSelfTest') === '1') {
         const params = new URLSearchParams(window.location.search);
@@ -110,6 +120,7 @@ eventSource.on(event_types.APP_READY, async () => {
         if (params.has('cardExport')) options.cardExport = params.get('cardExport') !== '0';
         if (params.has('coreFixes')) options.coreFixes = params.get('coreFixes') !== '0';
         if (params.has('htmlRenderer')) options.htmlRenderer = params.get('htmlRenderer') !== '0';
+        if (params.has('updateService')) options.updateService = params.get('updateService') !== '0';
         const run = () => window.stcrSelfTest(options).catch(error => console.error('[st-reader] 自测失败：', error));
         const waitAvatar = options.rendered ? 'STCR_T11_Aster.png' : params.get('coreWhenChat') === '1' ? 'STCR_T11_Mist.png' : null;
         if (waitAvatar) {

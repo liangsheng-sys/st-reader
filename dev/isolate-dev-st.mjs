@@ -18,6 +18,10 @@ PUBLIC_DIRECTORIES.backups = 'E:\\st-reader\\.dev\\program-backups';
 const serveStatic = express.static;
 express.static = function (root, options) {
     const middleware = serveStatic(root, options);
-    return (req, res, next) => /^\/scripts\/extensions\/third-party(?:\/|$)/i.test(req.path)
-        ? next() : middleware(req, res, next);
+    return (req, res, next) => {
+        // T54a：此进程里的阅读器是工作目录联接，禁止更新服务对它做 Git fetch/pull。
+        // 只标记自身 manifest；正式 ST 不载入这个预载模块，不受影响。
+        if (req.path === '/scripts/extensions/third-party/st-reader/manifest.json') res.setHeader('X-STCR-Dev-Directory', '1');
+        return /^\/scripts\/extensions\/third-party(?:\/|$)/i.test(req.path) ? next() : middleware(req, res, next);
+    };
 };

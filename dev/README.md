@@ -1,5 +1,9 @@
 开发实例与合成数据。实例数据根固定为 `E:\st-reader\.dev\data`（gitignore），端口 8100。
 
+T54a 版本与更新：先关闭旧的开发服务窗口，重新双击 `start-dev-st.cmd`，等到 listening。打开 `http://localhost:8100/?stcrUpdateDemo=1`，应看到 ST Reader v0.1.0、“开发目录，不可更新”、日志和不能点击的立即更新按钮。这是 core 开发验收面板，正式阅读器入口属于 Opus T54b。
+
+双击 `test-update-service.cmd` 自动跑专项与完整浏览器回归（210 项），出现 `T54a OK.` 即通过。无需打开控制台；若想单测，F12 → Console 输入 `await stcrSelfTest({core:false,updateService:true})`，预期 36 项全绿。Node 全量现为 145 项、UI 30 项。报告为 `.dev/fixtures/t54a-performance-result.json`，截图为 `.dev/fixtures/t54a-update-demo.png`，均不入库；独立浏览器缓存只在 `.tmp/t54a-browser-*`，结束自动清理。检查/更新响应的成功、全局安装、无远端与错误分支用替身验证，真实开发联接零 Git 请求；不在工作仓库实际拉取代码。只读明细见 [T54a 交接](../docs/handoff/2026-10-02_astra_to_human_T54a.md)。
+
 - 双击 `start-dev-st.cmd` 启动；它通过原生 Node 启动器完成配置、目录联接与临时目录初始化，再运行现有 ST 程序。T40 后开发联接指向 `E:\st-reader` 仓库根；已知旧目标会自动迁移，未知联接或普通目录会停止并保留。
 - `config.dev.yaml` 是首次生成 `.dev/config.yaml` 的模板，不覆盖已有配置。
 - `isolate-dev-st.mjs` 只在开发进程内把全局扩展和程序备份目录指向 `.dev/`，不修改宿主源码。

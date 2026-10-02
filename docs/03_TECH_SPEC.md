@@ -7,7 +7,7 @@
 - 扩展加载位置：`data/<user>/extensions/<name>/`（酒馆助手就装在这里）或 `public/scripts/extensions/third-party/`。`manifest.json` 支持 `hooks.activate`。
 - `SillyTavern.getContext()` 可用项（节选）：`chat, characters, groups, name1, name2, characterId, groupId, chatId, chatMetadata, extensionSettings, powerUserSettings, eventSource, event_types, messageFormatting, substituteParams, getThumbnailUrl, openCharacterChat, openGroupChat, getCurrentChatId, getRequestHeaders, renderExtensionTemplateAsync, Popup, callGenericPopup, isMobile, saveSettingsDebounced, parseReasoningFromString, t`。
 - `SillyTavern.libs`：`lodash, Fuse, DOMPurify, hljs, localforage, Handlebars, moment, showdown, yaml` 等。
-- 只读 API（均 POST，带 `getRequestHeaders()`）：
+- 允许接口：以下聊天 / 角色 / 群组 API 为只读（均 POST，带 `getRequestHeaders()`）：
   - `/api/chats/recent` `{pinned:[], max, metadata}` → `ChatInfo[]`（含 `avatar` 或 `group`）
   - `/api/characters/chats` `{avatar_url, simple?}` → 该角色的聊天列表
   - `/api/chats/get` `{avatar_url, file_name}` → `[header, ...messages]`
@@ -17,6 +17,8 @@
   - `/api/characters/get` `{avatar_url}` → 完整角色卡（含该角色的作用域正则）
   - `/api/groups/all` `{}` → 群组定义（成员、聊天 ID、元信息）
   - 注意：`/api/chats/get` 在角色 chat 目录不存在时会 `mkdirSync`，属于宿主行为，可接受。
+- D25 允许的扩展更新接口（均 POST，带 `getRequestHeaders()`）：`/api/extensions/version` 与 `/api/extensions/update`，body 固定 `{extensionName:'st-reader', global:boolean}`，只对阅读器自身安装目录执行 Git fetch / pull，不涉及聊天。它们会由 ST 访问仓库远端 github.com；不是聊天只读 API，亦不扩展到任意扩展目录。用户目录优先，仅 404 才试全局目录；更新只用检查确认的那个位置。
+- 版本与日志允许 GET 自身同源 `manifest.json` / `CHANGELOG.md`，禁重定向、`cache:'no-store'`。ST 1.14.0 的 getManifests 非公开且没有 getExtensionManifest 导出，T54a 使用同源 fetch。
 - **禁用**（D02）：`/api/chats/save|rename|delete|import|group/save|group/delete|group/import`，以及 context 上的 `saveChat, deleteMessage, deleteLastMessage, renameChat, clearChat, addOneMessage, updateChatMetadata, saveMetadata`。
 - 服务端 CLI：`--dataRoot`、`--configPath`、`--port`、`--listen`。开发实例见 D03。
 - T10 启动器：`dev/start-dev-st.cmd` → 原生 Node `start-dev-st.mjs`，首次从 `dev/config.dev.yaml` 创建被忽略的 `.dev/config.yaml`；固定 D03 数据路径，创建扩展目录联接，临时目录固定在 `.tmp/`。`--import dev/isolate-dev-st.mjs` 只在开发进程内将 `PUBLIC_DIRECTORIES.globalExtensions/backups` 指向 `.dev/`，防止管理扩展时宿主对 F 盘全局扩展执行 Git 检查（I007），不修改宿主文件。
@@ -51,6 +53,7 @@ E:\st-reader/
     textTransforms.js 纯文本引用与字面量脱敏变换；Node/浏览器共用
     cssScope.js       克隆 #chat → #stcr_chat 规则；监听新增 style/link；主题切换重跑
     store.js          localforage 实例 'st-reader'：annotations / bookmarks / maskWords / settings / replaceRules / assets
+    updateService.js  自身版本、更新状态、ST Git 更新、CHANGELOG 与已读版本；D25
     assetCodec.js     store 内部：本地小图片验证、SVG 清洗与 data URL 备份
     anchor.js         文本引用锚点 {exact, prefix, suffix} 的生成与重定位
     cardExport.js     DOM 节点 → 脱敏变换 → PNG Blob
@@ -574,3 +577,44 @@ view.destroy();
 `transformHtmlOffline` 为 T41/T44a/I032 共用的内部解析适配器（现可等待异步变换），不改变 maskHtmlString 的异步签名；`offlineCaptureGuard` 为 T14/HTML 共用的拒绝 fetchFn 和资源错误检查。未改 src/ui。I032 专项为 `await stcrSelfTest({core:false,htmlSnapshot:true})`，含实际 PNG、外链资源替身与已有 Ny 本地字体的外链模拟。开发自测入口为 `await stcrSelfTest({core:false,htmlRenderer:true})`；交互演示为 `await stcrHtmlDemo()`，仅在 localhost:8100 安装。
 
 策略依据：[CSP frame-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-src) 与 [CSP 规范](https://www.w3.org/TR/CSP/)。除了检查 CSP 字符串，本卡还在浏览器中检查内容窗口的 performance 资源记录及子框架请求，避免仅凭属性字符串判定断网。
+
+### 5.15 版本与更新合同（T54a / D25；5.14 留给 T53 分支）
+
+```js
+import { getVersion, checkUpdate, runUpdate, getChangelog,
+    getLastSeenVersion, markVersionSeen } from './src/core/updateService.js';
+const version = await getVersion();                    // '0.1.0'，来自自身 manifest
+const result = await checkUpdate();                    // 下表；不改已读标记
+const sections = await getChangelog();                 // [{ version, markdown }]，文件顺序
+const lastSeen = await getLastSeenVersion();            // string | null
+// UI 确实展示过该版本日志后才标记；获取失败 / 还未展示不能提前标记。
+if (lastSeen !== version) {
+    const section = sections.find(item => item.version === version);
+    // UI 展示 section.markdown；经 ST 的 Showdown + DOMPurify 转换，不能直接 innerHTML。
+    // await markVersionSeen(version); // 展示成功或关闭“本次更新”面板后调用
+}
+// 人类点击“立即更新”后 await runUpdate()；绝不自动调用。
+```
+
+`getVersion()` 与 `getChangelog()` 每次 GET 自身同源文件（禁重定向、no-store），读取失败抛 `StcrUpdateError {code,message,status}`。不写死界面版本，也不把 Git commit 当语义版本。日志仅按 `## x.y.z` 切段，可带预发布 / build 与空格分隔的日期；忽略 BOM、统一 CRLF，围栏内的假标题不切段，三级标题留在正文。返回 Markdown 字符串而非可执行 HTML，不请求日志内的链接。T57 才升版本；本卡仍为 0.1.0。
+
+`checkUpdate()` / `runUpdate()` 均返回结果对象，错误也返回 `state:'error'`；所有结果有 `state, message, version`（manifest 未读到时 version 为 null）。状态及附加字段：
+
+| state | 含义与附加字段 | UI 行为 |
+|---|---|---|
+| `dev` | `message:'开发目录，不可更新'`；`global:boolean|null`、`reason:'development-instance'|'no-git-remote'` | 正常提示；禁用立即更新 |
+| `latest` | 已最新；`global`、`currentBranchName`、`currentCommitHash`、`remoteUrl` | 提示已最新 |
+| `available` | ST 的 isUpToDate 为 false；同上 | 显示立即更新；尚不知道远端 manifest 版本，不伪造“新版版本号” |
+| `updated` | update 成功；继承检查字段，新增 `shortCommitHash`、`alreadyUpToDate`、`requiresReload:true` | 提示刷新；version 为操作前读到的版本，不当成更新后版本 |
+| `error` | `code`、`httpStatus:number|null`，中文 message | 显示可重试错误；不得当成 dev 或最新 |
+
+调用顺序与边界：
+- manifest 的开发标记优先；否则 POST version，用户目录 `global:false` 优先，只有 404 才尝试 `true`。用户目录存在但非 Git / 无远端时返回 dev，不悄悄更新另一份全局副本。两处均 404 为 NOT_FOUND。ST 1.14.0 无 Git 时返回空 remote/hash；500 只识别明确的非 Git / 缺 origin 错误；普通断网、鉴权失败仍为 error。
+- `runUpdate()` 每次先检查；只有 available 才 POST update，且只更新确认的位置。失败不跨目录重试。即使另一个窗口抢先完成、update 返回 isUpToDate:true，本页仍提示刷新，因为脚本可能还是旧版。连接中断提示“可能已生效，请刷新并重新检查”，不自动重试更新。
+- 同一单例的同时检查 / 同时更新各合并为一个 Promise，防止双击重复 Git 操作。没有定时检查、无自动 Git 更新、没有第三方浏览器请求。读取超时 20 秒、检查 60 秒、更新 120 秒；服务端 Git 操作不因浏览器超时自动撤销。
+- body 固定自身目录名 st-reader；GET 只接受当前 origin 下自身目录，POST 仅上述两个接口，带 ST getRequestHeaders() / CSRF 与同源凭据。只读 guard 禁用清单完全不变。
+- 已读值用 `store.settings` 键 `lastSeenVersion`，未记录/旧值不合法返回 null；`markVersionSeen(version)` 校验后单独写此键，不覆盖其他设置，不修改聊天。首次安装的 null 是否弹日志及“更新提醒”开关由 T54b UI 决定；关闭提醒时如何推进标记也由 UI 显式调用，core 不暗中标记。
+
+**开发联接保护**：固定 `.dev` 启动器的预载模块仅在本进程对阅读器 manifest 响应加 `X-STCR-Dev-Directory: 1`。check/run 看见标记立即返回 dev，零 Git 请求。本仓库现已有 origin，不能再以“联接一定没有远端”作为前提；此标记不改 manifest、不写宿主源码、正式 ST 没有此标记。未打标记的普通非 Git/无远端安装仍通过 ST version 响应判定。浏览器不能通用地识别服务端 NTFS 联接；正式实例人工联接到已有远端的 Git 工作目录会遵循 ST 的更新行为。
+
+Node 的 `testUpdateServiceLogic` 用响应替身覆盖两安装位置、dev / 失败区分、双击去重、更新失败不重试、日志解析、已读持久化。浏览器 `stcrSelfTest({core:false,updateService:true})` 读真实 manifest / CHANGELOG，验证开发提示、零 Git、独立 settings 与宿主不变；`stcrUpdateDemo()` 显示开发验收面板。均只挂本机 8100；未修改正式 src/ui，Opus T54b 按本合同接线。`createUpdateService` 工厂仅用于注入测试传输 / settings，UI 应使用上述单例方法。
