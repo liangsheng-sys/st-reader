@@ -3,7 +3,7 @@
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
-    mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
+    isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt } from './logic.js';
 
 const results = [];
@@ -59,11 +59,29 @@ export async function testUiLogic() {
         equal(effectivePrefs(normalizePrefs({ direction: 'a', mode: 'scroll', width: 900 })).mode, 'scroll');
         equal(effectivePrefs(normalizePrefs({ direction: 'a', mode: 'scroll', width: 900 })).width, 900);
     });
-    check('隐藏用户楼：连续用户楼合成一段，system 与角色楼打断', () => {
-        const m = (index, isUser, isSystem = false) => ({ index, isUser, isSystem });
-        const runs = hiddenUserRuns([m(10, true), m(11, true), m(12, false), m(13, true), m(14, true, true), m(15, true), m(16, true), m(17, true)]);
-        equal([...runs.entries()], [[10, 2], [13, 1], [15, 3]]);
+    check('系统楼判定：旁白与无名/System 提示行才算，隐藏的普通楼不算（I050 / T62）', () => {
+        const m = (over = {}) => ({ index: 0, name: '星灯（虚构）', isUser: false, isSystem: true, isNarrator: false, swipes: [{}], ...over });
+        equal(isSystemLike(m()), false, '有名字、单候选的隐藏楼：');
+        equal(isSystemLike(m({ name: '测试旅人（虚构）', isUser: true })), false, '隐藏的用户楼：');
+        equal(isSystemLike(m({ swipes: [{}, {}] })), false, '隐藏楼带多候选：');
+        equal(isSystemLike(m({ name: '' })), true, '无名提示行：');
+        equal(isSystemLike(m({ name: '  ' })), true, '名字只有空白：');
+        equal(isSystemLike(m({ name: 'System' })), true, 'System 提示行：');
+        equal(isSystemLike(m({ name: 'SillyTavern System' })), true, '宿主系统名：');
+        equal(isSystemLike(m({ name: '', swipes: [{}, {}] })), false, '无名但有多候选：');
+        equal(isSystemLike(m({ name: 'System', isNarrator: true, swipes: [{}, {}] })), true, '旁白永远算：');
+        equal(isSystemLike(m({ isSystem: false, name: 'System（虚构）', isNarrator: false })), false, '普通角色楼：');
+        equal(isSystemLike(m({ isSystem: false, name: 'System', isNarrator: false })), false, '没标 isSystem 就照普通楼：');
+        equal(isSystemLike(m({ isSystem: false, name: 'System', isNarrator: true })), true, '旁白不受 isSystem 影响（/sys 常见 is_system=false）：');
+        equal(isSystemLike(null), false, '空模型：');
+    });
+    check('隐藏用户楼：连续用户楼合成一段，真正的系统楼打断；隐藏过的用户楼照样折进去', () => {
+        const m = (index, isUser, over = {}) => ({ index, isUser, isSystem: false, isNarrator: false, name: isUser ? '测试旅人（虚构）' : '星灯（虚构）', swipes: [{}], ...over });
+        const runs = hiddenUserRuns([m(10, true), m(11, true), m(12, false), m(13, true), m(14, true, { isSystem: true }), m(15, true), m(16, true, { isSystem: true }), m(17, true)]);
+        equal([...runs.entries()], [[10, 2], [13, 5]], '隐藏的用户楼不断开：');
         equal([...hiddenUserRuns([m(0, false)]).entries()], []);
+        // 真正的系统楼（无名提示行）仍然打断
+        equal([...hiddenUserRuns([m(0, true), m(1, true, { isSystem: true, name: '' }), m(2, true)]).entries()], [[0, 1], [2, 1]], '无名提示行打断：');
     });
     check('进度文字：楼号从 1 开始、单楼、空聊天', () => {
         equal(progressText(127, 130, 312), '第 128–131 楼 · 共 312 楼 · 42%');

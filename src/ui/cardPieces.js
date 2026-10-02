@@ -9,7 +9,7 @@ import { getAnchorText, locateAnchorText } from '../core/anchor.js';
 import { automaticNameRules, createCardMessage } from '../core/cardExport.js';
 import { renderMessage } from '../core/formatter.js';
 import { replaceLiteralNames } from '../core/textTransforms.js';
-import { alignTexts, mapOffset } from './logic.js';
+import { alignTexts, isSystemLike, mapOffset } from './logic.js';
 
 /** 思维链在前、正文在后，与楼层里的顺序一致。 */
 const PARTS = Object.freeze([['reasoning', '.mes_reasoning'], ['body', '.mes_text']]);
@@ -138,7 +138,7 @@ export async function buildPieces(handle, floors, options, cache) {
         }
         const made = cache.cards.get(key);
         const model = handle.getMessage(floor.index);
-        const piece = { index: floor.index, swipe: floor.swipe, isUser: model.isUser, isSystem: model.isSystem,
+        const piece = { index: floor.index, swipe: floor.swipe, isUser: model.isUser, isSystem: isSystemLike(model),
             name: cloneChildren(made.element.querySelector('.name_text')), body: null, reasoning: null };
         for (const [part, selector] of PARTS) {
             const pick = floor[part];

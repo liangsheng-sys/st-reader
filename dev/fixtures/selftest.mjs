@@ -62,9 +62,17 @@ export async function testFixtures() {
             assert.equal(chunks.at(-1).type, 'IEND');
         }
     });
+    await test('T62 星灯第 1–3 楼被隐藏（is_system），名字与候选不变；其中第 1 楼保留多候选', () => {
+        const hidden = chats[0].messages.filter(message => message.is_system);
+        assert.deepEqual(hidden.map(message => message.mes.match(/^第 (\d+) 楼/)?.[1]), ['1', '2', '3']);
+        assert.ok(hidden.every(message => message.name && !message.extra?.type), '隐藏楼必须保留名字、且不是旁白');
+        assert.equal(chats[0].messages[1].swipes.length, 3, '隐藏的第 1 楼应有多个候选');
+        assert.equal(chats[0].messages[0].is_system, false, '第 0 楼不隐藏');
+        assert.ok(chats[0].messages.slice(4).every(message => !message.is_system), '第 3 楼之后不隐藏');
+    });
     await test('3 / 4 / 5 个 swipe 各有独立思维链、日期、时长，mes 对应当前候选', () => {
         const messages = chats[0].messages.filter(message => message.swipes);
-        assert.deepEqual(messages.map(message => message.swipes.length), [3, 4, 5]);
+        assert.deepEqual(messages.map(message => message.swipes.length), [3, 3, 4, 5]);
         for (const message of messages) {
             assert.equal(message.mes, message.swipes[message.swipe_id]);
             assert.equal(new Set(message.swipe_info.map(info => info.extra.reasoning)).size, message.swipes.length);

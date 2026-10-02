@@ -61,6 +61,63 @@ function plainAligns(chat) {
     return bad;
 }
 
+/**
+ * T62（I050）：被 ST 隐藏过的普通楼（is_system=true，名字与候选不变）必须按普通楼排版——
+ * 正文左对齐、有头像位、有工具条、有候选切换控件、名字旁有"已隐藏"标签；
+ * 真正的旁白楼（isNarrator，或无名/System 且无多候选）仍然居中小字、无工具条。
+ * 只挂临时 DOM，不打开阅读器、不读写聊天。
+ */
+export async function testHiddenFloorsBrowser({ force = false, quiet = false } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `隐藏楼：${name}`, passed: !!passed, detail });
+    const swipe = text => Object.freeze({ index: 0, text, reasoning: '', reasoningDuration: null, sendDate: null });
+    const floor = (index, { name, isUser = false, isSystem = false, isNarrator = false, swipes = ['x'] }) => Object.freeze({
+        index, name, isUser, isSystem, isNarrator, date: null, originalAvatar: null, swipeId: 0,
+        swipes: Object.freeze(swipes.map(swipe)),
+    });
+    const models = [
+        floor(0, { name: '星灯（虚构）', swipes: ['第 0 楼，普通正文。'] }),
+        floor(1, { name: '星灯（虚构）', isSystem: true, swipes: ['第 1 楼，被隐藏过但其实是普通楼，应当左对齐。', '候选二：同样左对齐。'] }), // 隐藏 + 多候选
+        floor(2, { name: '测试旅人（虚构）', isUser: true, isSystem: true, swipes: ['第 2 楼，隐藏的用户楼。'] }), // 隐藏的用户楼
+        floor(3, { name: 'System', isNarrator: true, swipes: ['第 3 楼，真正的旁白，应当居中小字。'] }), // 旁白
+        floor(4, { name: '', isSystem: true, swipes: ['第 4 楼，无名提示行，应当居中小字。'] }), // 无名系统行
+    ];
+    const handle = { chatKey: 'stcr-ui-test', total: models.length, getMessage: i => models[i],
+        getRegexContext: i => Object.freeze({ userName: '测试旅人（虚构）', characterName: '星灯（虚构）', character: null, groupNames: Object.freeze([]), depth: models.length - 1 - i }) };
+    const ctx = { handle, avatarFor: () => 'about:blank', isReasoningOpen: () => false, isBookmarked: () => false };
+    const root = h('div', { id: 'stcr_root', class: 'stcr-dir-b', style: 'opacity:0;pointer-events:none' }, h('div', { class: 'stcr-scroll' },
+        h('div', { id: 'stcr_chat' }, ...models.map((_, i) => buildFloor(ctx, handle.getMessage(i), 0)))));
+    document.body.append(root);
+    try {
+        const chat = root.querySelector('#stcr_chat');
+        const mes = index => chat.querySelector(`.mes[mesid="${index}"]`);
+        const align = el => getComputedStyle(el.querySelector('.mes_text')).textAlign;
+
+        const hidden = mes(1);
+        check('隐藏的多候选楼：正文左对齐', ['start', 'left', 'justify'].includes(align(hidden)), align(hidden));
+        check('隐藏的多候选楼：有工具条', !!hidden.querySelector('.stcr-floor-toolbar'));
+        check('隐藏的多候选楼：有候选切换控件', !!hidden.querySelector('.stcr-swipes'));
+        check('隐藏的多候选楼：显示头像', !!hidden.querySelector('.avatar img'));
+        check('隐藏的多候选楼：名字旁有"已隐藏"标签', hidden.querySelector('.stcr-hidden-tag')?.textContent === '已隐藏' && !hidden.classList.contains('stcr-mes--system'));
+
+        const hiddenUser = mes(2);
+        check('隐藏的用户楼：也算普通楼（左对齐、无系统样式）', !hiddenUser.classList.contains('stcr-mes--system') && ['start', 'left', 'justify'].includes(align(hiddenUser)));
+        check('隐藏的用户楼：有"已隐藏"标签', hiddenUser.querySelector('.stcr-hidden-tag')?.textContent === '已隐藏');
+
+        const narrator = mes(3);
+        check('旁白楼：仍是系统样式（居中小字）', narrator.classList.contains('stcr-mes--system') && align(narrator) === 'center' && !narrator.querySelector('.stcr-floor-toolbar'));
+        check('旁白楼：没有"已隐藏"标签', !narrator.querySelector('.stcr-hidden-tag'));
+
+        const named = mes(4);
+        check('无名系统楼：仍是系统样式', named.classList.contains('stcr-mes--system') && align(named) === 'center' && !named.querySelector('.stcr-hidden-tag'));
+    } finally {
+        root.remove();
+    }
+    if (!quiet) console.table(results);
+    return results;
+}
+
 /** force：在别的隔离实例（如 Opus 的 8101）上跑；它会切 ST 的外观设置，别在自己日常用的 ST 上跑。 */
 export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = false } = {}) {
     if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
@@ -88,6 +145,7 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
         $display.val(before.display).trigger('change');
     }
     results.push(...await testHostStylesBrowser({ force, quiet: true }));
+    results.push(...await testHiddenFloorsBrowser({ force, quiet: true }));
     console.table(results);
     return results;
 }

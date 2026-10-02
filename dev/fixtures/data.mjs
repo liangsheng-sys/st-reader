@@ -55,8 +55,8 @@ export function makeHeader(character, chat = character.chat) {
     };
 }
 
-export function makeMessage(name, text, index, { isUser = false, swipeCount = 0, swipeId = 0, extra = {} } = {}) {
-    const message = { name, is_user: isUser, is_system: false, send_date: dateAt(index), mes: text, extra: { stcr_fixture: FIXTURE_ID, ...extra } };
+export function makeMessage(name, text, index, { isUser = false, isSystem = false, swipeCount = 0, swipeId = 0, extra = {} } = {}) {
+    const message = { name, is_user: isUser, is_system: isSystem, send_date: dateAt(index), mes: text, extra: { stcr_fixture: FIXTURE_ID, ...extra } };
     if (swipeCount) {
         const swipes = Array.from({ length: swipeCount }, (_, swipe) => `${text}\n\n候选 ${swipe + 1}/${swipeCount}：${['朝港口走去', '留在灯塔记下星图', '乘纸舟沿河而行', '为雾中的钟塔命名', '把故事写在蓝色信封上'][swipe]}。`);
         const infos = swipes.map((_, swipe) => ({
@@ -89,7 +89,7 @@ export function makeSmallChats() {
         index % 2
             ? `第 ${index} 楼，星灯在虚构灯塔记录天气。“今晚的星图很清楚。”\n\n【一次】 【称呼】 【近景】 【星灯暗号】 【禁止命中】\n\nSTCR FONT PROBE: iii WWW 0123456789`
             : `第 ${index} 楼，测试旅人把一张虚构船票放在桌上。请继续这个完全虚构的故事。`,
-        index, { isUser: index % 2 === 0, swipeCount: index === 5 ? 3 : index === 9 ? 4 : index === 11 ? 5 : 0, swipeId: index === 11 ? 2 : 0 },
+        index, { isUser: index % 2 === 0, isSystem: index >= 1 && index <= 3, swipeCount: index === 5 ? 3 : index === 9 ? 4 : index === 11 ? 5 : index === 1 ? 3 : 0, swipeId: index === 11 ? 2 : 0 },
     ));
     const longText = '这是一段完全虚构的海岛日记。纸舟在无名的河流上绕过彩色灯塔，故事没有真实人物或地址。'.repeat(600);
     const second = [

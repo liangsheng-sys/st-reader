@@ -138,6 +138,19 @@
 #stcr_root #stcr_chat .stcr-mes--system { justify-content: center; opacity: .72; }
 #stcr_root #stcr_chat .stcr-mes--system .mes_text { font-size: .86em; text-align: center; }
 #stcr_root #stcr_chat .stcr-mes--system .ch_name { justify-content: center; }
+/* 被 ST 隐藏过、其实是普通楼（I050 / T62）：照常排版，只在名字旁加一个淡色小标签。 */
+#stcr_root .stcr-hidden-tag {
+    flex: none;
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--stcr-border);
+    border-radius: 999px;
+    color: var(--stcr-faint);
+    font-size: .72em;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: help;
+}
 #stcr_root #stcr_chat .stcr-mes--broken .mes_text { color: var(--stcr-faint); font-style: italic; }
 #stcr_root #stcr_chat .stcr-user-hidden { display: none; }
 #stcr_root #stcr_chat .stcr-user-hidden.stcr-user-shown { display: flex; }

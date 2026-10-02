@@ -5,7 +5,7 @@
 
 import { renderMessage } from '../core/formatter.js';
 import { h, iconButton } from './dom.js';
-import { formatStamp, reasoningTitle } from './logic.js';
+import { formatStamp, isSystemLike, reasoningTitle } from './logic.js';
 import { findHtmlBlocks } from './htmlBlocks.js';
 import { redactElement, visibleText } from './redact.js';
 
@@ -22,11 +22,12 @@ import { redactElement, visibleText } from './redact.js';
 /** 建一楼。swipeIndex 是阅读器要显示的候选（可能与 ST 当前候选不同）。 */
 export function buildFloor(ctx, model, swipeIndex) {
     const isLast = model.index === ctx.handle.total - 1;
+    const systemLike = isSystemLike(model);
     const el = h('div', {
-        class: `mes stcr-mes${isLast ? ' last_mes' : ''}${model.isSystem ? ' stcr-mes--system' : ''}`,
+        class: `mes stcr-mes${isLast ? ' last_mes' : ''}${systemLike ? ' stcr-mes--system' : ''}`,
         mesid: model.index, ch_name: model.name, is_user: String(model.isUser), is_system: String(model.isSystem),
     });
-    const avatar = model.isSystem ? null : ctx.avatarFor(model);
+    const avatar = systemLike ? null : ctx.avatarFor(model);
     if (avatar) el.append(h('div', { class: 'mesAvatarWrapper' }, h('div', { class: 'avatar' }, h('img', { src: avatar, alt: '', loading: 'lazy', decoding: 'async' }))));
     const block = h('div', { class: 'mes_block' });
     el.append(block);
@@ -41,6 +42,8 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     const block = el.querySelector(':scope > .mes_block');
     block.replaceChildren();
     const redact = ctx.redactFor?.(model) ?? null;
+    const systemLike = isSystemLike(model);
+    const hidden = model.isSystem && !systemLike; // 在 ST 里被隐藏、但其实是普通楼（I050 / T62）
     el.dataset.swipe = String(rendered.swipeIndex);
     el.classList.toggle('reasoning', !!rendered.reasoningHtml);
 
@@ -48,12 +51,13 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     const title = h('div', { class: 'flex-container alignItemsBaseline stcr-mes-title' },
         h('i', { class: 'fa-solid fa-bookmark stcr-floor-flag', title: '已收藏这一楼', 'aria-hidden': 'true', 'data-stcr-ignore-anchor': '' }),
         h('span', { class: 'name_text', text: model.name }),
+        hidden ? h('span', { class: 'stcr-hidden-tag', 'data-stcr-ignore-anchor': '', title: '在 ST 里被隐藏、不发给模型，阅读器照常显示', text: '已隐藏' }) : null,
         h('small', { class: 'timestamp', text: formatStamp(swipe.sendDate ?? model.date) }));
     const row = h('div', { class: 'ch_name flex-container justifySpaceBetween' },
         h('div', { class: 'flex-container flex1 alignitemscenter' }, title));
-    if (!model.isSystem) row.append(buildToolbar(model, !!rendered.reasoningHtml));
-    if (model.swipes.length > 1 && !model.isSystem) row.append(buildSwipeControl(model, rendered.swipeIndex));
-    if (!model.isSystem) row.append(iconButton('fa-ellipsis', '这一楼的工具', { class: 'stcr-mes-more', 'data-act': 'more' }));
+    if (!systemLike) row.append(buildToolbar(model, !!rendered.reasoningHtml));
+    if (model.swipes.length > 1 && !systemLike) row.append(buildSwipeControl(model, rendered.swipeIndex));
+    if (!systemLike) row.append(iconButton('fa-ellipsis', '这一楼的工具', { class: 'stcr-mes-more', 'data-act': 'more' }));
     if (redact) redactElement(row.querySelector('.name_text'), redact); // 名字行也按规则显示（它不参与锚点）
     block.append(row);
 

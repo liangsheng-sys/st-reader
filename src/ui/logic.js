@@ -129,16 +129,40 @@ export function swipePreviews(texts, max = 36) {
     });
 }
 
+/** 宿主自己发的系统行用的名字（script.js 的 systemUserName 与 /sys 的默认名）。 */
+const SYSTEM_NAMES = new Set(['System', 'SillyTavern System']);
+
+/**
+ * 这一楼要不要按"系统提示"的样子显示：居中小字、不显示头像 / 工具条 / 候选切换 / 收藏。
+ *
+ * ST 的**隐藏消息**（楼层菜单的隐藏、/hide，常配合总结插件）只是把 `is_system` 置 true，
+ * 名字、swipes、extra 全都不变，ST 自己照常排版、只把这一楼变灰（script.js 里
+ * `if (isSystem && ch_name !== systemUserName) isSystem = false` 就是为此）。阅读器以前只看
+ * `isSystem`，于是把真实聊天里大量被隐藏过的普通楼当成了旁白（I050 / T62）。
+ * 真正的系统楼只有两类：旁白（`extra.type === 'narrator'`），以及没有名字（或叫 System）且没有候选的宿主提示行。
+ * @param {{isSystem?:boolean,isNarrator?:boolean,name?:string,swipes?:readonly unknown[]}} model
+ * @returns {boolean}
+ */
+export function isSystemLike(model) {
+    if (!model) return false;
+    if (model.isNarrator) return true;
+    if (!model.isSystem) return false;
+    if ((model.swipes?.length ?? 0) > 1) return false;
+    const name = String(model.name ?? '').trim();
+    return name === '' || SYSTEM_NAMES.has(name);
+}
+
 /**
  * 隐藏用户楼时，把连续的用户楼合成一段（02 §1.3："— 你 · 3 条 —"）。
- * @param {readonly {index:number,isUser:boolean,isSystem:boolean}[]} models
+ * 被 ST 隐藏过的用户楼（is_system=true、名字仍是用户）按普通用户楼一样折进去。
+ * @param {readonly {index:number,isUser:boolean}[]} models 至少含 index / isUser；其余字段交给 isSystemLike 判断
  * @returns {Map<number, number>} 每段第一楼的楼号 → 这段的楼数
  */
 export function hiddenUserRuns(models) {
     const runs = new Map();
     let start = null;
     for (const model of models) {
-        if (model.isUser && !model.isSystem) {
+        if (model.isUser && !isSystemLike(model)) {
             if (start === null) { start = model.index; runs.set(start, 0); }
             runs.set(start, runs.get(start) + 1);
         } else start = null;
