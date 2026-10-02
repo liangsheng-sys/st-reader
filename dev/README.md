@@ -14,7 +14,7 @@ T53（D24）：
 - 缓存专项：关闭阅读器后，在开发实例控制台运行 `await window.stcrSelfTest({core:false,chatCache:true})`，预期 34 项通过（13 保护 + 16 逻辑 + 5 真实 API）。无需选中大聊天，不改宿主选择。
 - 重开计时：开发实例运行期间双击 `test-chat-cache.cmd`，或执行 `node dev/test-performance.mjs --chat-cache --core-browser`。自动使用已有 21.35 MiB / 1600 楼样本，独立浏览器的配置和缓存在 `.tmp/t53-browser-*`，结束清理；不安装浏览器、不下载、不读真实 ST 数据。
 - 计时到正式阅读器的正文首帧，包含最新摘要校验。`await window.stcrSelfTest({cachePerformance:true})` 是同一套浏览器测试；自动脚本额外跨页刷新检查缓存为空，并跑完整回归。
-- `.dev/fixtures/t53-performance-result.json` 及带时间戳报告保存每次结果（不入库）；**当前 300 ms 断言失败，退出码为 1 是如实报告性能未达标**，见 I040。其他功能项通过不抵消该失败。界面已渲染抽屉的再次展开接线留 Opus，见 I041。
+- `.dev/fixtures/t53-performance-result.json` 及带时间戳报告保存每次结果（不入库）；**当前 300 ms 断言失败，退出码为 1 是如实报告性能未达标**，见 I040。其他功能项通过不抵消该失败。界面已渲染抽屉的再次展开接线留 Opus，见 I042。
 
 T30 验证入口：
 - `node dev/selftest.mjs`：角色卡只验关键 JSON，聊天仍验 SHA-256；总项数随新增回归变化，以最后“全部通过”为准。

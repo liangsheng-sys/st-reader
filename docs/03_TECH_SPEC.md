@@ -161,7 +161,7 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
 
 所有列表的 `options` 为 `{signal?: AbortSignal}`。取消时抛 `AbortError`，UI 不应弹成失败提示。同聊天并发打开共享在途摘要/正文请求（内部独立 signal）；取消单个等待者不取消其他人，最后一人取消才终止共享请求。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
 
-T53 / I041：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。预取也需要最新摘要；完成后再打开仍重新校验，不用 TTL 或先显示旧数据后校验来隐去等待。未改 `src/ui/`。
+T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。预取也需要最新摘要；完成后再打开仍重新校验，不用 TTL 或先显示旧数据后校验来隐去等待。未改 `src/ui/`。
 
 ### 5.2 数据类型（JSDoc）
 
