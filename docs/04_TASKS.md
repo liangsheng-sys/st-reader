@@ -69,3 +69,9 @@
 | T60 | 人类：按使用说明"两份安装"一节，双击 `install/unlink-from-my-st.cmd` 去掉联接，只保留 URL 安装；重启 ST 确认阅读器只出现一次 | 人类 | 通过（2026-10-02 人类运行 unlink 显示“联接不存在”，联接早已清理） | 扩展列表只有一个"阅读器 (ST Reader)" |
 | T61 | 发布前复查 0.2.0（T47 清单 + D28 / D29 / D30 落实核对） | Fable | 通过（报告 `handoff/2026-10-02_fable_to_human_T61.md`，发布提交见该信） | 报告写 handoff |
 
+## M6 0.2.1 修补
+| ID | 任务 | 负责 | 状态 | 验收标准 |
+|---|---|---|---|---|
+| T62 | **隐藏楼误判为系统楼**（I050）：系统楼样式判定改为 `isNarrator || (isSystem && 名字为 System/空 && 无 swipes)`；其余 `is_system` 楼按普通楼渲染（头像、工具条、swipe、收藏、划线可用），名字旁加淡色小标签“已隐藏”；“隐藏用户楼”折叠对隐藏的用户楼同样生效；cardPieces/cardStudio 同步；fixture 星灯聊天第 1–3 楼加 `is_system:true`；浏览器回归；manifest 0.2.1；CHANGELOG 0.2.1 | Opus | 待开始 | 人类真实 ST 里被隐藏过的楼左对齐、能切 swipe；真正的旁白楼仍居中小字 |
+| T63 | 复查 + 推送 0.2.1 | Fable / 人类 | 待开始 | 同 T61 流程 |
+
