@@ -15,8 +15,8 @@ export function themeFontSize() {
     return Number.isFinite(size) ? size : 15;
 }
 
-/** @param {{onExport:()=>void, onImport:()=>void}} actions */
-export function createSettingsBar({ onExport, onImport }) {
+/** @param {{onExport:()=>void, onImport:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions versionRow：⋯ 顶部的版本与更新（T54b） */
+export function createSettingsBar({ onExport, onImport, versionRow = null }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -48,6 +48,7 @@ export function createSettingsBar({ onExport, onImport }) {
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'a', text: '书页' }));
     const lastExport = h('span', { class: 'stcr-set-hint stcr-last-export' });
     const more = h('div', { class: 'stcr-set-more', hidden: true },
+        versionRow?.el ?? null,
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
             h('div', { class: 'stcr-set-ctl' }, htmlSeg, htmlNet.el)),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
@@ -133,6 +134,7 @@ export function createSettingsBar({ onExport, onImport }) {
         redact.input.checked = prefs.redact;
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
+        versionRow?.sync();
     }
     /** 备份状态：{text:'上次导出：3 天前', remind:boolean} */
     function setBackupStatus({ text, remind }) {

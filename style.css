@@ -1396,3 +1396,54 @@
     #stcr_root *, #stcr_root *::before, #stcr_root *::after { animation: none !important; transition: none !important; }
 }
 #stcr_root:has(.stcr-drawer--open) .stcr-empty-open { visibility: hidden; }
+
+/* ── 版本与更新（T54b）：Aa → ⋯ 顶部一行 ── */
+#stcr_root .stcr-ver-name { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#stcr_root .stcr-ver-status { color: var(--stcr-faint); font-size: .9em; }
+#stcr_root .stcr-ver-status[data-tone="ok"] { color: var(--stcr-text); }
+#stcr_root .stcr-ver-status[data-tone="accent"] { color: var(--stcr-accent); }
+#stcr_root .stcr-ver-status[data-tone="warn"] { color: #e0a84c; }
+#stcr_root .stcr-link-btn { padding: 2px 4px; color: var(--stcr-faint); font-size: .9em; text-decoration: underline; text-underline-offset: 3px; }
+#stcr_root .stcr-link-btn:hover { color: var(--stcr-text); }
+#stcr_root .stcr-text-btn.stcr-on { border-color: color-mix(in srgb, var(--stcr-accent) 60%, transparent); }
+
+/* ── 文档面板（T54b 本次更新 / T55 使用说明）：正文上叠一张纸，字为主 ── */
+#stcr_root .stcr-doc-backdrop {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    background: color-mix(in srgb, #000 45%, transparent);
+    animation: stcr-fade .15s ease-out;
+}
+#stcr_root .stcr-doc {
+    display: flex; flex-direction: column;
+    width: min(640px, 100%); max-height: 100%;
+    border: 1px solid var(--stcr-border); border-radius: 14px;
+    background: var(--stcr-panel); color: var(--stcr-text);
+    box-shadow: 0 12px 40px var(--stcr-shadow);
+    outline: none;
+}
+#stcr_root .stcr-doc-head { display: flex; align-items: center; gap: 8px; padding: 14px 10px 10px 22px; }
+#stcr_root .stcr-doc-title { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 600; line-height: 1.4; }
+#stcr_root .stcr-doc-body {
+    min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 22px 18px; line-height: 1.75; font-size: 14.5px;
+}
+#stcr_root .stcr-doc-body h2 { margin: 1.1em 0 .4em; font-size: 1.12em; }
+#stcr_root .stcr-doc-body h3 { margin: 1em 0 .3em; font-size: 1em; color: var(--stcr-accent); }
+#stcr_root .stcr-doc-body h2:first-child, #stcr_root .stcr-doc-body h3:first-child { margin-top: .2em; }
+#stcr_root .stcr-doc-body p { margin: .45em 0; }
+#stcr_root .stcr-doc-body ul, #stcr_root .stcr-doc-body ol { margin: .3em 0; padding-left: 1.4em; }
+#stcr_root .stcr-doc-body li { margin: .2em 0; }
+#stcr_root .stcr-doc-body a { color: var(--stcr-accent); }
+#stcr_root .stcr-doc-body code { font-size: .9em; }
+#stcr_root .stcr-doc-foot { padding: 10px 16px 14px 22px; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 50%, transparent); }
+#stcr_root .stcr-doc-foot-row { display: flex; align-items: center; gap: 10px; }
+#stcr_root .stcr-doc-gap { flex: 1; }
+#stcr_root .stcr-doc-mute { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--stcr-faint); font-size: 13px; cursor: pointer; }
+@media (max-width: 599px) {
+    #stcr_root .stcr-doc-backdrop { align-items: flex-end; padding: 0; }
+    #stcr_root .stcr-doc { width: 100%; max-height: 88%; border-radius: 14px 14px 0 0; }
+}
+/* 长条样式里版本单独占顶上一行（其余项照常横排） */
+#stcr_root .stcr-settings--bar .stcr-set-more > .stcr-set-version { flex-basis: 100%; }
+#stcr_root .stcr-set-version .stcr-set-ctl { row-gap: 4px; }

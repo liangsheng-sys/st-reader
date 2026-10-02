@@ -177,6 +177,9 @@ export async function testUiLogic() {
         equal(normalizePrefs({ htmlMode: 'source', htmlWidth: 'fit' }).htmlWidth, 'fit');
         equal(normalizePrefs({ htmlMode: 'x', htmlWidth: 500 }).htmlMode, 'render');
         equal(normalizePrefs({ htmlWidth: 500 }).htmlWidth, 390);
+        equal(normalizePrefs({}).updateNotice, true, '更新提醒默认开：');
+        equal(normalizePrefs({ updateNotice: false }).updateNotice, false, '更新提醒可关：');
+        equal(normalizePrefs({ updateNotice: 'no' }).updateNotice, true, '更新提醒坏值：');
     });
     check('卡片文件名：不含聊天名与角色名', () => {
         equal(cardFileName(new Date(2026, 8, 28, 21, 4)), 'st-reader-card-20260928-2104.png');

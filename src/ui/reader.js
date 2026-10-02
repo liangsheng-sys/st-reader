@@ -22,6 +22,8 @@ import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChang
 import { createSelectionUi } from './selectionPopover.js';
 import { hasRedaction, redactString, setRedactState, visibleText } from './redact.js';
 import { createSettingsBar } from './settingsBar.js';
+import { createDocPanel } from './docPanel.js';
+import { createVersionRow, maybeShowWhatsNew } from './updateUi.js';
 
 const PAGE_SIZE = 30;      // 每批楼数，与 core 默认一致（03 §4.5）
 const MAX_PAGES = 4;       // DOM 里同时最多保留几批，其余释放（NF2）
@@ -105,7 +107,8 @@ export async function openReader({ tab, chatKey } = {}) {
         toast: say,
         confirm: (message, ok) => confirmDialog(message, ok),
     });
-    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport() });
+    session.docPanel = createDocPanel({ root });
+    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), versionRow: createVersionRow({ docPanel: session.docPanel }) });
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
         onCard: range => openCardFromSelection(range),
@@ -180,6 +183,8 @@ export async function openReader({ tab, chatKey } = {}) {
     else if (!chatKey && !current) session.drawer.open('recent');
     else if (getPrefs().drawerPinned && wide()) session.drawer.open();
     if (getPrefs().panelPinned && wide()) session.panel.open();
+    // 更新后第一次打开：弹"本次更新了什么"（T54b）。读不到就不弹，不挡阅读
+    maybeShowWhatsNew(session.docPanel, () => S === session).catch(() => {});
 }
 
 export function closeReader() {
@@ -188,6 +193,7 @@ export function closeReader() {
     closePopover(session); // 批注输入框点外面=保存，这里同理：先保存再关
     session.studio.close(); // 先关卡片工作台：它可能借用着这个聊天的句柄
     session.htmlShot.close();
+    session.docPanel.close();
     session.html.destroy(); // 所有 HTML 沙箱一起销毁
     S = null;
     session.token++;
@@ -431,6 +437,11 @@ function handleKey(event) {
     }
     if (session.htmlShot.isOpen()) {
         if (event.key === 'Escape') { session.htmlShot.close(); event.preventDefault(); }
+        return;
+    }
+    if (session.docPanel.isOpen()) {
+        // 文档面板（本次更新 / 使用说明）开着：只认 Esc 关面板，方向键等留给面板自己滚动
+        if (event.key === 'Escape') { session.docPanel.close(); event.preventDefault(); }
         return;
     }
     if (isTypingTarget(event.target)) {
