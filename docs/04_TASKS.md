@@ -54,13 +54,13 @@
 原文 `docs/feedback/2026-10-01_二次安装问题反馈.txt` 与四张截图（截图不入库）。T50/T52/T55 Opus，T51/T53/T54a astra，可并行；T54b 需 T54a。
 | ID | 任务 | 负责 | 状态 | 验收标准 |
 |---|---|---|---|---|
-| T50 | **正文居中 bug**（反馈 1）：在开发实例用 ST 自带五套主题（Azure / Cappuccino / Celestial Macaron / Dark Lite / Dark V 1.0）与"气泡 / 文档 / 默认"三种 chat_display 逐一复现；查明是 cssScope 克隆了哪条规则、还是 `.stcr-mes--system` 误判、还是宿主 `text-align` 继承；修复并加浏览器回归断言（每套主题下 `.mes_text` 的 computed textAlign 为 start/left）。若根因在 core，写 06 交给 astra 并先在 UI 兜底 | Opus | 待开始 | 五套主题 × 三种显示模式下正文左对齐；人类在真实 ST 复查 |
+| T50 | **正文居中 bug**（反馈 1）：在开发实例用 ST 自带五套主题（Azure / Cappuccino / Celestial Macaron / Dark Lite / Dark V 1.0）与"气泡 / 文档 / 默认"三种 chat_display 逐一复现；查明是 cssScope 克隆了哪条规则、还是 `.stcr-mes--system` 误判、还是宿主 `text-align` 继承；修复并加浏览器回归断言（每套主题下 `.mes_text` 的 computed textAlign 为 start/left）。若根因在 core，写 06 交给 astra 并先在 UI 兜底 | Opus | 待验收 | 五套主题 × 三种显示模式下正文左对齐；人类在真实 ST 复查 |
 | T51 | **裸 HTML 边界 + 透明背景**（D26）：`detectHtmlBlocks` 裸 HTML 只返回标签区间，前后散文留给正文；返回多段时逐段独立渲染；交互 iframe `background: transparent`，`allowtransparency`；selftest 覆盖"一行散文 + 大段 HTML + 一行散文" | astra | 通过（人类 2026-10-01 验收 core；UI 接线仍留给 Opus，见 I038） | fixture 新增该样本；开发演示散文在 iframe 外、按格式化器排版；正式阅读器仍需 Opus 接线 |
 | I041 | **交互 HTML 高度抖动**（Opus T52 反馈；人类 2026-10-02 指派）：修复折叠外边距导致的高度循环；三种宽度稳定、交互可增高/缩短、内部滚动区保持，附浏览器回归 | astra | 通过（人类 2026-10-02“已通过，请继续T54a”） | 1366 / 1024 窗口下纸月样本高度稳定、无根滚动溢出；两层隔离与宿主只读保持 |
-| T52 | **宽度与伸出**（D27，反馈 2）：①"跟随 ST"宽度改为读取宿主 `#sheld` 实际宽度（ResizeObserver 跟随）；②HTML 块在正文内时去掉白色外框；③预设宽度 > 正文宽度：伸到视口可用宽度（左右各留 16px），仍不够则 `transform: scale()` 等比缩到可用宽度并保持高度自适应，不再横向裁切；分页模式同样处理 | Opus | 待开始 | 桌面 1200 在 1366 宽窗口下完整可见；跟随正文时与 ST 聊天栏等宽（误差 ≤ 2px） |
+| T52 | **宽度与伸出**（D27，反馈 2）：①"跟随 ST"宽度改为读取宿主 `#sheld` 实际宽度（ResizeObserver 跟随）；②HTML 块在正文内时去掉白色外框；③预设宽度 > 正文宽度：伸到视口可用宽度（左右各留 16px），仍不够则 `transform: scale()` 等比缩到可用宽度并保持高度自适应，不再横向裁切；分页模式同样处理 | Opus | 待验收 | 桌面 1200 在 1366 宽窗口下完整可见；跟随正文时与 ST 聊天栏等宽（误差 ≤ 2px） |
 | T53 | **重开提速**（D24）：`chatSource` 内存 LRU（3 个 / 150 MB）缓存原始数组与页模型；列表项悬停或打开抽屉时预取当前聊天第一页；缓存命中时不再请求 `/api/chats/get`，但用 `/api/chats/search` 返回的 `file_size`/`last_mes` 校验是否过期；selftest 覆盖命中 / 失效 / 容量淘汰 | astra | 待开始 | 第二次打开同一聊天 < 300 ms（控制台计时）；文件变化后重新拉取 |
 | T54a | **版本与更新 core**（D25）：`updateService.js`：`getVersion()`（读 manifest）、`checkUpdate()`（POST `/api/extensions/version` {extensionName:'st-reader', global}）、`runUpdate()`（POST `/api/extensions/update`）、`getChangelog()`（fetch 同源扩展目录 `CHANGELOG.md`，解析为版本段落）、`store.settings` 记 `lastSeenVersion`；全局 / 用户目录两种安装位置都要处理；D02 清单不变，README 披露补"检查更新由 ST 访问 github.com" | astra | 待验收（Node 145、UI 30、完整浏览器 210；开发联接零 Git；交接见 T54a） | 开发实例里（联接安装，无 git 远端）按钮显示"开发目录，不可更新"而不报错；selftest 覆盖 changelog 解析 |
-| T54b | **版本与更新 UI**：Aa → 更多设置顶部显示"ST Reader v0.2.0"、"检查更新"按钮（有新版 → "立即更新" → 完成后提示刷新）；更新后首次打开阅读器弹"本次更新"面板（CHANGELOG 对应版本段）；可关闭"更新提醒" | Opus | 待验收 | 人类在真实 ST 点检查更新能看到结果 |
+| T54b | **版本与更新 UI**：Aa → 更多设置顶部显示"ST Reader v0.2.0"、"检查更新"按钮（有新版 → "立即更新" → 完成后提示刷新）；更新后首次打开阅读器弹"本次更新"面板（CHANGELOG 对应版本段）；可关闭"更新提醒" | Opus | 通过（人类 2026-10-02 验收） | 人类在真实 ST 点检查更新能看到结果 |
 | T55 | **使用说明**（反馈 5）：写 `docs/使用说明.md`（面向用户、自然语言、按"读 / 记 / 分享 / HTML / 设置与备份 / 常见问题"组织，≤ 2500 字，不出现任务 ID 和内部术语）；阅读器 Aa → 更多设置加"使用说明"按钮，在阅读器内以面板渲染该文件（同源 fetch + ST 的 showdown + DOMPurify），README 也链接它 | Opus | 待开始 | 人类读完能自己找到每个功能 |
 | T56 | 社区帖子：规划者已写草稿 `docs/社区帖子_v0.1.0.md`，人类改成自己的口气后发 | 人类 | 待验收 | 人类满意 |
 | T57 | 版本号 0.2.0、CHANGELOG、发布前复查 | astra（版本与日志）/ Fable（复查） | 待开始 | 同 T47 |

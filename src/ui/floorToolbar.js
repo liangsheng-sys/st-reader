@@ -79,9 +79,26 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     if (redact) redactElement(text, redact); // 在加复制按钮之前：按钮文字不参与
     addCodeCopyButtons(text);
     if (htmlBlocks.length) ctx.attachHtml(text, htmlBlocks, { index: model.index, swipe: rendered.swipeIndex, model });
+    scopeFloorStyles(text);
     block.append(text);
     syncBookmarkMarks(ctx, el);
     return rendered;
+}
+
+let styleScopes = 0;
+/**
+ * 楼里自带的 <style>（模型写的卡片 CSS）只管它自己那一块（T50）。
+ * core 按 ST 的做法给选择器加了 `#stcr_chat .mes_text ` 前缀，但阅读器一页里同时放着几十楼，
+ * 这样一楼的 `p { text-align: center }` 会让整页正文居中。ST 主界面里这类楼通常被酒馆助手换成了 iframe，所以 ST 看不出来。
+ * 这里把前缀换成只命中这一块的属性：在 HTML 块"原文"容器里的样式只管那个容器，其余只管本楼正文。
+ */
+export function scopeFloorStyles(text) {
+    for (const style of text.querySelectorAll('style')) {
+        if (!style.textContent.includes('#stcr_chat .mes_text ')) continue;
+        const box = style.closest('.stcr-html-src') ?? text;
+        if (!box.dataset.stcrCss) box.dataset.stcrCss = String(++styleScopes);
+        style.textContent = style.textContent.replaceAll('#stcr_chat .mes_text ', `#stcr_chat [data-stcr-css="${box.dataset.stcrCss}"] `);
+    }
 }
 
 /** 收藏状态变化后只刷新这一楼的图标，不重渲染正文（划线高亮不受影响）。 */

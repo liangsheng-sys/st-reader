@@ -3,7 +3,8 @@
 //
 // 两类（03 §5.13 识别规则，UI 不自己猜）：
 //   围栏：```html … <body> … ``` —— 对应正文里的某个 <pre>；
-//   裸 HTML：整楼就是一份 HTML 文档 —— 对应整个 .mes_text。
+//   裸 HTML（T51/D26）：一楼里的一段或几段标签区间 —— 对应 .mes_text 里一串相连的顶层元素；
+//   前后和段间的散文留在正文里照常排版（I038）。对不上时退回老办法：整楼收进"原文"。
 // 做法与脱敏显示同理（不破坏划线）：原来的代码块 / 正文**留在原位**，渲染时只是隐藏；渲染区整块标 data-stcr-ignore-anchor。
 // 所以"渲染 / 原文"来回切、换宽度，锚点文字一个字都不变，已有划线照常在原文视图里。
 //
@@ -21,16 +22,60 @@ export const HTML_WIDTHS = Object.freeze([
 ]);
 const DEFAULT_HEIGHT = 240;
 const SHELL = '.stcr-html';
+const EDGE = 16; // 伸出正文时左右各留的空
+/** 只在值真的变了时写样式：同值重写也会让浏览器重排。value 为 null = 去掉。 */
+function setStyle(el, name, value) {
+    if ((el.style.getPropertyValue(name) || null) === value) return;
+    if (value === null) el.style.removeProperty(name);
+    else el.style.setProperty(name, value);
+}
+// 正文清洗会删掉的标签（core safeHtml 的 FORBID_TAGS 等）：数顶层元素时不算它们
+const DROPPED = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'BASE', 'META', 'FORM', 'INPUT', 'BUTTON', 'AUDIO', 'VIDEO', 'SOURCE', 'TITLE', 'NOSCRIPT', 'TEMPLATE']);
+
+/** 一段 HTML 的顶层元素标签序列（html/head/body 外壳展开，和正文清洗后的样子一致）。template 是惰性的，不加载任何资源。 */
+function topTags(html) {
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    return [...t.content.children].map(el => el.tagName).filter(tag => !DROPPED.has(tag));
+}
+
+/**
+ * 裸 HTML 的每一段在已经排好版的正文里对应哪几个顶层元素。
+ * 不拿原文偏移去切排好版的 HTML（正则 / Markdown 会改变长度，I038），而是按顶层标签序列依次对上。
+ * @returns {{kind:'raw', html:string, pre:null, nodes:[Element, Element]}[]|null} 有一段对不上就返回 null
+ */
+function locateRaw(textEl, raws) {
+    const kids = [...textEl.children];
+    const out = [];
+    let from = 0;
+    for (const block of raws) {
+        const want = topTags(block.html);
+        let hit = -1;
+        for (let i = from; want.length && i + want.length <= kids.length; i++) {
+            if (want.every((tag, j) => kids[i + j].tagName === tag)) { hit = i; break; }
+        }
+        if (hit < 0) return null;
+        out.push({ kind: 'raw', html: block.html, pre: null, nodes: [kids[hit], kids[hit + want.length - 1]] });
+        from = hit + want.length;
+    }
+    return out;
+}
 
 /**
  * 找出这一楼正文里的 HTML 块。raw = 这一候选的原文（识别裸 HTML 用）。必须在脱敏显示改动正文之前调用：
  * 这里读到的代码是原文，沙箱、截图、复制脱敏版都从原文出发。
- * @returns {{kind:'fenced'|'raw', html:string, pre:HTMLElement|null}[]}
+ * @returns {{kind:'fenced'|'raw', html:string, pre:HTMLElement|null, nodes?:[Element, Element]|null}[]}
  */
 export function findHtmlBlocks(textEl, raw) {
     let found;
-    try { found = detectHtmlBlocks(typeof raw === 'string' ? raw : ''); } catch { found = []; }
-    if (found.length === 1 && found[0].kind === 'raw') return [{ kind: 'raw', html: found[0].html, pre: null }];
+    const text = typeof raw === 'string' ? raw : '';
+    try { found = detectHtmlBlocks(text); } catch { found = []; }
+    const raws = found.filter(block => block.kind === 'raw');
+    if (raws.length) {
+        return locateRaw(textEl, raws)
+            // 对不上（清洗或 Markdown 改了结构）：整楼当一块，和以前一样，至少能看
+            ?? [{ kind: 'raw', html: text.slice(raws[0].start, raws.at(-1).end), pre: null, nodes: null }];
+    }
     const blocks = [];
     for (const pre of textEl.querySelectorAll('pre')) {
         const code = pre.querySelector('code');
@@ -52,7 +97,7 @@ export function findHtmlBlocks(textEl, raw) {
  * @param {()=>{mode:'render'|'source', network:boolean, width:number|'fit'}} opts.defaults Aa 里的默认值
  * @param {(width:number|'fit')=>void} opts.rememberWidth 最近选的宽度记成默认
  * @param {(html:string, where:object)=>Promise<string>|string} opts.prepare 显示前处理（脱敏显示开着时换词）
- * @param {()=>boolean} opts.isPaged 分页模式不做加宽
+ * @param {()=>boolean} [opts.isPaged] 分页模式（伸出与缩放和滚动模式相同，D27；留着给以后区分）
  * @param {(message:string)=>void} opts.toast
  */
 export function createHtmlManager({ scroller, chat, defaults, rememberWidth, prepare, isPaged, toast }) {
@@ -81,8 +126,16 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
     });
     mo.observe(chat, { childList: true, subtree: true });
 
-    const ro = new ResizeObserver(() => { for (const entry of live.values()) layout(entry); });
+    // 窗口变了、正文栏变宽变窄（跟随 ST 的宽度会变）：重新算伸出与缩放。只看宽度——高度变化（翻页加楼、沙箱长高）不用重算
+    let lastWidths = '';
+    const ro = new ResizeObserver(() => {
+        const widths = `${scroller.clientWidth}:${chat.clientWidth}`;
+        if (widths === lastWidths) return;
+        lastWidths = widths;
+        for (const entry of live.values()) layout(entry);
+    });
     ro.observe(scroller);
+    ro.observe(chat);
 
     function sweep() {
         for (const [shell, entry] of live) if (!shell.isConnected) drop(shell, entry);
@@ -107,10 +160,22 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             const key = `${where.index}:${where.swipe}:${i}`;
             let source = block.pre;
             if (block.kind === 'raw') {
-                // 整楼裸 HTML：把 ST 式的显示整体收进"原文"容器
                 source = h('div', { class: 'stcr-html-src' });
-                source.append(...textEl.childNodes);
-                textEl.append(source);
+                if (block.nodes?.[0].parentNode === textEl) {
+                    // 只把这一段标签收进"原文"容器，前后的散文留在正文里
+                    const [first, last] = block.nodes;
+                    first.before(source);
+                    for (let node = first; node;) {
+                        const next = node.nextSibling;
+                        source.append(node);
+                        if (node === last) break;
+                        node = next;
+                    }
+                } else {
+                    // 对不上时的退路：整楼收进"原文"容器
+                    source.append(...textEl.childNodes);
+                    textEl.append(source);
+                }
             }
             source.classList.add('stcr-html-src');
             // 宽度在接上时定下来：之后在别的块上换宽度（会记成新默认）不影响已经显示着的这一块
@@ -158,6 +223,7 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             if (event.target.closest('[data-html-act="net"]')) toggleNetwork(entry);
         });
         entry.els = { modeSeg, widthSeg, net, frame, stage, status: bar.querySelector('.stcr-html-status') };
+        entry.scale = 1;
         return shell;
     }
 
@@ -190,25 +256,48 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
     }
 
     /**
-     * 比正文宽的预设（例如桌面 1200）：渲染区向两边伸出去，占到阅读区的可用宽度，仍放不下就横向滚动。
-     * 分页模式按列排版，不伸出去，只在列内横向滚动。
+     * 比正文宽的预设（例如桌面 1200，D27）：先向两边伸出去，占到阅读区的可用宽度（左右各留 16px）；
+     * 还放不下就整块等比缩小到可用宽度，高度按缩小后的实际高度收紧——不裁切、不横向滚动。滚动 / 分页一样。
      */
     function layout(entry) {
-        const { stage } = entry.els;
-        stage.style.removeProperty('width');
-        stage.style.removeProperty('margin-left');
-        if (entry.mode() !== 'render' || !entry.shell.isConnected || isPaged()) return;
-        const want = pixelWidth(entry);
-        const col = entry.shell.getBoundingClientRect();
-        if (want <= col.width + 1) return;
-        const area = scroller.getBoundingClientRect();
-        const room = Math.max(col.width, area.width - 48);
-        const width = Math.min(want, room);
-        const left = area.left + (area.width - width) / 2 - col.left;
-        stage.style.setProperty('width', `${Math.round(width)}px`);
-        stage.style.setProperty('margin-left', `${Math.round(left)}px`);
-        // 跟随正文的宽度会随窗口变：变了就重建一次（去抖）
-        if (get(entry.key).width === 'fit') refit(entry);
+        const { stage, frame } = entry.els;
+        // 先算后写、只写变了的值：先清样式再量会让浏览器按"没缩放"的高度排一次版，滚动锚定跟着跳（阅读位置被推走）
+        let width = null, left = null, want = 0, scale = 1;
+        if (entry.mode() === 'render' && entry.shell.isConnected) {
+            want = pixelWidth(entry);
+            const col = entry.shell.getBoundingClientRect();
+            if (col.width > 0 && want > col.width + 1) {
+                // 滚动区两侧都留了滚动条的位置（scrollbar-gutter: both-edges），可用区是去掉两边之后的中间
+                const gutter = (scroller.offsetWidth - scroller.clientWidth) / 2;
+                const left0 = scroller.getBoundingClientRect().left + gutter + EDGE;
+                const room = Math.max(col.width, Math.floor(scroller.clientWidth - 2 * EDGE));
+                width = Math.min(want, room);
+                left = Math.round(left0 + (room - width) / 2 - col.left);
+                if (want > width) scale = Math.floor(width / want * 10000) / 10000; // 四位小数：和样式里读回来的值一致
+            }
+            // 跟随正文的宽度会随窗口变：变了就重建一次（去抖）
+            if (get(entry.key).width === 'fit') refit(entry);
+        }
+        entry.scale = scale;
+        setStyle(stage, 'width', width === null ? null : `${width}px`);
+        setStyle(stage, 'margin-left', left === null ? null : `${left}px`);
+        setStyle(frame, 'width', scale < 1 ? `${want}px` : null);
+        setStyle(frame, 'transform', scale < 1 ? `scale(${scale})` : null);
+        if (scale < 1) fitHeight(entry);
+        else setStyle(stage, 'height', null);
+        showStatus(entry);
+    }
+    /** transform 不改变占位：缩小时外框高度按缩小后的实际高度收紧，不留空白。 */
+    function fitHeight(entry) {
+        if (entry.scale < 1) setStyle(entry.els.stage, 'height', `${Math.ceil(entry.els.frame.offsetHeight * entry.scale)}px`);
+    }
+    /** 状态小字：正在渲染… / 已缩放 83% · 已断网 */
+    function showStatus(entry) {
+        if (entry.rendering) { entry.els.status.textContent = '正在渲染…'; return; }
+        const parts = [];
+        if (entry.view && entry.scale < 1) parts.push(`已缩放 ${Math.round(entry.scale * 100)}%`);
+        if (entry.view && !get(entry.key).network) parts.push('已断网');
+        entry.els.status.textContent = parts.join(' · ');
     }
     function refit(entry) {
         const w = pixelWidth(entry);
@@ -229,6 +318,7 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         entry.view?.destroy();
         entry.view = null;
         entry.builtWidth = null;
+        entry.rendering = false;
         entry.els.frame.replaceChildren();
         entry.els.status.textContent = '';
     }
@@ -253,12 +343,14 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         const s = get(entry.key);
         const width = pixelWidth(entry);
         const status = entry.els.status;
+        entry.rendering = true;
         status.textContent = '正在渲染…';
         let html;
         try { html = await prepare(entry.block.html, entry.where); }
         catch (error) {
             // I033：脱敏没做成时绝不退回原文渲染——连同已经在跑的旧沙箱（可能是脱敏前的原文）一起拆掉，只留提示和重试
             if (build !== entry.build || destroyed) return;
+            entry.rendering = false;
             console.warn('[st-reader] HTML 脱敏失败，这一块先不显示', error);
             entry.view?.destroy();
             entry.view = null;
@@ -275,6 +367,7 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             entry.height = height;
             heights.set(entry.key, height);
             entry.els.frame.style.minHeight = '';
+            fitHeight(entry);
         };
         try {
             if (entry.view) {
@@ -286,9 +379,10 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             }
             if (build !== entry.build) return;
             entry.builtWidth = width;
-            status.textContent = s.network ? '' : '已断网';
+            entry.rendering = false;
         } catch (error) {
             if (build !== entry.build || destroyed) return; // 被更新的一次顶替了
+            entry.rendering = false;
             console.warn('[st-reader] HTML 渲染失败', error);
             entry.view?.destroy();
             entry.view = null;
