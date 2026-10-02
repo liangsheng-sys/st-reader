@@ -9,6 +9,8 @@
 
 完整人类步骤见 `docs/SETUP_WINDOWS.md` §2。
 
+I041 高度回归（2026-10-02）：启动 8100 开发实例后，双击 `test-html-height.cmd`，用已有浏览器在 1366 / 1024 两种视口各验纸月样本 390 / 768 / 1200 排版宽度、断网/允许外链、动态收起展开、脱离文档流与内部滚动、重建及外层等比缩放；随后跑完整浏览器回归。等价命令 `node dev/test-performance.mjs --html-height --core-browser`。浏览器配置仅在 `.tmp/i041-browser-*`，完成清理；报告在 `.dev/fixtures/i041-performance*.json`，不入库。控制台单独验为 `await stcrSelfTest({core:false,htmlHeight:true})`；默认完整自测与 htmlRenderer 专项也会包含这些回归。
+
 T30 验证入口：
 - `node dev/selftest.mjs`：角色卡只验关键 JSON，聊天仍验 SHA-256；总项数随新增回归变化，以最后“全部通过”为准。
 - 先停开发服务，双击 `generate-performance.cmd` 生成53.39MiB/4000楼，再启动服务并双击 `test-performance.cmd`。不需要 npm 或额外下载。

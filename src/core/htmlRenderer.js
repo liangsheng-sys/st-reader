@@ -96,8 +96,24 @@ function reportHeight(token) {
     const report = () => {
         scheduled = false;
         const body = document.body, html = document.documentElement; if (!body) return;
-        const style = getComputedStyle(body);
-        const height = Math.min(16384, Math.max(1, Math.ceil(body.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0)), body.scrollHeight, html.scrollHeight > html.clientHeight ? html.scrollHeight : 0));
+        const style = getComputedStyle(body), rect = body.getBoundingClientRect();
+        // 根盒包含实际折叠外边距；scrollHeight 至少等于视口高，不能据其是否溢出切换量高算法。
+        // 转回文档坐标，保留 body 内溢出；不把上次 iframe 高度当下限，内容收起时仍可缩短。
+        const bodyBottom = rect.top + scrollY + Math.max(rect.height, style.overflowY === 'visible' ? body.scrollHeight + (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0) : 0) + (parseFloat(style.marginBottom) || 0);
+        const rootBottom = html.getBoundingClientRect().bottom + scrollY + (parseFloat(getComputedStyle(html).marginBottom) || 0);
+        let bottom = Math.max(rootBottom, bodyBottom);
+        // 脱离文档流的元素可能不撑开根盒。仅有额外滚动范围时检查其实际边界，
+        // 跳过固定定位与内部裁切/滚动区的后代；不把 iframe 视口底线当成内容高度。
+        if (html.scrollHeight > Math.ceil(bottom) && style.overflowY === 'visible') {
+            const nodes = [...body.children];
+            while (nodes.length) {
+                const node = nodes.pop(), css = getComputedStyle(node);
+                if (css.display === 'none' || css.position === 'fixed') continue;
+                bottom = Math.max(bottom, node.getBoundingClientRect().bottom + scrollY + (parseFloat(css.marginBottom) || 0));
+                if (css.overflowY === 'visible') for (const child of node.children) nodes.push(child);
+            }
+        }
+        const height = Math.min(16384, Math.max(1, Math.ceil(bottom)));
         if (height !== previous) { previous = height; parent.postMessage({ type: 'stcr:html-height', token, height }, '*'); }
     };
     // 跨源且暂在视口外的 iframe 会暂停 rAF；首报不能依赖它，否则预加载会永久等不到高度。

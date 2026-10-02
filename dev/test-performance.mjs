@@ -7,6 +7,7 @@ import { assertDevPath, DEV_ROOT, PROJECT_ROOT, writeDevFile } from './fixtures/
 
 // 使用本机已有 Chrome/Edge 和 Node 内置 CDP WebSocket；不装依赖，不访问真实 ST。
 const origin = 'http://localhost:8100';
+const htmlHeight = process.argv.includes('--html-height'), task = htmlHeight ? 'i041' : 't30';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const chromePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(file => fs.existsSync(file));
 let browser, socket, profile;
@@ -24,12 +25,13 @@ async function evaluate(expression) {
 }
 try {
     if (!chromePath) throw new Error('请使用本机已安装的 Chrome 或 Edge；此脚本不会下载浏览器。');
-    const fixture = JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'fixtures/performance.json'))));
-    if (fixture.bytes < 50 * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
+    const fixture = htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
+        : JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'fixtures/performance.json'))));
+    if (!htmlHeight && fixture.bytes < 50 * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
     const response = await fetch(`${origin}/`, { signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('先启动开发实例');
     const tempRoot = path.join(PROJECT_ROOT, '.tmp');
     if (fs.lstatSync(tempRoot).isSymbolicLink()) throw new Error('.tmp 不能是联接');
-    profile = fs.mkdtempSync(path.join(tempRoot, 't30-browser-'));
+    profile = fs.mkdtempSync(path.join(tempRoot, `${task}-browser-`));
     browser = spawn(chromePath, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-crash-reporter', '--disable-breakpad', '--disable-features=OptimizationHints,MediaRouter', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--enable-precise-memory-info', '--js-flags=--expose-gc', '--window-size=1440,1000', `--user-data-dir=${profile}`, `--disk-cache-dir=${path.join(profile, 'cache')}`, 'about:blank'],
         { cwd: PROJECT_ROOT, windowsHide: true, stdio: 'ignore', env: { ...process.env, TEMP: profile, TMP: profile, TMPDIR: profile, LOCALAPPDATA: profile, APPDATA: profile } });
     browser.on('error', error => console.error(error.message));
@@ -76,31 +78,42 @@ try {
         await evaluate('document.fonts.ready.then(()=>true)');
     }
     await delay(3000);
-    console.log('开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
+    console.log(htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
     if (process.argv.includes('--profile')) { await send('Profiler.enable'); await send('Profiler.start'); }
-    let failure;
-    try { await evaluate('window.stcrSelfTest({performance:true})'); } catch (error) { failure = error; }
-    const report = await evaluate('window.stcrPerformanceReport');
+    let failure, report;
+    if (htmlHeight) {
+        report = { cases: [] };
+        for (const width of [1366, 1024]) {
+            await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+            try { await evaluate('window.stcrSelfTest({core:false,htmlHeight:true})'); } catch (error) { failure = error; }
+            report.cases.push(await evaluate('window.stcrHtmlHeightReport'));
+        }
+    } else {
+        try { await evaluate('window.stcrSelfTest({performance:true})'); } catch (error) { failure = error; }
+        report = await evaluate('window.stcrPerformanceReport');
+    }
     if (process.argv.includes('--profile')) {
         const { profile: trace } = await send('Profiler.stop');
         const costs = new Map(), nodes = new Map(trace.nodes.map(node => [node.id, node]));
         trace.samples.forEach((id, index) => { const f = nodes.get(id).callFrame; const key = `${f.functionName || '(anonymous)'} ${f.url}`; costs.set(key, (costs.get(key) ?? 0) + trace.timeDeltas[index]); });
         console.log('采样 CPU（ms）', [...costs].sort((a, b) => b[1] - a[1]).slice(0, 22).map(([name, cost]) => [name, Math.round(cost / 1000)]));
     }
-    const output = { date: new Date().toISOString(), fixture, ...report, blocked, requestPaths: [...new Set(requests)], passed: !failure };
-    const reportText = JSON.stringify(output, null, 2) + '\n';
-    writeDevFile(path.join(DEV_ROOT, 'fixtures/t30-performance-result.json'), reportText);
-    writeDevFile(path.join(DEV_ROOT, `fixtures/t30-performance-${output.date.replace(/[:.]/g, '-')}.json`), reportText);
-    console.log(JSON.stringify({ ...output, requestPaths: output.requestPaths.filter(item => item.startsWith('/api/')) }, null, 2));
-    if (blocked.some(item => item.reason === 'D02')) throw new Error('检测到 D02 请求');
-    if (!failure) console.log('全部通过。详细报告：E:\\st-reader\\.dev\\fixtures\\t30-performance-result.json');
     // 可选完整回归只在此独立浏览器进行。
     if (process.argv.includes('--core-browser')) {
         await evaluate(`document.querySelector('.character_select[ch_name="STCR_T11_Mist.png"]')?.click()`);
         await delay(1500);
-        const full = await evaluate('window.stcrSelfTest()');
-        console.log(`浏览器完整自测通过：${full.length} 项`);
+        try {
+            const full = await evaluate('window.stcrSelfTest()');
+            report ??= {}; report.fullBrowserCount = full.length;
+            console.log(`浏览器完整自测通过：${full.length} 项`);
+        } catch (error) { failure = error; }
     }
+    const output = { date: new Date().toISOString(), fixture, ...report, blocked, requestPaths: [...new Set(requests)], passed: !failure && !blocked.length };
+    const reportText = JSON.stringify(output, null, 2) + '\n';
+    writeDevFile(path.join(DEV_ROOT, `fixtures/${task}-performance-result.json`), reportText);
+    writeDevFile(path.join(DEV_ROOT, `fixtures/${task}-performance-${output.date.replace(/[:.]/g, '-')}.json`), reportText);
+    console.log(JSON.stringify({ ...output, requestPaths: output.requestPaths.filter(item => item.startsWith('/api/')) }, null, 2));
+    if (output.passed) console.log(`全部通过。详细报告：E:\\st-reader\\.dev\\fixtures\\${task}-performance-result.json`);
     if (blocked.length) throw new Error(`浏览器发现 ${blocked.length} 次禁用/外网请求，详见报告`);
     if (failure) throw failure;
 } catch (error) { console.error(`性能/浏览器测试失败：${error.stack}`); process.exitCode = 1; }
@@ -111,7 +124,7 @@ finally {
     await delay(2000);
     if (profile) {
         const absolute = path.resolve(profile), intended = path.join(PROJECT_ROOT, '.tmp');
-        if (path.dirname(absolute) !== intended || !path.basename(absolute).startsWith('t30-browser-') || fs.lstatSync(absolute).isSymbolicLink()) throw new Error('临时目录越界，拒绝清理');
+        if (path.dirname(absolute) !== intended || !path.basename(absolute).startsWith(`${task}-browser-`) || fs.lstatSync(absolute).isSymbolicLink()) throw new Error('临时目录越界，拒绝清理');
         fs.rmSync(absolute, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     }
 }

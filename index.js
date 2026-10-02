@@ -42,6 +42,10 @@ if (isDevInstance(window.location)) {
             const { testHtmlSnapshotBrowser } = await import('./src/core/htmlSnapshotBrowser.test.js');
             results.push(...testHtmlSnapshotLogic(), ...await testHtmlSnapshotBrowser());
         }
+        if (options.htmlHeight && !(options.htmlRenderer ?? runCore)) {
+            const { testHtmlHeightBrowser } = await import('./src/core/htmlHeightBrowser.test.js');
+            results.push(...await testHtmlHeightBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));

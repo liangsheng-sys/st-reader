@@ -545,6 +545,8 @@ T51 透明默认值：内外两层 iframe 都设 `allowtransparency="true"` 与 
 
 首次高度及变更上报使用微任务，不能依赖 requestAnimationFrame：Chrome 会暂停视口外跨源 iframe 的动画帧，阅读器预加载或自动测试时仍必须完成 ready。ResizeObserver、MutationObserver、字体就绪、load/resize 共同触发测量；同一高度不重复发送。宽度保持指定像素，较窄父容器由 UI 提供横向滚动，不能通过 max-width 悄悄改变排版宽度。
 
+I041（2026-10-02）：高度统一取根盒与 body 的实际文档坐标边界，向上取整；根盒包含折叠后的外边距。不能因 `html.scrollHeight > html.clientHeight` 是否成立就在两套量高算法间切换，也不能用当前视口高度做下限。额外滚动范围仅作为检查脱离文档流元素的提示；补测其实际边界时跳过固定定位和内部裁切/滚动区的后代，避免撑开网页自己限高的滚动区。交互展开、收起都可调整高度，update 重建不沿用旧高度。未添加 overflow:hidden 掩盖溢出，内容样式、透明背景与两层沙箱权限不变。接口和消息字段均不变，Opus 的 onHeight 布局回调无需改签名。
+
 静态副本去 script（包括模板和 SVG 内脚本）、事件属性、iframe/object/embed、meta/link/base、导航/表单目标、SVG 动画；去远端图片与含远端 URL 的 CSS 声明，保留无网络展示 CSS、data/blob 图片和 data 字体。CSS 动画/过渡停止。D23 默认只读拉取 HTML 的 link stylesheet、CSS @import/url、img 与 SVG image 等引用，解析 CSS 相对地址并内嵌为 data；跨站按 CORS 且 credentials:omit，同源资源使用 same-origin 会话。没有固定服务域名、代理或上传。重复 URL 在单次准备内缓存；单资源 5 MB、累计 20 MB、最多 128 项、单请求 12 秒、样式嵌套 8 层。CORS/网络/限额失败通过 onWarning 与 warnings 提示并去除该资源，保留其余内容；解码错误仍拒绝，不生成损坏图片。静态文档与最终截图器始终禁网，截图器不会再自行补资源。静态文档最高 16384 CSS px；实际高清整图最多 3200 万像素、每边不超过 32768 像素，在分配截图画布前校验。超限明确拒绝并建议降低倍数或减少内容，不能静默缩小。先截整图再裁剪，小裁剪不能绕过原图上限。所有失败路径释放自己的 iframe/计时器/位图。
 
 I029 验收返修：原来硬编码 scale=1，在高像素密度屏幕或放大查看时容易模糊。现直接让截图器以 scale 重新栅格化文字和矢量内容，不把已生成的 1 倍 PNG 拉大；裁剪源坐标、目标宽高同时乘 scale，不再降回 1 倍。原文排版 width 与 crop 的 CSS 坐标含义不变；需要旧尺寸时显式传 scale:1。例如 width=768 的完整 PNG 默认宽 1536；crop={x:100,y:50,w:300,h:180} 默认输出 600×360。输入中的低分辨率位图不会凭空获得更多细节。
