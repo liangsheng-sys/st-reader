@@ -169,6 +169,7 @@ export async function openReader({ tab, chatKey } = {}) {
     session.cleanup.push(onPrefsChange(onPrefs));
     session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
     session.cleanup.push(followHostWidth(root));
+    session.cleanup.push(muteHostMessageStyles());
     document.body.append(root);
     document.body.classList.add('stcr-reader-open');
     session.scroller.focus({ preventScroll: true });
@@ -186,6 +187,34 @@ export async function openReader({ tab, chatKey } = {}) {
     if (getPrefs().panelPinned && wide()) session.panel.open();
     // 更新后第一次打开：弹"本次更新了什么"（T54b）。读不到就不弹，不挡阅读
     maybeShowWhatsNew(session.docPanel, () => S === session).catch(() => {});
+}
+
+/**
+ * 宿主聊天里楼内自带的 <style>（ST 给选择器加的前缀是 `.mes_text `）也会命中阅读器的楼层：
+ * 例如卡片 CSS 的 `p { background }` 让阅读器整页段落上底色、`text-align: center` 让整页居中（T50/T52 验收）。
+ * 阅读器开着时把这些样式表暂停（只设 HTMLStyleElement.disabled，不删、不改文字、不碰聊天数据），关阅读器时原样恢复。
+ * 宿主聊天被不透明的阅读器盖着，看不出差别。只动 #chat 里的 <style>（ST 的楼内样式），主题与扩展的样式不受影响。
+ */
+function muteHostMessageStyles() {
+    const chat = document.getElementById('chat');
+    if (!chat) return () => {};
+    const muted = new Set();
+    const mute = () => {
+        for (const style of chat.querySelectorAll('style')) {
+            if (style.disabled || muted.has(style)) continue;
+            style.disabled = true;
+            muted.add(style);
+        }
+    };
+    mute();
+    // ST 在阅读器开着时也可能重绘聊天（换角色、收到新消息）：新出现的楼内样式同样暂停
+    const mo = new MutationObserver(records => { if (records.some(r => r.addedNodes.length)) mute(); });
+    mo.observe(chat, { childList: true, subtree: true });
+    return () => {
+        mo.disconnect();
+        for (const style of muted) style.disabled = false;
+        muted.clear();
+    };
 }
 
 /**
