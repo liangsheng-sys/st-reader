@@ -19,4 +19,6 @@
 | `opus_T42-T45.md` | Claude Code / Opus | T40 已合到 main；T44b 等 T44a |
 | `astra_T51-T54a.md` | Codex / astra | M5，可与 Opus 并行 |
 | `opus_T50-T55.md` | Claude Code / Opus | M5；T54b 等 T54a |
+| `astra_T57.md` | Codex / astra | M5 收尾：合 T53（按 D28 改）、0.2.0、文档 |
+| `opus_T59.md` | Claude Code / Opus | T57 合入 main 后 |
 
