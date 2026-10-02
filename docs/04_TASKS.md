@@ -66,6 +66,6 @@
 | T57 | **整合与 0.2.0**：①把 `task/T53-memory-cache` 合入 main（冲突以 main 为准，I047）；②按 D28 改 T53 校验时机，首屏 < 300 ms 进浏览器自测；③manifest 0.2.0；④CHANGELOG 0.2.0 补重开提速与 D29 静音两行；⑤README 安装节 + 使用说明常见问题 + SETUP §3 写 D30；⑥README 只读节加 D29 那句话；⑦自测全绿后快进 main，停下等 Fable 复查 | astra | 待开始 | Node / 浏览器 / UI 自测全绿；缓存命中首屏 < 300 ms；文档三处有 D30 |
 | T58 | 人类：按发布指南第 9 节推送与发 Release | 人类 | 待开始 | GitHub 有 v0.2.0 |
 | T59 | **M5 收尾 UI**：①I042 抽屉每次 `open()` 调 `prefetchCurrentChat().catch(()=>{})`；②D28 横幅"此聊天有新内容，点击重新加载"；③D29 约束③：静音恢复加 `try/finally`、`pagehide`、根节点移除兜底，且只选 `#chat .mes style`；④D30 两份并存提示（core 能区分则接，否则写 06） | Opus | 待开始 | 在 T57 合并后的 main 上开工；抽屉重开能看到预取请求；fixture 改动后横幅出现；异常后宿主样式恢复 |
-| T60 | 人类：按使用说明"两份安装"一节，双击 `install/unlink-from-my-st.cmd` 去掉联接，只保留 URL 安装；重启 ST 确认阅读器只出现一次 | 人类 | 待开始 | 扩展列表只有一个"阅读器 (ST Reader)" |
+| T60 | 人类：按使用说明"两份安装"一节，双击 `install/unlink-from-my-st.cmd` 去掉联接，只保留 URL 安装；重启 ST 确认阅读器只出现一次 | 人类 | 通过（2026-10-02 人类运行 unlink 显示“联接不存在”，联接早已清理） | 扩展列表只有一个"阅读器 (ST Reader)" |
 | T61 | 发布前复查 0.2.0（T47 清单 + D28 / D29 / D30 落实核对） | Fable | 待开始 | 报告写 handoff |
 
