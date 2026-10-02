@@ -8,7 +8,8 @@ import { assertDevPath, DEV_ROOT, PROJECT_ROOT, writeDevFile } from './fixtures/
 // 使用本机已有 Chrome/Edge 和 Node 内置 CDP WebSocket；不装依赖，不访问真实 ST。
 const origin = 'http://localhost:8100';
 const htmlHeight = process.argv.includes('--html-height'), updateService = process.argv.includes('--update-service');
-const task = updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
+const chatCache = process.argv.includes('--chat-cache');
+const task = chatCache ? 't53' : updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const chromePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(file => fs.existsSync(file));
 let browser, socket, profile;
@@ -26,9 +27,9 @@ async function evaluate(expression) {
 }
 try {
     if (!chromePath) throw new Error('请使用本机已安装的 Chrome 或 Edge；此脚本不会下载浏览器。');
-    const fixture = updateService ? { synthetic: true, name: '版本服务与开发目录' } : htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
+    const fixture = chatCache ? { file: 'STCR-90-大文件-1600楼', bytes: fs.statSync(assertDevPath(path.join(DEV_ROOT, 'data/default-user/chats/STCR_T11_Mist/STCR-90-大文件-1600楼.jsonl'))).size } : updateService ? { synthetic: true, name: '版本服务与开发目录' } : htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
         : JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'fixtures/performance.json'))));
-    if (!htmlHeight && !updateService && fixture.bytes < 50 * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
+    if (!htmlHeight && !updateService && fixture.bytes < (chatCache ? 21 : 50) * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
     const response = await fetch(`${origin}/`, { signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('先启动开发实例');
     const tempRoot = path.join(PROJECT_ROOT, '.tmp');
     if (fs.lstatSync(tempRoot).isSymbolicLink()) throw new Error('.tmp 不能是联接');
@@ -80,10 +81,13 @@ try {
         await evaluate('document.fonts.ready.then(()=>true)');
     }
     await delay(3000);
-    console.log(updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
+    console.log(chatCache ? '开发页面已就绪，开始 T53 重开自测…' : updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
     if (process.argv.includes('--profile')) { await send('Profiler.enable'); await send('Profiler.start'); }
     let failure, report;
-    if (updateService) {
+    if (chatCache) {
+        try { await evaluate('window.stcrSelfTest({cachePerformance:true})'); } catch (error) { failure = error; }
+        report = await evaluate('window.stcrChatCacheReport') ?? { failure: failure?.message };
+    } else if (updateService) {
         try { await evaluate('window.stcrSelfTest({core:false,updateService:true})'); } catch (error) { failure = error; }
         report = await evaluate('window.stcrUpdateReport');
         if (!failure) {
@@ -102,6 +106,14 @@ try {
     } else {
         try { await evaluate('window.stcrSelfTest({performance:true})'); } catch (error) { failure = error; }
         report = await evaluate('window.stcrPerformanceReport');
+    }
+    if (chatCache) {
+        // 真正跨页面刷新；先留下一个小聊天缓存，再刷新，不能用新工厂实例冒充刷新实证。
+        await evaluate(`(async()=>{const s=await import('/scripts/extensions/third-party/st-reader/src/core/chatSource.js');const h=await s.openChat(s.makeChatKey({avatarUrl:'STCR_T11_Mist.png',fileName:'STCR-03-普通阅读'}));h.page(0);h.close();if(s.getChatCacheStats().entries!==1)throw Error('刷新前缓存未建立')})()`);
+        await send('Page.navigate', { url: `${origin}/?t53Refresh=1` }); await delay(1000);
+        for (let i = 0; ; i++) { if (await evaluate('Boolean(window.stcrSelfTest && document.querySelector("#stcr_topbar_button"))')) break; if (i > 120) throw new Error('刷新超时'); await delay(250); }
+        report.refreshEmpty = await evaluate(`import('/scripts/extensions/third-party/st-reader/src/core/chatSource.js').then(s=>s.getChatCacheStats().entries===0)`);
+        if (!report.refreshEmpty) failure = new Error('刷新后正文缓存非空');
     }
     if (process.argv.includes('--profile')) {
         const { profile: trace } = await send('Profiler.stop');

@@ -2,7 +2,7 @@
 // 仅由 localhost:8100 的 stcrSelfTest({performance:true}) 动态加载。
 import { openReader, closeReader, isReaderOpen } from '../ui/reader.js';
 import { getPrefs, setPrefs, loadPrefs } from '../ui/prefs.js';
-import { makeChatKey } from './chatSource.js';
+import { makeChatKey, clearChatCache } from './chatSource.js';
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 // rAF 后的任务排在本帧绘制之后；双 rAF 会额外计入一个无关刷新周期。
@@ -59,7 +59,9 @@ export async function testPerformanceBrowser() {
                 }
                 memory.push({ phase: '翻页后', bytes: await heap() });
             }
-            await open(small); memory.push({ phase: `第${round + 1}次切回小聊天`, bytes: await heap() }); closeReader();
+            await open(small);
+            // D24 主动保留最近聊天；释放测试必须显式清空 LRU，不能把正常缓存误报为泄漏。
+            clearChatCache(); memory.push({ phase: `第${round + 1}次切回小聊天并清空缓存`, bytes: await heap() }); closeReader();
         }
         memory.push({ phase: '关闭阅读器', bytes: await heap() });
         const p95 = values => [...values].sort((a, b) => a - b)[Math.ceil(values.length * .95) - 1];
@@ -73,12 +75,12 @@ export async function testPerformanceBrowser() {
         check('翻屏 P95 小于 100ms、最慢小于 150ms；预取一批小于 300ms', p95(turns) < 100 && Math.max(...turns) < 150 && Math.max(...batches) < 300);
         check('滚动只保留至多 120 楼，旧批次已释放', maxFloors <= 120 && maxFloors >= 90);
         const peak = Math.max(...memory.filter(item => ['大聊天已打开', '翻页后'].includes(item.phase)).map(item => item.bytes ?? 0));
-        if (report.forcedGc && memory.every(item => item.bytes !== null)) check('切小聊天回收至少 70% 增量，三轮没有持续增长',
+        if (report.forcedGc && memory.every(item => item.bytes !== null)) check('切小聊天并清空缓存后回收至少 70% 增量，三轮没有持续增长',
             memory.filter(item => item.phase.includes('切回')).every(item => item.bytes - memory[0].bytes < (peak - memory[0].bytes) * .3));
         else console.warn('[st-reader] 本浏览器不能主动 GC；内存结论请双击 dev/test-performance.cmd 获取，不能把此项视为通过。');
         check('宿主聊天/候选/选择/元信息不变', report.hostUnchanged);
         console.table(results);
         assert(results.every(item => item.passed), 'T30 性能未达标，见 stcrPerformanceReport');
         return results;
-    } finally { closeReader(); setPrefs(prefs); }
+    } finally { closeReader(); setPrefs(prefs); clearChatCache(); }
 }

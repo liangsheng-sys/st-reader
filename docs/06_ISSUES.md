@@ -74,3 +74,8 @@ T30 追加（2026-09-29）：**I020，大文件整合性能未稳定达标**，�
 | I046 | 2026-10-02 | Fable | 人类真实 ST 同时存在全局 URL 安装与用户目录联接两份扩展（T50 交接信提到）。拍板 D30。T57 把"先 unlink 再 URL 安装"写进 README 安装节、使用说明常见问题与 SETUP_WINDOWS §3；人类按 T60 清理 | T57 / T60 | 已处理：人类 2026-10-02 运行 unlink，脚本 lstat 该路径为空，用户目录无残留；正式只剩全局 URL 安装。文档三处仍由 T57 补 |
 | I047 | 2026-10-02 | Fable | 任务板 `04_TASKS.md` 在 T53 分支与 main 上状态不一致（T53 分支标 T50/T52/T55 为待开始）。合并 T53 时以 main 为准，只保留 T53 自己那一行与 I040/I042 条目 | T57 | open |
 
+
+| I042 | 2026-10-01 | astra | **T53 合同语义更新**：openChat/ChatSummary/MessageModel 字段签名不变；close 改为释放句柄，3 个 / 150,000,000 字节估算的 LRU 保留原始数组与冻结模型/页。新增 prefetchCurrentChat / clearChatCache / getChatCacheStats；并发读取共享内部 signal，独立取消。五个列表读取触发当前聊天预取；第一次打开抽屉已经过这些入口，已画好的抽屉再次展开没有 core 调用，仍需 Opus 在 drawer.open 接 prefetchCurrentChat 并静默捕获错误。用户要求 UI 接线留给 Opus，本卡未改 src/ui | T53 / Opus 接线 | core 已实现、待验收；抽屉重展开接线 open。§5 已更新，交接信通知 Opus。宿主摘要的大小四舍五入、last_mes 非文件 mtime，同大小/同末消息日期/同楼数的编辑无法识别；刷新强制重读。T30 内存回收测试按 D24 改为切小聊天并显式清空缓存后再判断 |
+
+T53 合并前 I040 实测记录（D28 已取代原同步校验决定）：
+**T53 300 ms 未达标**：21.35 MiB / 1600 楼合成聊天，Chrome 154 / 1440×1000；正式阅读器首次 1717.8 ms，重开 1022.6 / 856.6 / 764.2 ms，四次仅一次 chats/get。三次重开 search 单独耗时 830.1 / 698.1 / 621 ms，已超过整个预算。核对宿主源码：search 空查询仍读并解析该角色全部文件；同角色保留既有 53.39 MiB fixture。recent 也遍历目录并读取所选文件，不支持按目标文件过滤或 pinned；Node 实测 max30 约 486–688 ms，不能当作免费 stat 接口。未改宿主、搬走其他合成聊天或用 TTL 跳过校验
