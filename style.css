@@ -133,6 +133,8 @@
 /* ── 楼层 ── */
 #stcr_root #stcr_chat .stcr-mes { position: relative; }
 #stcr_root #stcr_chat .stcr-mes.stcr-swipe-fade > .mes_block { animation: stcr-fade .12s ease-out; }
+/* 正文默认左对齐（T50）：零优先级，只挡住从外层容器继承来的居中；主题 / 美化 CSS 里明确写的对齐照样生效。 */
+:where(#stcr_root #stcr_chat .mes_text) { text-align: start; }
 #stcr_root #stcr_chat .stcr-mes--system { justify-content: center; opacity: .72; }
 #stcr_root #stcr_chat .stcr-mes--system .mes_text { font-size: .86em; text-align: center; }
 #stcr_root #stcr_chat .stcr-mes--system .ch_name { justify-content: center; }
@@ -244,7 +246,8 @@
 /* 没有外框、没有底色（D26/D27）：HTML 自己决定底色，和正文融为一体。伸出 / 缩小由 htmlBlocks.layout 设宽高。 */
 #stcr_root .stcr-html-stage { position: relative; max-width: none; overflow: hidden; }
 /* ST 给 .mes_block 设了 overflow-x: hidden，伸出正文栏的部分会被它裁掉（反馈 2 截图 3）。只放开有 HTML 块的楼。 */
-#stcr_root #stcr_chat .mes_block:has(> .mes_text > .stcr-html) { overflow: visible; }
+/* min-width:0：overflow 不再是 hidden 后，flex 子项的最小宽度会被伸出去的渲染区撑大，名字行和 ⋯ 跟着跑出楼外 */
+#stcr_root #stcr_chat .mes_block:has(> .mes_text > .stcr-html) { overflow: visible; min-width: 0; }
 /* 不用 flex 居中：内容比外框宽时 flex 居中会把左边推到看不见的地方（反馈 2 截图 3 的左侧被裁） */
 #stcr_root .stcr-html-frame { transform-origin: 0 0; }
 /* color-scheme 与内容文档一致，浏览器才不会给透明 iframe 垫一层不透明底 */

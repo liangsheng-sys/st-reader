@@ -11,6 +11,7 @@ import { store } from '../core/store.js';
 import { buildPieces, createPieceCache, findThoughts, scrubNote } from './cardPieces.js';
 import { colorPicker, readableOn } from './colorPicker.js';
 import { h, iconButton } from './dom.js';
+import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
 
@@ -368,6 +369,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                         h('div', { class: 'mes_reasoning' }, piece.reasoning.cloneNode(true))) : null,
                     piece.body ? h('div', { class: 'mes_text' }, piece.body.cloneNode(true)) : null)));
         }
+        // 楼里自带的 <style> 只管它那一楼：卡片和阅读器同在一页，别让卡片里的样式改到底下的正文（T50）
+        for (const text of chat.querySelectorAll('.mes_text')) scopeFloorStyles(text);
         page.append(chat);
         if (tpl === 'digest' && mine.thoughts.length) {
             page.append(h('div', { class: 'stcr-card-thoughts' },
