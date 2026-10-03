@@ -22,3 +22,6 @@
 | `astra_T57.md` | Codex / astra | M5 收尾：合 T53（按 D28 改）、0.2.0、文档 |
 | `opus_T59.md` | Claude Code / Opus | T57 合入 main 后 |
 | `opus_T62.md` | Claude Code / Opus | 0.2.1 单卡修补（隐藏楼误判） |
+| `fable_resume.md` | Claude Code / Fable（新会话） | 任何时候要继续分配任务，粘它 + 你的反馈 |
+| `explorer_free.md` | 任何新模型 | 自由探索（D31），先交计划 |
+

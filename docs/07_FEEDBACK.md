@@ -109,3 +109,7 @@ README、0.1.0 CHANGELOG 与小白发布指南已交付待验收；外链按 D22
 
 人类原话："已通过。" T62 记为通过（含人类验收中提出并已补做的独立开关），main 指向 T62 最终提交。规划者 T63 复查通过，见 `handoff/2026-10-03_fable_to_human_T63.md`。下一步人类推送 0.2.1。
 
+## 2026-10-03 · v0.2.1 已发布
+
+人类："已发布更新。" T63 推送完成。新增 `prompts/fable_resume.md`（续接规划）与 `prompts/explorer_free.md`（D31 自由探索）。
+
