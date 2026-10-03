@@ -2,7 +2,7 @@
 // 阅读器界面自测（T21）。纯 Node 运行，无依赖：node src/ui/ui.test.js
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
-import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, formatListDate, formatStamp, hiddenUserRuns,
+import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt } from './logic.js';
 
@@ -82,6 +82,19 @@ export async function testUiLogic() {
         equal([...hiddenUserRuns([m(0, false)]).entries()], []);
         // 真正的系统楼（无名提示行）仍然打断
         equal([...hiddenUserRuns([m(0, true), m(1, true, { isSystem: true, name: '' }), m(2, true)]).entries()], [[0, 1], [2, 1]], '无名提示行打断：');
+    });
+    check('收起 ST 隐藏楼：两个开关有交集不重合，相邻合并、文字跟着变（T62 验收后）', () => {
+        const m = (index, isUser, isSystem = false, name = isUser ? '旅人' : '星灯') => ({ index, isUser, isSystem, isNarrator: false, name, swipes: [{}] });
+        // 0 普通角色 1 隐藏角色 2 隐藏用户 3 普通用户 4 无名系统行 5 隐藏角色
+        const chat = [m(0, false), m(1, false, true), m(2, true, true), m(3, true), m(4, false, true, ''), m(5, false, true)];
+        const runs = opts => [...foldRuns(chat, opts)].map(([start, run]) => [start, run.count, run.label]);
+        equal(runs({ hideStHidden: true }), [[1, 2, '— 已隐藏 · 2 条 —'], [5, 1, '— 已隐藏 · 1 条 —']], '只开隐藏楼：');
+        equal(runs({ hideUser: true }), [[2, 2, '— 你 · 2 条 —']], '只开用户楼：');
+        equal(runs({ hideUser: true, hideStHidden: true }), [[1, 3, '— 收起 3 条 —'], [5, 1, '— 已隐藏 · 1 条 —']], '两个都开：');
+        equal(runs({}), [], '都关：');
+        equal([isFolded(chat[4], { hideStHidden: true }), isStHidden(chat[4]), isStHidden(chat[1])], [false, false, true], '真正的系统楼不收：');
+        equal(normalizePrefs({ hideStHidden: true }).hideStHidden, true);
+        equal(normalizePrefs({ hideStHidden: 'yes' }).hideStHidden, false);
     });
     check('进度文字：楼号从 1 开始、单楼、空聊天', () => {
         equal(progressText(127, 130, 312), '第 128–131 楼 · 共 312 楼 · 42%');

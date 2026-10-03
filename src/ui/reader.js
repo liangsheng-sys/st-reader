@@ -16,7 +16,7 @@ import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, formatStamp, hiddenUserRuns, isSystemLike, parseJumpInput, pickSwipe, progressText, swipePreviews } from './logic.js';
+import { effectivePrefs, foldRuns, formatStamp, isFolded, parseJumpInput, pickSwipe, progressText, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -658,7 +658,7 @@ function onPrefs(next, previous) {
     if (!S) return;
     const anchor = captureAnchor();
     applyPrefs(next);
-    if (next.hideUser !== previous.hideUser) { rerender(anchor); return; }
+    if (next.hideUser !== previous.hideUser || next.hideStHidden !== previous.hideStHidden) { rerender(anchor); return; }
     if (next.redact !== previous.redact) {
         const session = S;
         (next.redact ? loadRedaction(session) : Promise.resolve()).then(() => {
@@ -1095,20 +1095,21 @@ function floorContext() {
     };
 }
 
-/** 一批楼层的节点（隐藏用户楼时在每段连续用户楼前插一条"— 你 · N 条 —"）。 */
+/** 一批楼层的节点（收起用户楼 / ST 隐藏楼时，在每段连续收起的楼前插一条"— 你 · N 条 —" / "— 已隐藏 · N 条 —"）。 */
 function pageNodes(pageIndex) {
     const { messages } = S.handle.page(pageIndex);
     const ctx = floorContext();
-    const hide = getPrefs().hideUser;
-    const runs = hide ? hiddenUserRuns(messages) : new Map();
+    const { hideUser, hideStHidden } = getPrefs();
+    const fold = { hideUser, hideStHidden };
+    const runs = hideUser || hideStHidden ? foldRuns(messages, fold) : new Map();
     const nodes = [];
     let run = null;
     for (const model of messages) {
         if (runs.has(model.index)) {
             run = model.index;
             nodes.push(h('button', { type: 'button', class: 'stcr-btn stcr-fold', 'data-act': 'fold', 'data-run': run, 'data-page': pageIndex, 'aria-expanded': 'false',
-                text: `— 你 · ${runs.get(run)} 条 —`, title: '点开看这几条' }));
-        } else if (!(model.isUser && !isSystemLike(model))) run = null;
+                text: runs.get(run).label, title: '点开看这几条' }));
+        } else if (!isFolded(model, fold)) run = null;
         let el;
         try {
             el = buildFloor(ctx, model, pickSwipe(S.swipeView.get(model.index), model));
@@ -1119,7 +1120,7 @@ function pageNodes(pageIndex) {
                 h('div', { class: 'mes_block' }, h('div', { class: 'mes_text', text: `（第 ${model.index + 1} 楼显示失败）` })));
         }
         el.dataset.page = String(pageIndex);
-        if (hide && model.isUser && !isSystemLike(model) && run !== null) { el.classList.add('stcr-user-hidden'); el.dataset.run = String(run); }
+        if (isFolded(model, fold) && run !== null) { el.classList.add('stcr-user-hidden'); el.dataset.run = String(run); }
         nodes.push(el);
     }
     return nodes;

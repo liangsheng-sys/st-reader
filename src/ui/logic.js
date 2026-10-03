@@ -15,6 +15,7 @@ export const DEFAULT_PREFS = Object.freeze({
     lineHeight: null,      // null = 跟随主题
     width: null,           // 正文栏最大宽度 px；null = 跟随方向默认
     hideUser: false,
+    hideStHidden: false,   // T62 验收后：收起在 ST 里点过小眼睛的楼（用户楼和角色楼都算）
     expandAllReasoning: false,
     hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
     redact: false,         // T45：脱敏显示（屏蔽词与我的替换规则套到正文显示上）
@@ -47,7 +48,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'drawerPinned', 'panelPinned', 'updateNotice']) {
+    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'drawerPinned', 'panelPinned', 'updateNotice']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
@@ -152,22 +153,53 @@ export function isSystemLike(model) {
     return name === '' || SYSTEM_NAMES.has(name);
 }
 
+/** 在 ST 里点过小眼睛（不发给模型）的普通楼：用户楼、角色楼都算；真正的系统楼不算。 */
+export const isStHidden = model => !!model?.isSystem && !isSystemLike(model);
+
 /**
- * 隐藏用户楼时，把连续的用户楼合成一段（02 §1.3："— 你 · 3 条 —"）。
- * 被 ST 隐藏过的用户楼（is_system=true、名字仍是用户）按普通用户楼一样折进去。
- * @param {readonly {index:number,isUser:boolean}[]} models 至少含 index / isUser；其余字段交给 isSystemLike 判断
- * @returns {Map<number, number>} 每段第一楼的楼号 → 这段的楼数
+ * 这一楼按当前设置要不要收起来。两个开关有交集但不重合（T62 验收后）：
+ * hideUser 收所有用户楼（含隐藏过的），hideStHidden 收所有 ST 里隐藏过的楼（用户楼和角色楼）。
+ * @param {{hideUser?:boolean, hideStHidden?:boolean}} opts
+ */
+export function isFolded(model, { hideUser = false, hideStHidden = false } = {}) {
+    if (isSystemLike(model)) return false;
+    return (hideUser && model.isUser) || (hideStHidden && isStHidden(model));
+}
+
+/**
+ * 把连续要收起的楼合成一段（02 §1.3）。
+ * @param {readonly object[]} models 至少含 index / isUser / isSystem；其余字段交给 isSystemLike 判断
+ * @param {{hideUser?:boolean, hideStHidden?:boolean}} opts
+ * @returns {Map<number, {count:number, label:string}>} 每段第一楼的楼号 → 楼数与折叠条文字
+ */
+export function foldRuns(models, opts) {
+    const runs = new Map();
+    let start = null, user = 0, hidden = 0;
+    const close = () => {
+        if (start === null) return;
+        const run = runs.get(start);
+        run.label = user === run.count && opts.hideUser ? `— 你 · ${run.count} 条 —`
+            : hidden === run.count ? `— 已隐藏 · ${run.count} 条 —` : `— 收起 ${run.count} 条 —`;
+        start = null;
+    };
+    for (const model of models) {
+        if (!isFolded(model, opts)) { close(); continue; }
+        if (start === null) { start = model.index; user = hidden = 0; runs.set(start, { count: 0, label: '' }); }
+        runs.get(start).count++;
+        if (opts.hideUser && model.isUser) user++;
+        if (opts.hideStHidden && isStHidden(model)) hidden++;
+    }
+    close();
+    return runs;
+}
+
+/**
+ * 只开"隐藏用户楼"时的旧接口：每段第一楼的楼号 → 这段的楼数。
+ * 被 ST 隐藏过的用户楼按普通用户楼一样折进去。
+ * @returns {Map<number, number>}
  */
 export function hiddenUserRuns(models) {
-    const runs = new Map();
-    let start = null;
-    for (const model of models) {
-        if (model.isUser && !isSystemLike(model)) {
-            if (start === null) { start = model.index; runs.set(start, 0); }
-            runs.set(start, runs.get(start) + 1);
-        } else start = null;
-    }
-    return runs;
+    return new Map([...foldRuns(models, { hideUser: true })].map(([start, run]) => [start, run.count]));
 }
 
 /** 进度文字（楼号给人看，从 1 开始）。first/last 为零基楼号，total 为总楼数。 */

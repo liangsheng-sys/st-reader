@@ -30,6 +30,8 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
     const widthRange = h('input', { type: 'range', min: PREF_LIMITS.width.min, max: PREF_LIMITS.width.max, step: '10', 'aria-label': '正文宽度' });
     const widthValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复默认宽度' });
     const hideUser = switchInput('隐藏用户楼');
+    const hideStHidden = switchInput('隐藏 ST 已隐藏的楼');
+    hideStHidden.el.title = '在 ST 里点过小眼睛（不发给模型）的楼，用户楼和角色楼都收成一行，点开能看';
     const redact = switchInput('脱敏显示');
     redact.el.title = '正文按屏蔽词与替换规则显示（只改阅读器里看到的，不改聊天）；划线照常可用';
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
@@ -70,7 +72,7 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
             row('行距', lineRange, lineValue),
             row('宽度', widthRange, widthValue),
             row('思维链', reasoningSeg),
-            row('显示', hideUser.el, redact.el)),
+            row('显示', hideUser.el, hideStHidden.el, redact.el)),
         more,
         h('div', { class: 'stcr-set-foot' }, layoutBtn, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
@@ -93,6 +95,7 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
     widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value) }));
     widthValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ width: null }); });
     hideUser.input.addEventListener('change', () => setPrefs({ hideUser: hideUser.input.checked }));
+    hideStHidden.input.addEventListener('change', () => setPrefs({ hideStHidden: hideStHidden.input.checked }));
     htmlSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-html-mode]')?.dataset.htmlMode;
         if (mode) setPrefs({ htmlMode: mode });
@@ -129,6 +132,7 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
         widthRange.value = String(shown.width ?? 800);
         widthValue.textContent = shown.width === null ? '跟随 ST' : String(shown.width);
         hideUser.input.checked = prefs.hideUser;
+        hideStHidden.input.checked = prefs.hideStHidden;
         for (const button of htmlSeg.children) button.classList.toggle('stcr-on', button.dataset.htmlMode === prefs.htmlMode);
         htmlNet.input.checked = prefs.htmlNetwork;
         redact.input.checked = prefs.redact;
