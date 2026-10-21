@@ -1,6 +1,6 @@
 // ST Reader — AGPL-3.0
 import { detectHtmlBlocks, buildSrcdoc } from './htmlRenderer.js';
-import { PHONE_HTML, GAME_HTML, HTML_MESSAGES, SCENE_HTML, MIXED_HTML, MULTI_HTML, SECOND_SCENE_HTML } from '../../dev/fixtures/html.mjs';
+import { PHONE_HTML, GAME_HTML, HTML_MESSAGES, SCENE_HTML, MIXED_HTML, MULTI_HTML, SECOND_SCENE_HTML, COMMUNITY_HTML, COMMUNITY_BOX_HTML } from '../../dev/fixtures/html.mjs';
 import { captureGeometry, previewPoint, dragCrop } from './htmlCrop.js';
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 export function testHtmlRendererLogic() {
@@ -61,6 +61,31 @@ export function testHtmlRendererLogic() {
         assert(detectHtmlBlocks(`前言\n${html}\n尾声`)[0]?.html === html, '相邻兄弟标签被拆开');
         assert(!detectHtmlBlocks('前言\n<body><div>未闭合\n尾声').length, '未闭合片段吞掉散文');
         assert(detectHtmlBlocks('<style></style><div>完成</div>\n尾声\n<section>未完成')[0]?.html === '<style></style><div>完成</div>', '未闭合下一段污染已完成区间');
+    });
+    test('T72 D35 散文 + details + div 盒 + <selection>：只有样式盒与状态栏进沙箱', () => {
+        const blocks = detectHtmlBlocks(COMMUNITY_HTML);
+        assert(blocks.length === 1 && blocks[0].html === COMMUNITY_BOX_HTML, `区间错误：${blocks.map(b => b.html.slice(0, 30)).join(' | ')}`);
+        assert(COMMUNITY_HTML.slice(blocks[0].start, blocks[0].end) === blocks[0].html, '切片不等于 HTML');
+        const outside = COMMUNITY_HTML.slice(0, blocks[0].start) + COMMUNITY_HTML.slice(blocks[0].end);
+        for (const part of ['<summary>摘要</summary>', '<summary>主线记录</summary>', '<selection>', '<summary>小剧场</summary>', '这一段是普通散文']) assert(outside.includes(part), `${part} 被收进了沙箱`);
+    });
+    test('T72 D35 非起始标签不起始也不延伸；栈归零后只有空白才并入', () => {
+        const box = '<style>.x{color:red}</style><div class="x">盒</div>';
+        const cases = [
+            [`${box}<details><summary>摘要</summary>正文</details>`, [box]],
+            [`${box}\n<selection>选项</selection>`, [box]],
+            [`${box}<p>段落</p><div>第二盒</div>`, [box, '<div>第二盒</div>']],
+            [`<style>a{}</style>\n\n<div>甲</div>\n<section>乙</section>`, ['<style>a{}</style>\n\n<div>甲</div>\n<section>乙</section>']],
+            [`<details><summary>折叠</summary><style>a{}</style><div>里面</div></details>${box}`, [box]],
+            [`<h2>标题</h2><span>行内</span>${box}<h3>尾</h3>`, [box]],
+            [`<blockquote><div><style>a{}</style>引文</div></blockquote>`, []],
+            [`<div><details><summary>盒内折叠</summary>保留在盒里</details></div><style>a{}</style>`, ['<div><details><summary>盒内折叠</summary>保留在盒里</details></div><style>a{}</style>']],
+            [`<p>没闭合的段落<style>a{}</style><div>仍能认出</div>`, ['<style>a{}</style><div>仍能认出</div>']],
+        ];
+        for (const [text, want] of cases) {
+            const got = detectHtmlBlocks(text).map(block => block.html);
+            assert(JSON.stringify(got) === JSON.stringify(want), `${text.slice(0, 50)} → ${JSON.stringify(got)}`);
+        }
     });
     test('默认 CSP、可信外壳导航限制、随机 token 与高度脚本俱全', () => {
         const a = buildSrcdoc('<body>虚构</body>'), b = buildSrcdoc('<body>虚构</body>');

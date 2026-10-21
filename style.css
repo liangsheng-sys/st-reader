@@ -142,7 +142,8 @@
 #stcr_root #stcr_chat .stcr-mes--system .mes_text { font-size: .86em; text-align: center; }
 #stcr_root #stcr_chat .stcr-mes--system .ch_name { justify-content: center; }
 /* 被 ST 隐藏过、其实是普通楼（I050 / T62）：照常排版，只在名字旁加一个淡色小标签。 */
-#stcr_root .stcr-hidden-tag {
+#stcr_root .stcr-hidden-tag,
+#stcr_root .stcr-raw-tag {
     flex: none;
     margin-left: 6px;
     padding: 0 6px;
@@ -155,6 +156,9 @@
     cursor: help;
 }
 #stcr_root #stcr_chat .stcr-mes--broken .mes_text { color: var(--stcr-faint); font-style: italic; }
+/* T72 原样显示：没经过格式化的原文，保留换行、长串可断；字照常颜色，便于读 */
+#stcr_root #stcr_chat .stcr-mes--broken .mes_text.stcr-raw-text { color: inherit; font-style: normal; white-space: pre-wrap; overflow-wrap: anywhere; }
+#stcr_root .stcr-raw-tag { cursor: help; }
 #stcr_root #stcr_chat .stcr-user-hidden { display: none; }
 #stcr_root #stcr_chat .stcr-user-hidden.stcr-user-shown { display: flex; }
 

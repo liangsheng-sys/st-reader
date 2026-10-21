@@ -8,8 +8,10 @@
 // 正常关闭、打开/关闭中途抛错、pagehide、根节点被移走后，宿主这些 <style> 的 disabled 必须全部回到 false。
 
 import { isDevInstance } from '../core/readonlyGuard.js';
-import { buildFloor } from './floorToolbar.js';
+import { buildFloor, fillFloor, floorFault } from './floorToolbar.js';
 import { h } from './dom.js';
+import { RENDER_FAULT_MARK } from './logic.js';
+import { COMMUNITY_HTML } from '../../dev/fixtures/html.mjs';
 import { closeReader, injectReaderFault, isReaderOpen, openReader } from './reader.js';
 
 export const BUILTIN_THEMES = Object.freeze(['Azure', 'Cappuccino', 'Celestial Macaron', 'Dark Lite', 'Dark V 1.0']);
@@ -21,8 +23,10 @@ const CARD = '虚构的一行开场白。\n<style>\np { text-align: center; font
 const ROWS = Object.freeze([
     { isUser: true, text: '第 0 楼，一段普通的话。\n\n第二段，也很普通。' },
     { isUser: false, text: '第 1 楼，一段比较长的普通正文，应该左对齐。它有好几句话，足够换行，方便看出来是不是被居中了。' },
-    { isUser: false, text: CARD },
+    { isUser: false, text: CARD, own: true },
     { isUser: true, text: '第 3 楼，又一段普通文字，应该左对齐。' },
+    // T72（I051）：社区卡结构——散文、details、样式盒、带 <style> 的状态栏（只管自己的类）、<selection>。散文段落仍应左对齐
+    { isUser: false, text: COMMUNITY_HTML },
 ]);
 
 function mockHandle() {
@@ -47,8 +51,8 @@ function plainAligns(chat) {
     const bad = [];
     for (const mes of chat.querySelectorAll(':scope > .mes')) {
         const text = mes.querySelector('.mes_text');
-        // 带 <style> 的那一楼由它自己的 CSS 决定（ST 里也一样），只看 .mes_text 本身；其余楼连段落一起看
-        const own = !!text.querySelector('style');
+        // 卡片 CSS 改了 p 的那一楼由它自己的 CSS 决定（ST 里也一样），只看 .mes_text 本身；其余楼连段落一起看
+        const own = !!ROWS[Number(mes.getAttribute('mesid'))]?.own;
         const nodes = own ? [text] : [text, ...text.querySelectorAll('p')];
         for (const node of nodes) {
             const align = getComputedStyle(node).textAlign;
@@ -127,6 +131,12 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     const before = { theme: $theme.val(), display: $display.val() };
     const { root, chat } = mountSample();
     try {
+        const community = chat.querySelector(`.mes[mesid="${ROWS.length - 1}"] .mes_text`);
+        const tops = community ? [...community.children].map(el => el.tagName) : [];
+        results.push({ name: 'T72 社区卡样本：正常渲染不失败，details 可折叠、样式盒与状态栏在、<selection> 文字按正文显示',
+            passed: !!community && !community.closest('.stcr-mes--broken') && tops.filter(t => t === 'DETAILS').length === 4 && !!community.querySelector('details > summary')
+                && !!community.querySelector('.custom-harbor-status') && community.textContent.includes('选项：一、送别'),
+            detail: tops.join(' ') });
         const card = chat.querySelector('.custom-card p');
         results.push({ name: '样本：卡片自己的段落仍按卡片 CSS 居中（样式没被丢掉）', passed: !!card && getComputedStyle(card).textAlign === 'center', detail: card ? getComputedStyle(card).textAlign : '没找到卡片' });
         for (const theme of themes) {
@@ -146,7 +156,50 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     }
     results.push(...await testHostStylesBrowser({ force, quiet: true }));
     results.push(...await testHiddenFloorsBrowser({ force, quiet: true }));
+    results.push(...await testRawFallbackBrowser({ force, quiet: true }));
     console.table(results);
+    return results;
+}
+
+/**
+ * T72（I051）：格式化抛错（开发实例里用测试注入记号触发）时，这一候选原样显示转义原文：
+ * 名字旁"原样显示"、⋯ 里有"复制错误信息"、HTML 不执行、换行保留；换回正常候选即恢复。只挂临时 DOM，不读写聊天。
+ */
+export async function testRawFallbackBrowser({ force = false, quiet = false } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `原样显示：${name}`, passed: !!passed, detail });
+    const raw = `${RENDER_FAULT_MARK}\n\n${COMMUNITY_HTML}\n<img src=x onerror="window.stcrRawFallbackRan=1">`;
+    const swipe = text => Object.freeze({ index: 0, text, reasoning: '', reasoningDuration: null, sendDate: null });
+    const model = Object.freeze({ index: 0, name: '星灯（虚构）', isUser: false, isSystem: false, isNarrator: false, date: null, originalAvatar: null, swipeId: 0,
+        swipes: Object.freeze([swipe(COMMUNITY_HTML), swipe(raw)]) });
+    const handle = { chatKey: 'stcr-ui-test', total: 1, getMessage: () => model,
+        getRegexContext: () => Object.freeze({ userName: '测试旅人（虚构）', characterName: '星灯（虚构）', character: null, groupNames: Object.freeze([]), depth: 0 }) };
+    const ctx = { handle, avatarFor: () => null, isReasoningOpen: () => false, isBookmarked: () => false };
+    const errors = console.error; console.error = () => {}; // 预期的失败日志不刷屏
+    const el = buildFloor(ctx, model, 1);
+    const root = h('div', { id: 'stcr_root', class: 'stcr-dir-b', style: 'opacity:0;pointer-events:none' }, h('div', { class: 'stcr-scroll' }, h('div', { id: 'stcr_chat' }, el)));
+    document.body.append(root);
+    try {
+        const text = el.querySelector('.mes_text');
+        check('楼层标为原样显示，名字旁有小标签', el.classList.contains('stcr-mes--broken') && el.querySelector('.stcr-raw-tag')?.textContent === '原样显示');
+        check('正文是转义后的原文，一个字不少', text?.textContent === raw && !text.querySelector('*'), text?.children.length);
+        check('换行保留', getComputedStyle(text).whiteSpace === 'pre-wrap');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        check('原文里的 HTML 没有执行', !window.stcrRawFallbackRan && !text.querySelector('img, details, style'));
+        check('⋯ 里有"复制错误信息"，有候选切换', !!el.querySelector('[data-act="copy-error"]') && !!el.querySelector('[data-act="more"]') && !!el.querySelector('.stcr-swipes'));
+        const fault = floorFault(el);
+        check('错误信息只记楼号、候选和错误，不含正文', fault?.index === 0 && fault.swipe === 1 && fault.total === 2 && fault.error instanceof Error && !JSON.stringify(Object.keys(fault)).includes('text'));
+        fillFloor(ctx, el, model, 0);
+        check('换回正常候选：恢复正常排版', !el.classList.contains('stcr-mes--broken') && !floorFault(el) && !!el.querySelector('.mes_text details'));
+        fillFloor(ctx, el, model, 1);
+        check('再切到坏候选：又原样显示', el.classList.contains('stcr-mes--broken') && el.dataset.swipe === '1');
+    } finally {
+        console.error = errors;
+        root.remove();
+        delete window.stcrRawFallbackRan;
+    }
+    if (!quiet) console.table(results);
     return results;
 }
 
