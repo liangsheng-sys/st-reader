@@ -8,7 +8,7 @@ import { inflateSync } from 'node:zlib';
 import { assertDevPath, DEV_ROOT, USER_ROOT } from './paths.mjs';
 import { crc32, makeCharacterPng } from './png.mjs';
 import { assertCharacterFixture } from './cardCheck.mjs';
-import { CHARACTERS, GLOBAL_REGEX, SCOPED_REGEX, THEME, BIG_COUNT, makeCard, makeSmallChats, makeGroup, makeGroupMessages } from './data.mjs';
+import { CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, SCOPED_REGEX, THEME, BIG_COUNT, makeCard, makeSmallChats, makeGroup, makeGroupMessages } from './data.mjs';
 
 /** 既验证 PNG 文件格式，也验证数据覆盖范围；已生成样本时流式复核所有文件。 */
 export async function testFixtures() {
@@ -16,7 +16,7 @@ export async function testFixtures() {
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
     await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
-        assert.equal(chats[1].messages.length, 11);
+        assert.equal(chats[1].messages.length, 12);
         assert.match(chats[1].messages[6].mes, /^<!doctype html>/);
         assert.match(chats[1].messages[6].mes, /st-reader-fixture\.invalid/);
         assert.match(chats[1].messages[7].mes, /^```html/);
@@ -30,6 +30,15 @@ export async function testFixtures() {
         assert.ok(mixed.length > 1200);
         assert.equal((multi.match(/<style>/g) ?? []).length, 2);
         assert.match(multi, /旅人走过一段散文/);
+    });
+    await test('T73 纸舟第 12 楼正则美化：五条 stcr-t73- 全局显示正则，信纸 style、内嵌花边、https 外链背景', () => {
+        const floor = chats[1].messages[11];
+        assert.ok(floor.mes.startsWith('<letter><char>') && floor.mes.includes('虚构'));
+        assert.equal(BEAUTY_REGEX.length, 5);
+        assert.ok(BEAUTY_REGEX.every(script => script.id.startsWith('stcr-t73-') && script.markdownOnly && !script.promptOnly && script.placement.join() === '2'));
+        const out = BEAUTY_REGEX.reduce((text, script) => { const [, body, flags] = script.findRegex.match(/^\/(.*)\/(\w*)$/s); return text.replace(new RegExp(body, flags), script.replaceString); }, floor.mes);
+        assert.ok(out.includes('<style>.paper{') && out.includes('class="ttl"') && out.includes('url(data:image/svg+xml;base64,') && out.includes('url(https://example.invalid/'));
+        assert.ok(!/<letter>|<char>|【/.test(out));
     });
     await test('T72 纸舟第 11 楼社区卡结构：散文、四个 details、样式盒、状态栏 style、<selection>；第 2 候选带测试注入记号', () => {
         const floor = chats[1].messages[10];
@@ -155,7 +164,7 @@ export async function testFixtures() {
         await test('开发设置已合并全局脚本、角色允许名单和主题', () => {
             const settings = JSON.parse(fs.readFileSync(assertDevPath(path.join(USER_ROOT, 'settings.json'))));
             const ext = settings.extension_settings;
-            for (const regex of GLOBAL_REGEX) assert.equal(ext.regex.filter(script => script.id === regex.id).length, 1);
+            for (const regex of [...GLOBAL_REGEX, ...BEAUTY_REGEX]) assert.equal(ext.regex.filter(script => script.id === regex.id).length, 1);
             assert.ok(ext.character_allowed_regex.includes(CHARACTERS[0].avatar));
             assert.equal(settings.power_user.theme, THEME.name);
         });

@@ -4,7 +4,7 @@ import { store } from './store.js';
 import { normalizeMaskStyle } from './cardTransforms.js';
 import { getCardSource, applyCardParts, renderCardParts, prepareCardAssets, maskTextNodesInPlace } from './cardContent.js';
 import { buildCardFontCss } from './cardFonts.js';
-import { createCardSnapshot, finishCardSnapshot, waitForCardFonts } from './cardSnapshot.js';
+import { createCardSnapshot, embedCardImages, finishCardSnapshot, waitForCardFonts } from './cardSnapshot.js';
 import { offlineCaptureGuard } from './offlineCapture.js';
 
 export { createCardMessage, bindCardSource, wrapMaskSpans } from './cardContent.js';
@@ -46,6 +46,8 @@ export async function exportCard(rootEl, opts = {}) {
         const fontStyle = snapshot.doc.createElement('style'); fontStyle.textContent = font.cssText; snapshot.doc.head.append(fontStyle);
         await waitForCardFonts(snapshot);
         maskTextNodesInPlace(snapshot.copy, options.maskWords, options.maskStyle, options.assetMap);
+        // T73（I052）：美化用到的背景图按 D23 内嵌；拿不到的逐项提示并用占位，不整块丢
+        await embedCardImages(snapshot, { onWarning: message => { console.warn(`[st-reader] ${message}`); opts.onWarning?.(message); }, fetchFn: opts.fetchFn, signal: opts.signal });
         await finishCardSnapshot(snapshot);
         if (snapshot.width * snapshot.height * scale * scale > 32_000_000) throw new RangeError('导出超过 3200 万像素，请减少选段或倍率');
         const blob = await domToBlob(snapshot.copy, {

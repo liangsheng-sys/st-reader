@@ -23,6 +23,8 @@ I013：宿主正常保存角色卡会补字段、重编码PNG或改变默认chat
 
 字体必须由每个验收浏览器分别导入。使用 `http://localhost:8100` 保持同源；`127.0.0.1` 是另一份浏览器数据库。T11 验证 IndexedDB、FontFace 与宿主正文应用，T14 再验证 PNG 字形。
 
-T72 第 11 楼是 `COMMUNITY_HTML`（散文 + 三个 details + 渐变胶囊样式盒 + 带 `<style>` 的状态栏 + `<selection>` + 小剧场 details），两个候选；第 2 个候选开头带 `RENDER_FAULT_MARK`，只在开发实例（8100）里故意走“原样显示”，用于人工验收。既有实例停服后再跑一次 `append-html.mjs` 即追加（脚本接受 6/8/10/11 楼版本）。
+T72 第 11 楼是 `COMMUNITY_HTML`（散文 + 三个 details + 渐变胶囊样式盒 + 带 `<style>` 的状态栏 + `<selection>` + 小剧场 details），两个候选；第 2 个候选开头带 `RENDER_FAULT_MARK`，只在开发实例（8100）里故意走“原样显示”，用于人工验收。既有实例停服后再跑一次 `append-html.mjs` 即追加（脚本接受 6/8/10/11/12 楼版本）。
+
+T73 第 12 楼是 `BEAUTY_TEXT`：`<letter><char>…</char>…</letter>` 加 `【邮戳】【花边】【外链】` 三个记号，靠五条 `stcr-t73-` 全局显示正则（`BEAUTY_REGEX`）变成带 `<style>` 的信纸、渐变邮戳、data: 花边和一格 https 外链背景（`example.invalid`，永远取不到）。`append-html.mjs` 同时只替换 settings.json 里 `stcr-t73-` 开头的正则，不动 `stcr-t11-` 那五条。**停服改 settings.json 之前，先关掉或刷新所有打开着 8100 的页面**：旧页面会在窗口缩放时把它内存里的旧设置存回去（ST 自己的 `/api/settings/save`，只读保护不拦）。
 
 T44a 与 T51 的四楼在 `html.mjs`，全部从零编造；手机样本含 `.invalid` 域名的外链 CSS/字体，用于断网验证。游戏有两件物品和不同文字结局，不调用宿主或任何服务。T51 的观测站不设 body 底色，蓝邮局显式设 body 底色；两个混排样本没有外链。新生成的 fixture 自动包含四楼；既有实例应停服后执行 `node dev/fixtures/append-html.mjs`，只追加纸舟末尾并更新该条 SHA-256，不动已存在楼层、其他聊天、角色或设置。脚本只接受已知的 6/8/10 楼版本，不相等时拒绝覆盖；重复运行不会重复追加。本次工程师已完成追加，人类无需重建样本。T51 core 的可视验收入口为开发控制台 `await stcrHtmlBoundaryDemo()`；正式阅读器混排接线由 Opus 完成（I038）。

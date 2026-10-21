@@ -438,6 +438,20 @@ I012 的两个 localStorage 键可原样作为 settings key，值可原样存纯
 
 I018① 已修：Canvas 字体名去外层引号后重新引用，六个 FA 实心图标均作真实 PNG 像素验证。I018② 本轮不在 core 解析带 var() 的简写：安全样式拷贝会先过滤资源声明，直接复制 cssText 会绕开边界；通用简写展开又需处理层叠、!important、变量与回退。目前模板继续使用 background-color/border-color 等单项属性，外来自定义 CSS 的这类简写仍可能丢失，保留该限制。
 
+**T73 / I052 增补（2026-10-21，Opus 按 D32 交付；只增不改，旧签名与默认值不变）**：
+- I018② 收窄：复制样式表时，某个分项读出来是空串（含 `var()` 的简写展开后就是这样），改为整条复制它所属的简写（`border-top-width` → `border-top` / `border`，`*-radius` → `border-radius`，`top/right/bottom/left` → `inset`，`row/column-gap` → `gap`）；简写值同样先过资源过滤，`animation*`/`transition*` 仍不复制。宿主气泡 `border: 1px solid var(--SmartThemeBorderColor)` 因此不再在 PNG 里丢边框。
+- 楼内 `<style>` 的作用域编号 `data-stcr-css`（纯数字）随克隆进快照，`#stcr_chat [data-stcr-css="N"] …` 规则在副本里照常命中。
+- `exportCard` 新增可选 `fetchFn`、`signal`（只给测试和调用方注入；缺省用浏览器 fetch，`credentials:'omit'`）。字体与遮盖之后、栅格化之前调用下面的 `embedCardImages`；`onWarning` 现在也报告图片降级，不止字体。
+- `cardSnapshot.js` 新导出：
+
+| 签名 | 返回与约定 |
+|---|---|
+| `embedCardImages(snapshot,{onWarning?,fetchFn?,signal?}={})` | `Promise<{embedded,failed}>`。遍历副本每个元素及其 `::before/::after` 的计算样式（`background-image`、`border-image-source`、`list-style-image`、`mask-image`、`content`）；`data:` 原样，其他 URL 按 D23 读取并内嵌，结果必须是 `data:image/*`；读不到的换成 `CARD_IMAGE_PLACEHOLDER` 并逐个 `onWarning`。完成后副本里没有非 `data:` 的 `url()` |
+| `CARD_IMAGE_PLACEHOLDER` | 字符串常量：浅色斜纹 SVG 的 data URL |
+
+- `htmlExternalResources.js` 新导出 `createResourceLoader({baseUrl,fetchFn,signal,onWarning})` → `{resource(raw,base?,kind?),warn(message,url),warnings}`：`embedHtmlResources` 与 `embedCardImages` 共用的去重、限额、CORS 读取器。
+- `formatter.js` 新导出 `filterCssUrls(text,allowExternal)`：样式里的 `url()` 逐个判断，`data:image/(png|jpeg|gif|webp|avif|svg+xml)` 保留，`https:` 只在 `allowExternal` 时保留，其余换成 `none`。`renderMessage` 的 allowExternal 跟随 ST 的"禁止外部媒体"（`forbid_external_media`）以及目标角色 / 群组的逐个覆盖；从前样式里只要有 `url(` 就整段删除，现在只有 `image-set(`、`@import`、反斜杠转义仍整段删除。
+
 参数错误抛TypeError/RangeError；源handle关闭时沿用CLOSED；字体文件缺失/解码失败、图案缺失、占位符损坏、不可读图片、截图失败抛带中文原因的Error。任何错误都不产出“可能未脱敏”的替代图。UI await导出期间禁用重复按钮，catch后保留预览；关闭工作台时自行释放handle、DOM及自己创建的Blob URL。core只生成Blob，不控制用户的保存位置。
 
 ### 5.10 T14 纯变换与 DOM 适配合同

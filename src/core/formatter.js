@@ -32,8 +32,28 @@ function convertMarkdown(text, names) {
     return markdown.makeHtml(text.replaceAll('\\begin{align*}', '$$').replaceAll('\\end{align*}', '$$')).trim();
 }
 
-/** 清洗并隔离文本内样式；任何资源 URL 都不触发额外网络请求。 */
-function safeHtml(html, alreadySanitized = false) {
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]*))\s*\)/gi;
+/**
+ * T73：样式里的 url() 逐个判断，不再整段删除。本地 data:image 一律保留；https 外链只在 ST 对这个角色允许"外部媒体"时保留
+ * （与 ST 自己的显示一致）。其余（相对路径、http、javascript: 等）换成 none——不会请求同源路径。
+ */
+export function filterCssUrls(text, allowExternal) {
+    return text.replace(CSS_URL, (match, double, single, bare) => {
+        const value = (double ?? single ?? bare ?? '').trim();
+        return /^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(value) || (allowExternal && /^https:\/\//i.test(value)) ? match : 'none';
+    });
+}
+/** 目标角色（不是宿主当前角色）是否允许外部媒体：沿用 ST 的全局开关与逐角色覆盖。 */
+function externalMediaAllowed(names) {
+    const power = runtime.getContext().powerUserSettings ?? {};
+    const id = names?.character?.avatar ?? names?.groupId;
+    if (id && power.external_media_allowed_overrides?.includes(id)) return true;
+    if (id && power.external_media_forbidden_overrides?.includes(id)) return false;
+    return !power.forbid_external_media;
+}
+
+/** 清洗并隔离文本内样式；只保留 data:image 与（ST 允许时的）https 图片，不请求同源路径。 */
+function safeHtml(html, alreadySanitized = false, allowExternal = false) {
     const { DOMPurify, hljs } = runtime.libs;
     html = runtime.chats.encodeStyleTags(html);
     html = DOMPurify.sanitize(html, { MESSAGE_SANITIZE: !alreadySanitized, ADD_TAGS: ['custom-style'],
@@ -43,9 +63,15 @@ function safeHtml(html, alreadySanitized = false) {
     const template = document.createElement('template');
     template.innerHTML = html;
     for (const el of template.content.querySelectorAll('*')) {
-        // style 中的 url()/image-set()/转义可能加载远端或调用同源写路径；保守删除该声明/样式。
-        if (el.hasAttribute('style') && /url\s*\(|image-set\s*\(|@import|\\/i.test(el.getAttribute('style'))) el.removeAttribute('style');
-        if (el.tagName === 'STYLE' && /url\s*\(|image-set\s*\(|@(?!media\b|supports\b)[a-z-]+|\\/i.test(el.textContent)) el.remove();
+        // image-set()/转义可能绕过 url 判断，@import 等会加载样式表：仍整段删除。url() 逐个判断（T73）。
+        if (el.hasAttribute('style')) {
+            if (/image-set\s*\(|@import|\\/i.test(el.getAttribute('style'))) el.removeAttribute('style');
+            else el.setAttribute('style', filterCssUrls(el.getAttribute('style'), allowExternal));
+        }
+        if (el.tagName === 'STYLE') {
+            if (/image-set\s*\(|@(?!media\b|supports\b)[a-z-]+|\\/i.test(el.textContent)) el.remove();
+            else el.textContent = filterCssUrls(el.textContent, allowExternal);
+        }
         if (el.tagName === 'A') {
             const href = el.getAttribute('href');
             if (href && !href.startsWith('#')) el.removeAttribute('href');
@@ -94,7 +120,7 @@ export function formatWithStrategy(text, model, names, { strategy = 'b', reasoni
     if (!settings.allow_name2_display && !model.isUser && names.characterName) {
         text = text.split('\n').map(line => line.startsWith(`${names.characterName}:`) ? line.slice(names.characterName.length + 1) : line).join('\n');
     }
-    return safeHtml(convertMarkdown(text, names));
+    return safeHtml(convertMarkdown(text, names), false, externalMediaAllowed(names));
 }
 
 /**

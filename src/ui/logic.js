@@ -532,3 +532,20 @@ export function faultReport(fault, version, { now = new Date(), userAgent = glob
 
 /** 开发实例专用的测试注入（T72）：候选原文含这个记号时 floorToolbar 假装格式化抛错。正式环境（非 8100）不生效。 */
 export const RENDER_FAULT_MARK = '【STCR-T72 测试注入：这一候选故意显示失败】';
+
+/**
+ * T73：工作台"预览与导出不一致？"里复制的诊断信息。只有设置与计数，不含正文、名字、屏蔽词。
+ * @param {{version?:string,template?:string,size?:string,mask?:string,floors?:number,styled?:number,warnings?:string[]}} info
+ */
+export function cardExportReport(info = {}, { now = new Date(), userAgent = globalThis.navigator?.userAgent ?? '' } = {}) {
+    const warnings = (info.warnings ?? []).map(text => String(text).slice(0, 300));
+    return [
+        'ST Reader 卡片导出诊断（不含聊天正文）',
+        `版本：v${info.version || '未知'}`,
+        `模板：${info.template || '未知'}；尺寸：${info.size || '未知'}；遮盖：${info.mask || '未知'}`,
+        `楼层：${info.floors ?? 0} 段，其中 ${info.styled ?? 0} 段带楼内样式`,
+        `时间：${now.toISOString()}`,
+        `浏览器：${userAgent || '未知'}`,
+        warnings.length ? `上次导出提示：\n${warnings.map(text => `- ${text}`).join('\n')}` : '上次导出提示：（无，或还没导出过）',
+    ].join('\n');
+}

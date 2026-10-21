@@ -945,6 +945,11 @@
 #stcr_root .stcr-studio-status { max-width: 540px; color: var(--stcr-faint); font-size: 13px; text-align: center; line-height: 1.7; }
 #stcr_root .stcr-studio-status--error { color: #e06c5a; }
 #stcr_root .stcr-studio-tip { max-width: 540px; margin: 0; color: var(--stcr-faint); font-size: 12px; text-align: center; line-height: 1.7; }
+#stcr_root .stcr-studio-diff { max-width: 540px; color: var(--stcr-faint); font-size: 12px; line-height: 1.7; }
+#stcr_root .stcr-studio-diff > summary { cursor: pointer; text-align: center; list-style: none; text-decoration: underline dotted; text-underline-offset: 3px; }
+#stcr_root .stcr-studio-diff > summary::-webkit-details-marker { display: none; }
+#stcr_root .stcr-studio-diff[open] { padding: 10px 12px; border-radius: 8px; background: var(--stcr-hover); }
+#stcr_root .stcr-studio-diff p { margin: 6px 0; }
 #stcr_root .stcr-card--pick { cursor: pointer; }
 #stcr_root .stcr-card .stcr-mask { cursor: pointer; }
 #stcr_root .stcr-studio--busy .stcr-studio-side,
