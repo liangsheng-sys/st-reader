@@ -41,6 +41,17 @@ export const BEAUTY_REGEX = [
     beauty('web', '外链背景', '/【外链】/g', '<div style="padding:6px 10px;border:1px dashed #c9a77a;background-image:url(https://example.invalid/stcr-paper.png)">这一格的背景是网上的图片（虚构地址，永远取不到）</div>'),
 ];
 export const BEAUTY_TEXT = '<letter><char>纸舟</char>\n今晚的港口很安静，纸船都睡着了。这是一封完全虚构的信，用来检查"正则美化"在分享卡片里是否和阅读器里一样。\n\n【邮戳】 寄给测试旅人（虚构）\n【花边】\n【外链】</letter>';
+// T75（I057–I059）：正则改写模型写的 HTML、正则产出整页、正则产出带动画与图标字符的状态条。只匹配纸舟第 13、14 楼。
+const display = (id, scriptName, findRegex, replaceString) => ({ ...regex(id, scriptName, findRegex, replaceString), id: `stcr-t75-${id}`, scriptName: `STCR T75 · ${scriptName}` });
+export const DISPLAY_REGEX = [
+    display('section', '把记录盒改成 section', String.raw`/<div class="harbor-log">([\s\S]*?)<\/div>/g`, '<section class="harbor-log">$1</section>'),
+    display('page', '观测站整页', '/【观测站页面】/g', `<html><head><style>body{margin:0;font-family:sans-serif;background:#f4efe3;color:#3b3026}main{padding:14px 18px}button{padding:4px 14px;border-radius:6px;border:1px solid #b49b77;background:#fffaf0}</style></head><body><main><h3>纸港观测站（虚构）</h3><p id="lamp-count">今天点灯 0 次</p><button onclick="var n=document.getElementById('lamp-count');n.dataset.c=(+n.dataset.c||0)+1;n.textContent='今天点灯 '+n.dataset.c+' 次'">点灯</button></main></body></html>`),
+    display('lamp', '灯塔状态条', '/【灯塔状态】/g', String.raw`<div class="lamp"><span class="lamp-dot"></span>灯塔 · 运转中 <span class="lamp-star"></span></div><style>@keyframes lamp-pulse{from{opacity:.2}to{opacity:1}}.lamp{display:inline-flex;gap:8px;align-items:center;padding:4px 12px;border-radius:999px;background:#2b4a52;color:#ffe3a3}.lamp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7fe0b0;animation:lamp-pulse 1.2s ease-in-out infinite alternate}.lamp-star::before{content:"\f005";font-family:"Font Awesome 6 Free";font-weight:900}</style>`),
+];
+export const DISPLAY_TEXTS = [
+    '雾散了一点。纸舟把船桨靠在栏杆上，说今天的观测记录写在下面。（这一段是散文，应在框外）\n\n<style>.harbor-log{padding:10px 14px;border-radius:10px;background:#20343a;color:#d8efe6;border:1px solid #4f7f86}</style>\n<div class="harbor-log">观测记录：东风二级，潮位偏低，灯塔一切正常。（虚构）</div>\n\n后来他们就回去睡了。（这一段也是散文，应在框外）\n\n【观测站页面】',
+    '灯塔今晚的状态如下。\n\n【灯塔状态】\n\n（状态条上的小圆点应该一明一暗地闪，右边有一颗星星图标。完全虚构。）',
+];
 export const SCOPED_REGEX =[regex('scope', '星灯专属', '/【星灯暗号】/g', '<span class="stcr-fixture-scope">星灯作用域命中</span>')];
 
 export const THEME = {
@@ -116,6 +127,8 @@ export function makeSmallChats() {
         makeMessage(paper.name, COMMUNITY_HTML, 10, { swipeCount: 2 }),
         // T73：正则美化楼（BEAUTY_REGEX）
         makeMessage(paper.name, BEAUTY_TEXT, 11),
+        // T75：正则改写 / 产出 HTML（DISPLAY_REGEX）
+        ...DISPLAY_TEXTS.map((text, index) => makeMessage(paper.name, text, index + 12)),
     ];
     second[10].swipes[1] = `${RENDER_FAULT_MARK}\n\n${second[10].swipes[1]}`;
     delete second[5].swipe_info[0].extra.reasoning;

@@ -2,6 +2,7 @@
 import { CARD_ICONS } from './cardTransforms.js';
 import { rasterizeCardIcon } from './cardFonts.js';
 import { createResourceLoader } from './htmlExternalResources.js';
+import { cssDeclarations } from './cssDeclarations.js';
 
 const forbiddenTags = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'BASE', 'META', 'FORM', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'AUDIO', 'VIDEO', 'SOURCE']);
 // T73：url() 不再整条丢弃——副本 CSP 只放行 data:，排版时不联网；最后由 embedCardImages 把卡片上真正用到的图片内嵌或换成占位。
@@ -13,24 +14,9 @@ const IMAGE_PROPERTIES = ['background-image', 'border-image-source', 'list-style
 /** 拿不到的图片换成的浅色斜纹占位（本地 SVG，导出 PNG 上能看出"这里本来有图"）。 */
 export const CARD_IMAGE_PLACEHOLDER = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#e8e4dc"/><path d="M-4 4L4-4M0 16L16 0M12 20L20 12" stroke="#c8c0b2" stroke-width="2"/></svg>')}`;
 
-const SHORTHAND_OF = { top: 'inset', right: 'inset', bottom: 'inset', left: 'inset', 'row-gap': 'gap', 'column-gap': 'gap' };
-/** 含 var() 的简写（如宿主气泡的 border: 1px solid var(--…)）展开后各分项读出来是空串，只能整条复制简写。 */
-function shorthandOf(style, name) {
-    if (SHORTHAND_OF[name]) return style.getPropertyValue(SHORTHAND_OF[name]) ? SHORTHAND_OF[name] : null;
-    if (name.endsWith('-radius')) return style.getPropertyValue('border-radius') ? 'border-radius' : null;
-    for (let cut = name.lastIndexOf('-'); cut > 0; cut = name.lastIndexOf('-', cut - 1)) {
-        const candidate = name.slice(0, cut);
-        if (candidate !== '-webkit' && style.getPropertyValue(candidate)) return candidate;
-    }
-    return null;
-}
 function safeDeclaration(style) {
-    const seen = new Set();
-    return [...style].map(name => style.getPropertyValue(name) ? name : shorthandOf(style, name)).filter(name => {
-        if (!name || seen.has(name)) return false;
-        seen.add(name);
-        return !resourceValue.test(style.getPropertyValue(name)) && !name.startsWith('animation') && !name.startsWith('transition');
-    }).map(name => `${name}:${style.getPropertyValue(name)}${style.getPropertyPriority(name) ? '!important' : ''};`).join('');
+    return cssDeclarations(style).filter(({ name, value }) => !resourceValue.test(value) && !name.startsWith('animation') && !name.startsWith('transition'))
+        .map(({ name, value, important }) => `${name}:${value}${important ? '!important' : ''};`).join('');
 }
 /** 原样式表只读扫描；不复制字体下载、远端图片或 @import。 */
 function safeRules(rules) {

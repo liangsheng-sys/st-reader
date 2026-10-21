@@ -100,7 +100,7 @@ function fillRendered(ctx, el, model, swipeIndex) {
     const text = h('div', { class: 'mes_text' });
     text.innerHTML = rendered.html; // core 已清洗（DOMPurify）
     // HTML 块要在脱敏显示改动正文之前认出来：沙箱 / 截图 / 复制脱敏版都从原文出发（T44b）
-    const htmlBlocks = ctx.attachHtml ? findHtmlBlocks(text, swipe.text) : [];
+    const htmlBlocks = ctx.attachHtml ? findHtmlBlocks(text, swipe.text, rendered.displayText ?? swipe.text) : [];
     if (redact) redactElement(text, redact); // 在加复制按钮之前：按钮文字不参与
     addCodeCopyButtons(text);
     if (htmlBlocks.length) ctx.attachHtml(text, htmlBlocks, { index: model.index, swipe: rendered.swipeIndex, model });

@@ -8,6 +8,8 @@
 // 正常关闭、打开/关闭中途抛错、pagehide、根节点被移走后，宿主这些 <style> 的 disabled 必须全部回到 false。
 
 import { isDevInstance } from '../core/readonlyGuard.js';
+import { formatWithStrategy, initFormatter } from '../core/formatter.js';
+import { findHtmlBlocks } from './htmlBlocks.js';
 import { buildFloor, fillFloor, floorFault } from './floorToolbar.js';
 import { h } from './dom.js';
 import { RENDER_FAULT_MARK } from './logic.js';
@@ -157,7 +159,37 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     results.push(...await testHostStylesBrowser({ force, quiet: true }));
     results.push(...await testHiddenFloorsBrowser({ force, quiet: true }));
     results.push(...await testRawFallbackBrowser({ force, quiet: true }));
+    results.push(...await testHtmlAfterRegexBrowser({ force, quiet: true }));
     console.table(results);
+    return results;
+}
+
+/**
+ * T75（I057/I058）：裸 HTML 在显示正则之后的正文上识别。模型写的盒子被正则改了标签也只框盒子；正则产出的整页进框；
+ * 原文没有 HTML 时，正则美化（style + div）照旧留在正文里。只用合成文本与临时 DOM。
+ */
+export async function testHtmlAfterRegexBrowser({ force = false, quiet = false } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    await initFormatter();
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `正则后识别：${name}`, passed: !!passed, detail });
+    const model = Object.freeze({ index: 0, name: '星灯（虚构）', isUser: false, isSystem: false, isNarrator: false });
+    const names = Object.freeze({ userName: '测试旅人（虚构）', characterName: '星灯（虚构）', character: null, groupNames: Object.freeze([]), depth: 0 });
+    const shown = display => { const el = h('div', { class: 'mes_text' }); el.innerHTML = formatWithStrategy(display, model, names); return el; };
+    const raw = '雾散了一点。（虚构散文）\n\n<style>.log{padding:8px}</style>\n<div class="log">虚构记录</div>\n\n后来他们回去了。\n\n【页面】';
+    const display = raw.replace('<div class="log">虚构记录</div>', '<section class="log">虚构记录</section>')
+        .replace('【页面】', '<html><head><style>body{margin:0}</style></head><body><main>虚构页面</main></body></html>');
+    const blocks = findHtmlBlocks(shown(display), raw, display);
+    check('正则改了模型的盒子：两段各自对上，散文不进框', blocks.length === 2 && blocks.every(block => block.nodes), JSON.stringify(blocks.map(block => !!block.nodes)));
+    check('框里是正则之后的样子', blocks[0]?.html.includes('<section') && blocks[1]?.html.startsWith('<html>'));
+    const oldWay = findHtmlBlocks(shown(display), raw, raw);
+    check('对照：按原文识别会退回"整楼一块"', oldWay.length === 1 && oldWay[0].nodes === null);
+    const beauty = '虚构的信。<style>.paper{padding:8px}</style><div class="paper">信纸</div>';
+    check('原文没有 HTML：正则美化留在正文', findHtmlBlocks(shown(beauty), '虚构的信。【信纸】', beauty).length === 0);
+    const page = '虚构开场。\n\n<html><head><style>body{margin:0}</style></head><body><main>虚构页面</main></body></html>';
+    const pageBlocks = findHtmlBlocks(shown(page), '虚构开场。\n\n【页面】', page);
+    check('原文没有 HTML：正则产出的整页进框', pageBlocks.length === 1 && !!pageBlocks[0].nodes && pageBlocks[0].html.startsWith('<html>'));
+    if (!quiet) console.table(results);
     return results;
 }
 

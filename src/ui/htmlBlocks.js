@@ -46,13 +46,16 @@ function topTags(html) {
  */
 function locateRaw(textEl, raws) {
     const kids = [...textEl.children];
+    // Markdown 会把单独一行的 <html><head><style> 包进 <p>（html/head 被清洗掉）：只装着 style 的 p 当作那个 style（T75）
+    const tagOf = el => el.tagName === 'P' && el.children.length === 1 && el.firstElementChild.tagName === 'STYLE'
+        && !el.textContent.replace(el.firstElementChild.textContent, '').trim() ? 'STYLE' : el.tagName;
     const out = [];
     let from = 0;
     for (const block of raws) {
         const want = topTags(block.html);
         let hit = -1;
         for (let i = from; want.length && i + want.length <= kids.length; i++) {
-            if (want.every((tag, j) => kids[i + j].tagName === tag)) { hit = i; break; }
+            if (want.every((tag, j) => tagOf(kids[i + j]) === tag)) { hit = i; break; }
         }
         if (hit < 0) return null;
         out.push({ kind: 'raw', html: block.html, pre: null, nodes: [kids[hit], kids[hit + want.length - 1]] });
@@ -62,15 +65,17 @@ function locateRaw(textEl, raws) {
 }
 
 /**
- * 找出这一楼正文里的 HTML 块。raw = 这一候选的原文（识别裸 HTML 用）。必须在脱敏显示改动正文之前调用：
- * 这里读到的代码是原文，沙箱、截图、复制脱敏版都从原文出发。
+ * 找出这一楼正文里的 HTML 块。raw = 这一候选的原文，display = 显示正则之后的正文（renderMessage().displayText）。
+ * 必须在脱敏显示改动正文之前调用：沙箱、截图、复制脱敏版都从未脱敏的 display 出发。
  * @returns {{kind:'fenced'|'raw', html:string, pre:HTMLElement|null, nodes?:[Element, Element]|null}[]}
  */
-export function findHtmlBlocks(textEl, raw) {
-    let found;
-    const text = typeof raw === 'string' ? raw : '';
-    try { found = detectHtmlBlocks(text); } catch { found = []; }
-    const raws = found.filter(block => block.kind === 'raw');
+export function findHtmlBlocks(textEl, raw, display = raw) {
+    const detect = value => { try { return detectHtmlBlocks(typeof value === 'string' ? value : '').filter(block => block.kind === 'raw'); } catch { return []; } };
+    // T75（I057/I058）：在显示正则之后的正文上找（排好版的正文就是它变来的，才对得上）。
+    // 原文里模型自己写了裸 HTML：按正则后的样子框；原文没有：只框正则产出的整页（html/body），普通美化照旧留在正文里
+    const text = typeof display === 'string' ? display : '';
+    const modelHtml = detect(raw).length > 0;
+    const raws = detect(text).filter(block => modelHtml || /<(?:html|body)\b/i.test(block.html));
     if (raws.length) {
         return locateRaw(textEl, raws)
             // 对不上（清洗或 Markdown 改了结构）：整楼当一块，和以前一样，至少能看

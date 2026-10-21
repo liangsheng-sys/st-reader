@@ -2,6 +2,7 @@
 import { loadHostRuntime } from './hostRuntime.js';
 import { collectScripts, PLACEMENT, runDisplayRegex, substituteNames } from './regexPipeline.js';
 import { isDevInstance } from './readonlyGuard.js';
+import { cssDeclarations } from './cssDeclarations.js';
 
 let runtime;
 let markdown;
@@ -43,6 +44,67 @@ export function filterCssUrls(text, allowExternal) {
         return /^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(value) || (allowExternal && /^https:\/\//i.test(value)) ? match : 'none';
     });
 }
+const KEYFRAMES_PREFIX = 'stcr-kf-';
+/** 浏览器规范化后的选择器列表按顶层逗号拆开（括号、方括号、引号里的逗号不算）。 */
+function splitSelectors(text) {
+    const parts = [];
+    let depth = 0, quote = '', start = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+        if (c === '"' || c === "'") quote = c;
+        else if (c === '(' || c === '[') depth++;
+        else if (c === ')' || c === ']') depth--;
+        else if (c === ',' && depth === 0) { parts.push(text.slice(start, i).trim()); start = i + 1; }
+    }
+    parts.push(text.slice(start).trim());
+    return parts;
+}
+/**
+ * T75（I059）：楼内 <style> 逐条清洗，不再因一处可疑整段删除。用浏览器自己的 CSS 解析（未挂载的样式表不加载任何资源）后按规则重建：
+ * 普通规则与 @media/@supports/@container/@layer 保留；@keyframes 保留并改名为 stcr-kf-*（同楼 animation 一起改，不覆盖 ST 自己的动画）；
+ * @font-face、@import、@namespace、@page 等丢弃。每条声明：image-set() 丢弃；自定义属性（--*）里带反斜杠的丢弃
+ * （它们原样保留转义，代入后可能拼出 url）；其余值已被浏览器规范化，url() 按 filterCssUrls 处理。
+ * 给了 scope 时，顶层（含 @media 等里面）每条规则的每个选择器都必须以它开头，否则整条丢弃：ST 的 CSS 解析器与浏览器对畸形文本
+ * 理解不同，ST 加过前缀的文本到了浏览器里仍可能读出一条不带前缀的规则。
+ * @param {string} text
+ * @param {boolean} allowExternal
+ * @param {{scope?:string}} [options]
+ * @returns {string} 清洗后的样式表文本；什么都不剩时为空串
+ */
+export function cleanStyleText(text, allowExternal, { scope = '' } = {}) {
+    const sheet = new CSSStyleSheet();
+    try { sheet.replaceSync(text); } catch { return ''; }
+    const names = new Map();
+    (function collect(rules) {
+        for (const rule of rules) {
+            if (rule instanceof CSSKeyframesRule) names.set(rule.name, CSS.escape(`${KEYFRAMES_PREFIX}${rule.name}`)); // 名字可能是带 } 的字符串，必须转义
+            else if (rule.cssRules) collect(rule.cssRules);
+        }
+    })(sheet.cssRules);
+    const rename = value => value.replace(/[\w-]+/g, word => names.get(word) ?? word);
+    const body = style => {
+        const all = cssDeclarations(style);
+        const kept = all.filter(({ name, value }) => !/image-set\s*\(/i.test(value) && !(name.startsWith('--') && value.includes('\\')));
+        // 一条没丢、也没有要改名的动画：用浏览器的规范化文本（保留简写，短得多）
+        if (kept.length === all.length && !(names.size && all.some(({ name }) => name.startsWith('animation')))) return filterCssUrls(style.cssText, allowExternal);
+        return kept.map(({ name, value, important }) => `${name}:${name.startsWith('animation') ? rename(filterCssUrls(value, allowExternal)) : filterCssUrls(value, allowExternal)}${important ? ' !important' : ''};`).join('');
+    };
+    const scoped = selector => !scope || splitSelectors(selector).every(part => part.startsWith(scope));
+    const rebuild = (rules, nested = false) => [...rules].map(rule => {
+        if (rule instanceof CSSStyleRule) {
+            if (!nested && !scoped(rule.selectorText)) return '';
+            return `${rule.selectorText}{${body(rule.style)}${rule.cssRules?.length ? rebuild(rule.cssRules, true) : ''}}`;
+        }
+        if (rule instanceof CSSKeyframesRule) return `@keyframes ${names.get(rule.name)}{${[...rule.cssRules].map(frame => `${frame.keyText}{${body(frame.style)}}`).join('')}}`;
+        if (rule.constructor.name === 'CSSNestedDeclarations') return body(rule.style);
+        if (rule instanceof CSSGroupingRule && /^@(media|supports|container|layer)\b/.test(rule.cssText)) return `${rule.cssText.slice(0, rule.cssText.indexOf('{'))}{${rebuild(rule.cssRules, nested)}}`;
+        if (/^@layer\s+[\w\s,.-]+;$/.test(rule.cssText)) return rule.cssText;
+        return '';
+    }).join('\n');
+    return rebuild(sheet.cssRules).trim();
+}
+
 /** 目标角色（不是宿主当前角色）是否允许外部媒体：沿用 ST 的全局开关与逐角色覆盖。 */
 function externalMediaAllowed(names) {
     const power = runtime.getContext().powerUserSettings ?? {};
@@ -52,6 +114,7 @@ function externalMediaAllowed(names) {
     return !power.forbid_external_media;
 }
 
+const STYLE_SCOPE = '#stcr_chat .mes_text ';
 /** 清洗并隔离文本内样式；只保留 data:image 与（ST 允许时的）https 图片，不请求同源路径。 */
 function safeHtml(html, alreadySanitized = false, allowExternal = false) {
     const { DOMPurify, hljs } = runtime.libs;
@@ -59,7 +122,7 @@ function safeHtml(html, alreadySanitized = false, allowExternal = false) {
     html = DOMPurify.sanitize(html, { MESSAGE_SANITIZE: !alreadySanitized, ADD_TAGS: ['custom-style'],
         FORBID_TAGS: ['iframe', 'object', 'embed', 'script', 'link', 'base', 'meta', 'form', 'input', 'button', 'audio', 'video', 'source'],
         FORBID_ATTR: ['src', 'srcset', 'href', 'poster', 'background', 'action', 'formaction', 'xlink:href'], RETURN_TRUSTED_TYPE: false });
-    html = runtime.chats.decodeStyleTags(html, { prefix: '#stcr_chat .mes_text ' });
+    html = runtime.chats.decodeStyleTags(html, { prefix: STYLE_SCOPE });
     const template = document.createElement('template');
     template.innerHTML = html;
     for (const el of template.content.querySelectorAll('*')) {
@@ -69,8 +132,8 @@ function safeHtml(html, alreadySanitized = false, allowExternal = false) {
             else el.setAttribute('style', filterCssUrls(el.getAttribute('style'), allowExternal));
         }
         if (el.tagName === 'STYLE') {
-            if (/image-set\s*\(|@(?!media\b|supports\b)[a-z-]+|\\/i.test(el.textContent)) el.remove();
-            else el.textContent = filterCssUrls(el.textContent, allowExternal);
+            const css = cleanStyleText(el.textContent, allowExternal, { scope: STYLE_SCOPE }); // T75：逐条清洗，不再整段删除
+            if (css) el.textContent = css; else el.remove();
         }
         if (el.tagName === 'A') {
             const href = el.getAttribute('href');
@@ -128,7 +191,7 @@ export function formatWithStrategy(text, model, names, { strategy = 'b', reasoni
  * @param {object} handle openChat 返回值
  * @param {number} index 零基楼层号
  * @param {number} [swipeIndex] 默认楼层的 ST 当前候选
- * @returns {{html:string,reasoningHtml:string,model:object,swipeIndex:number}}
+ * @returns {{html:string,displayText:string,reasoningHtml:string,model:object,swipeIndex:number}}
  */
 export function renderMessage(handle, index, swipeIndex) {
     if (!runtime) throw new Error('请先 await initFormatter()');
@@ -142,6 +205,8 @@ export function renderMessage(handle, index, swipeIndex) {
     const run = (text, reasoning) => runDisplayRegex(text, { ...names, scripts,
         placement: reasoning ? PLACEMENT.REASONING : model.isUser ? PLACEMENT.USER : model.isNarrator ? PLACEMENT.NARRATOR : PLACEMENT.AI }, runtime.regex.runRegexScript);
     const swipe = model.swipes[selected];
-    return Object.freeze({ html: formatWithStrategy(run(swipe.text, false), model, names),
+    // T75：displayText = 显示正则之后、Markdown 之前的正文；裸 HTML 要在它上面识别（正则会改写 / 产出 HTML，I057/I058）
+    const displayText = run(swipe.text, false);
+    return Object.freeze({ html: formatWithStrategy(displayText, model, names), displayText,
         reasoningHtml: swipe.reasoning ? formatWithStrategy(run(swipe.reasoning, true), model, names, { reasoning: true }) : '', model, swipeIndex: selected });
 }

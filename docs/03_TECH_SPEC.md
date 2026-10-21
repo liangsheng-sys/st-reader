@@ -221,7 +221,7 @@ T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一
  * @property {(pageIndex?:number)=>{pageIndex:number,start:number,end:number,total:number,pageCount:number,messages:readonly MessageModel[]}} page end 不包含；空聊天 page(0) 返回空页
  * @property {()=>void} close 幂等释放此句柄和角色快照；之后 page/getMessage/renderMessage 抛 CLOSED；原始数组/索引/已构建页由有界 LRU 保留
  */
-/** @typedef {{html:string,reasoningHtml:string,model:MessageModel,swipeIndex:number}} RenderedMessage */
+/** @typedef {{html:string,displayText:string,reasoningHtml:string,model:MessageModel,swipeIndex:number}} RenderedMessage */ // displayText：T75 增，显示正则之后、Markdown 之前的正文
 ```
 
 日期兼容 ISO、数值/数字字符串毫秒时间戳和 ST 旧版 `YYYY-M-D @HHh MMm SSs Nms`；无时区的旧格式按宿主本地时区解释，损坏日期返回 null。只有当前候选缺少 `swipe_info` 思维链时才回退楼层 extra；显式空字符串不回退。没有 swipes 时为一个候选。
@@ -574,6 +574,18 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 - 一段在标签栈归零处结束；归零后到下一个起始标签之间只有空白 / 注释才并入同一段（style + div 仍是一段），有散文或非起始标签就此截断。
 - 顶层打开着 `details / blockquote / ul / ol` 时，其中的 div 等不起始新段（不能把一个 details 切成两半，UI 也对不上顶层元素）；`p / li` 常省略闭合，不参与这条，漏写 `</p>` 不影响后面识别。
 - 识别门槛（D15）与围栏 HTML 不变。用例见 `htmlRenderer.test.js` 的两条 T72 测试与 `dev/fixtures/html.mjs` 的 `COMMUNITY_HTML`。
+
+**T75 增补（I057–I059，2026-10-21，Opus 按 D32 交付；只增不改）**：
+- `renderMessage` 的返回多一个字段 `displayText`：显示正则跑完、Markdown 之前的正文（`html` 就是从它格式化来的）。旧字段不变。
+- UI 在 `displayText` 上调 `detectHtmlBlocks`，因为排好版的正文是它变来的，标签序列才对得上。只用原文判断"模型自己写没写裸 HTML"：写了，就框正则之后的那几段（I057）；没写，只框正则产出的整页（含 `<html>`/`<body>`，I058），普通正则美化（`<style>` + 盒子）照旧在正文里，与 ST 一致。`detectHtmlBlocks` 本身没改。
+- `formatter.js` 新导出 `cleanStyleText(text, allowExternal, {scope}?)`：正文里的 `<style>` 不再因 `@keyframes`、`@font-face`、`url(`、反斜杠整段删除（I059），改为用浏览器 CSS 解析（未挂载的 `CSSStyleSheet`，不加载资源）后逐条重建：
+  - 保留普通规则、CSS 嵌套、`@media` / `@supports` / `@container` / `@layer`；
+  - `@keyframes` 保留并改名为 `stcr-kf-<原名>`（经 `CSS.escape`），同一段里 `animation*` 的引用一起改，不覆盖 ST 或阅读器自己的动画；
+  - 丢弃 `@font-face`、`@import`、`@namespace`、`@page`、`@scope` 等其余 @ 规则；
+  - 单条声明：含 `image-set(` 的丢弃；自定义属性（`--*`）带反斜杠的丢弃（它们保留原样转义，代入后可能拼出 url）；其余值是浏览器规范化后的结果，`url()` 交给 `filterCssUrls`；
+  - 给了 `scope`（正文用 `#stcr_chat .mes_text `）时，顶层和 @ 分组里每条规则的每个选择器都必须以它开头，否则整条丢弃。ST 自己的 CSS 解析器和浏览器对畸形文本理解不同，ST 加过前缀的文本到了浏览器里仍可能读出不带前缀的规则；
+  - 行内 `style=""` 的策略不变（T73）。
+- 新模块 `cssDeclarations.js`：`cssDeclarations(style)` → `{name,value,important}[]`，分项为空（含 `var()` 的简写）时换成所属简写。卡片快照（T73）与 `cleanStyleText` 共用。
 
 **给 UI（I038）**：签名与四个字段均未改，但 raw 的“永远整楼/只有一段”假设已失效。按 start/end 切出前后及段间原文，交给原有正文格式化/脱敏与锚点管线；逐块把 block.html 交给 createSandbox。不能在改写后的 HTML 字符串上套用原文偏移，也不能继续整体隐藏 `.mes_text`。人类明确指定本次 UI 接线留给 Opus，因此 T51 未改 `src/ui/`；正式阅读器尚待接线，开发演示只证明 core 合同。
 

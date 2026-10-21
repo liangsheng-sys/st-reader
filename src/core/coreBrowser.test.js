@@ -1,6 +1,6 @@
 // ST Reader — AGPL-3.0
 import { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, makeChatKey, openChat } from './chatSource.js';
-import { initFormatter, formatWithStrategy, renderMessage } from './formatter.js';
+import { cleanStyleText, initFormatter, formatWithStrategy, renderMessage } from './formatter.js';
 import { loadHostRuntime } from './hostRuntime.js';
 import { collectScripts, runDisplayRegex, PLACEMENT } from './regexPipeline.js';
 
@@ -95,6 +95,38 @@ export async function testCoreBrowser() {
             assert(!fragment.querySelector('script,[src],[onerror],[id],[mesid],[data-action],.mes_edit'), '残留危险节点/宿主交互选择器');
             assert(!html.includes('example.invalid'), '残留资源 URL');
             assert(fragment.querySelector('style')?.textContent.includes('#stcr_chat .mes_text .custom-badge'), '自定义 CSS 未限定阅读器');
+        });
+        await test('T75 楼内 <style> 逐条清洗：保留并改名 @keyframes 与图标字符，去掉 @font-face/@import/image-set/带转义的变量与外链', () => {
+            const css = '@import url(https://example.invalid/a.css);'
+                + '@keyframes glow{from{opacity:.2}to{opacity:1}}'
+                + '.bar{animation:glow 2s infinite alternate;color:teal}'
+                + '.ico::before{content:"\\f005";font-family:"Font Awesome 6 Free"}'
+                + '@font-face{font-family:x;src:url(https://example.invalid/f.woff)}'
+                + '.sneaky{--u:u\\72 l(/x.png);background:var(--u);color:red}'
+                + '.set{background-image:image-set("https://example.invalid/a.png" 1x);color:blue}'
+                + '.dot{background-image:url(data:image/png;base64,AAAA)}'
+                + '.web{background-image:url(https://example.invalid/b.png)}'
+                + '@media (min-width:1px){.m{color:red}}'
+                + '@keyframes "a}body{display:none"{to{opacity:0}}';
+            const out = cleanStyleText(css, false);
+            assert(out.includes('@keyframes stcr-kf-glow') && /animation[^;]*stcr-kf-glow/.test(out), `动画没保留或没改名：${out}`);
+            assert(out.includes('') || out.includes('\\f005'), '图标字符丢了');
+            assert(!/@import|@font-face|image-set|example\.invalid|--u:/.test(out), `残留危险规则：${out}`);
+            assert(out.includes('url("data:image/png;base64,AAAA")') && out.includes('@media (min-width: 1px)'), `data: 背景或 @media 丢了：${out}`);
+            assert(/\.sneaky\s*\{[^}]*color:\s*red/.test(out) && /\.set\s*\{[^}]*color:\s*blue/.test(out), '只该丢那一条声明，同一规则的其他声明要留下');
+            const sheet = new CSSStyleSheet(); sheet.replaceSync(out);
+            assert([...sheet.cssRules].every(rule => !(rule instanceof CSSStyleRule) || rule.selectorText !== 'body'), `带 } 的动画名逃出了规则：${out}`);
+            assert(cleanStyleText(css, true).includes('example.invalid/b.png'), 'ST 允许外部媒体时 https 背景应保留');
+            const scope = '#stcr_chat .mes_text ';
+            const scoped = cleanStyleText(`${scope}.a{color:red}${scope}.b, body{color:blue}@media (min-width:1px){html{color:green}${scope}.c:is(.x, .y){color:teal}}${scope}.n{&:hover{color:pink}}`, false, { scope });
+            assert(scoped.includes('.custom-a') === false && scoped.includes(`${scope}.a`) && scoped.includes(`${scope}.c:is(.x, .y)`) && scoped.includes('&:hover'), `限定范围内的规则丢了：${scoped}`);
+            assert(!scoped.includes('body') && !/\bhtml\b/.test(scoped) && !scoped.includes('color: blue') && !scoped.includes('color: green'), `范围外的选择器没拦住：${scoped}`);
+            const html = formatWithStrategy('<style>@keyframes glow{to{opacity:1}}.bar{animation:glow 1s}</style><div class="bar">虚构</div>', aster.getMessage(1), aster.getRegexContext(1));
+            assert(html.includes('stcr-kf-glow') && html.includes('#stcr_chat .mes_text .custom-bar'), `正文里的样式整段没了或没限定阅读器：${html}`);
+        });
+        await test('T75 renderMessage 带回 displayText（显示正则之后、Markdown 之前）', () => {
+            const shown = renderMessage(paper, 12).displayText;
+            assert(shown.includes('<section class="harbor-log">') && shown.includes('<html><head>') && !shown.includes('【观测站页面】'), shown.slice(0, 200));
         });
         await test('候选切换只改返回结果，不改 ST 当前候选；缺失思维链正确回退', () => {
             const first = renderMessage(aster, 11, 0), last = renderMessage(aster, 11, 4);
