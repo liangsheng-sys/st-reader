@@ -85,7 +85,7 @@
 | T72 | **显示失败兜底 + 裸 HTML 边界**（I051、D35）：①`reader.js` 渲染抛错时显示转义原文（保留换行）、名字旁小标签"原样显示"、⋯菜单加"复制错误信息"（版本、楼号、错误栈，不含正文）并 `console.error`；②`htmlRenderer.detectHtmlBlocks` 按 D35 改，`htmlRenderer.test.js` 补"散文 + div 盒 + `<selection>` + details"；③fixture 新增一楼模仿社区结构（散文、三个 `<details><summary>`、带 inline style 渐变胶囊的 div 盒、含 `<style>` 的状态栏、一个 `<selection>` 自定义标签），正常渲染不得失败；④该样本五主题下过 `testTextAlignBrowser` | Opus | 通过 | 新样本：散文按正文排版、details 可折叠、div 盒进沙箱、`<selection>` 内文字按正文显示；用测试注入让格式化抛错时看到原文而不是"显示失败" |
 | T73 | **卡片导出保留美化**（I052）：用 fixture 的正则美化楼（含楼内 `<style>`、`background-image` 为 data: 与 https 外链、`<char>` 标题）复现预览与 PNG 的差异；修 `cardSnapshot` / `cardExport`：楼内 `<style>` 克隆进快照并前缀到卡片根、`background-*` 全部 longhand 复制、外链图片按 D23 内嵌、失败逐项提示不整块丢；工作台状态栏加"预览与导出不一致？"提示 | Opus | 通过 | 预览与导出 PNG 肉眼一致；外链图片拿不到时 PNG 上有占位并有提示 |
 | T75 | **显示修补**（I057–I059，人类 2026-10-21 要求 T73 后接着做，排在 T74 发布复查之前）：①裸 HTML 改在**正则之后**的正文上识别（`renderMessage` 增 `displayText`），正则改写 / 产出的 HTML 盒子与整页都按显示结果进沙箱；②楼内 `<style>` 不再因 `@keyframes` / `@font-face` / 反斜杠整段删除，改用浏览器 CSS 解析逐条清洗：保留 `@keyframes`（改名防撞 ST 动画）、去掉 `@font-face` / `@import` 与危险声明 | Opus | 待验收 | 正则把 div 换成 section 时只有盒子进沙箱、散文在外；正则产出的整页 HTML 进沙箱；带动画与 `content:"005"` 图标的状态栏有样式、会动 |
-| T74 | 复查 + 0.3.0（manifest 0.3.0、CHANGELOG、README 隐私与 TT 一句、使用说明"备份"一节） | Fable / 人类 | 待开始 | 同 T61 流程 |
+| T74 | 复查 + 0.3.0（manifest 0.3.0、CHANGELOG、README 隐私与 TT 一句、使用说明"备份"一节） | Fable / 人类 | Fable 复查通过（`handoff/2026-10-21_fable_to_human_T74.md`，含 T75）；人类推送待做 | 同 T61 流程 |
 
 ## M8 阅读打磨（v0.3.1）
 提示词 `prompts/opus_T80-T83.md`。顺序 T80 → T81 → T82 → T83。
