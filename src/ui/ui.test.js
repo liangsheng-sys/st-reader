@@ -4,7 +4,7 @@
 
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
-    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary } from './logic.js';
+    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport } from './logic.js';
 
 const results = [];
 function check(name, fn) {
@@ -44,6 +44,15 @@ export async function testUiLogic() {
         equal(restoreSummary({ annotations: { added: 2, updated: 1, kept: 0 }, bookmarks: { added: 1, updated: 0 }, settings: { added: 0, updated: 0 } }), '已从 ST 服务器恢复批注 3 条、收藏 1 条');
         equal(restoreSummary({ annotations: { added: 0, updated: 0 } }), '');
         equal(restoreSummary(null), '');
+    });
+    check('显示失败报告（T72）：版本、楼号、候选、堆栈；不含正文', () => {
+        const error = new TypeError('虚构的格式化错误'); error.stack = 'TypeError: 虚构的格式化错误\n    at fillRendered (floorToolbar.js:60:5)';
+        const text = faultReport({ index: 6, swipe: 1, total: 2, error }, '0.2.1', { now: new Date(Date.UTC(2026, 9, 21, 4)), userAgent: '虚构浏览器/1.0' });
+        for (const part of ['版本：v0.2.1', '楼号：第 7 楼，候选 2 / 2', '时间：2026-10-21T04:00:00.000Z', '浏览器：虚构浏览器/1.0', '错误：TypeError: 虚构的格式化错误', 'at fillRendered']) equal(text.includes(part), true);
+        equal(text.includes('不含聊天正文'), true);
+        const bare = faultReport({ index: 0, swipe: 0, total: 0, error: '只是字符串' }, '', { now: new Date(0), userAgent: '' });
+        equal(bare.includes('版本：v未知') && bare.includes('候选 1 / 1') && bare.includes('错误：Error: 只是字符串') && bare.includes('堆栈：（无）'), true);
+        equal(faultReport({ index: 0, error: { message: 'x'.repeat(9000), stack: 'y'.repeat(9000) } }, '1').length < 5000, true);
     });
     check('楼层时间：同年省略年份，跨年补年份，坏值为空', () => {
         const now = new Date(2026, 8, 28, 12);

@@ -554,6 +554,13 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
 
 **T51 / D26 边界细则**：上述裸 HTML 识别门槛不变。通过门槛后，从第一个块级起始标签（style/div/section/html/body 等）开始，保留到该段最后一个已闭合的顶层标签，区间不含尾随换行；DOCTYPE、前置注释和散文留在原文。嵌套块里的文字属于 HTML；顶层兄弟标签之间只有空白/注释时合成一段（典型为 style + section），有散文时分成两段。已闭合的 html/body 文档后再开始一份 html/body，即使只隔空白也拆开。返回按原文排序且不重叠。按标签配对计算，属性引号内的 `>`、style/script/textarea/title/xmp 正文里的伪标签不改变边界；没有闭合的片段保留原文，不以吞掉整楼来猜测修复。它不是浏览器的完整容错树构造器，省略闭合标签的畸形 HTML 不保证识别。
 
+**T72 / D35 增补（修订上段“块级起始标签”的范围，签名与返回字段不变）**：
+- 能在顶层**起始**一段裸 HTML 的只有 `html body style div section article main header footer aside nav table figure dl`。
+- `details summary p blockquote h1–h6 ul ol li pre hr br span font q img` 和自定义标签（如 `<selection>`）在顶层既不起始也不延伸一段，留在正文交给格式化器（ST 原生就把 `<details>` 渲染成折叠）；它们出现在一段**内部**时照常算这段的内容。
+- 一段在标签栈归零处结束；归零后到下一个起始标签之间只有空白 / 注释才并入同一段（style + div 仍是一段），有散文或非起始标签就此截断。
+- 顶层打开着 `details / blockquote / ul / ol` 时，其中的 div 等不起始新段（不能把一个 details 切成两半，UI 也对不上顶层元素）；`p / li` 常省略闭合，不参与这条，漏写 `</p>` 不影响后面识别。
+- 识别门槛（D15）与围栏 HTML 不变。用例见 `htmlRenderer.test.js` 的两条 T72 测试与 `dev/fixtures/html.mjs` 的 `COMMUNITY_HTML`。
+
 **给 UI（I038）**：签名与四个字段均未改，但 raw 的“永远整楼/只有一段”假设已失效。按 start/end 切出前后及段间原文，交给原有正文格式化/脱敏与锚点管线；逐块把 block.html 交给 createSandbox。不能在改写后的 HTML 字符串上套用原文偏移，也不能继续整体隐藏 `.mes_text`。人类明确指定本次 UI 接线留给 Opus，因此 T51 未改 `src/ui/`；正式阅读器尚待接线，开发演示只证明 core 合同。
 
 交互文档的 CSP 默认包含 `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:`，并禁止 object、base、表单提交和网络连接。允许外链时只在 style/script/img/font/connect/media 指令追加 `https:`，不开放明文 HTTP，也不赋予同源、弹窗、表单或顶层导航能力。外部资源的地址来自输入 HTML，core 没有固定第三方服务，也不保存允许状态。

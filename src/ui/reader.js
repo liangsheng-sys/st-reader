@@ -7,6 +7,7 @@ import { maskHtmlString } from '../core/cardExport.js';
 import { initFormatter } from '../core/formatter.js';
 import { store } from '../core/store.js';
 import { flushMirror, getMirrorStatus, mirrorNow, onMirrorStatus, restoreFromServer, whenStarted } from '../core/backupService.js';
+import { getVersion } from '../core/updateService.js';
 import { createPanel } from './annotationsPanel.js';
 import { backupStatus, describeStoreError, exportBackup, pickAndImport } from './backup.js';
 import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
@@ -16,8 +17,8 @@ import { isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavorite
 import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
-import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, foldRuns, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
+import { buildFloor, buildSwipeControl, fillFloor, floorFault, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
+import { effectivePrefs, faultReport, foldRuns, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -510,6 +511,7 @@ function onClick(event) {
             case 'more': mes?.classList.toggle('stcr-toolbar-pinned'); return;
             case 'reasoning': if (mes) toggleReasoning(mes); return;
             case 'copy': if (mes) copyFloor(mes); return;
+            case 'copy-error': if (mes) copyFault(mes); return;
             case 'copy-code': copyCode(actEl); return;
             case 'copy-code-masked': copyCodeMasked(actEl); return;
             case 'copy-html-masked': copyHtmlBlockMasked(actEl); return;
@@ -1420,7 +1422,7 @@ function setSwipe(mes, next) {
     mes.classList.add('stcr-swipe-fade');
     session.swipeView.set(index, next);
     rememberSwipe(session.chatKey, index, next, next === model.swipeId);
-    session.marks.paintFloor(mes);
+    if (!mes.classList.contains('stcr-mes--broken')) session.marks.paintFloor(mes); // 原样显示的候选不画划线（原文偏移对不上）
     ensureWindow();
     updateProgress();
 }
@@ -1443,6 +1445,17 @@ function toggleReasoning(mes) {
 async function copyFloor(mes) {
     const ok = await copyText(floorPlainText(mes));
     say(ok ? '已复制本楼文字' : '复制失败，请手动选中复制');
+}
+
+/** 原样显示的楼：复制错误信息（版本、楼号、堆栈；不含正文），同时再打一遍到控制台。 */
+async function copyFault(mes) {
+    const fault = floorFault(mes);
+    if (!fault) return;
+    let version = '';
+    try { version = await getVersion(); } catch { /* 版本号拿不到也照样复制 */ }
+    console.error('[st-reader] 显示失败：', fault.error);
+    const ok = await copyText(faultReport(fault, version));
+    say(ok ? '已复制错误信息（不含正文），可以直接贴给作者' : '复制失败，请打开浏览器控制台查看错误');
 }
 
 async function copyCode(button) {

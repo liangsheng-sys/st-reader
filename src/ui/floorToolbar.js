@@ -4,8 +4,9 @@
 // 切换候选只改阅读器视图，不写 ST（D02、02 §5）。
 
 import { renderMessage } from '../core/formatter.js';
+import { isDevInstance } from '../core/readonlyGuard.js';
 import { h, iconButton } from './dom.js';
-import { formatStamp, isSystemLike, reasoningTitle } from './logic.js';
+import { formatStamp, isSystemLike, reasoningTitle, RENDER_FAULT_MARK } from './logic.js';
 import { findHtmlBlocks } from './htmlBlocks.js';
 import { redactElement, visibleText } from './redact.js';
 
@@ -35,10 +36,30 @@ export function buildFloor(ctx, model, swipeIndex) {
     return el;
 }
 
-/** （重新）填充一楼内容。切换候选时原地调用，楼层元素本身不换，滚动位置由调用方保持。 */
+/** 原样显示的楼 → 出错信息（"复制错误信息"用；不存正文）。 */
+const faults = new WeakMap();
+/** 这一楼若是原样显示的，返回 {index, swipe, total, error}；否则 null。 */
+export function floorFault(el) { return faults.get(el) ?? null; }
+
+/**
+ * （重新）填充一楼内容。切换候选时原地调用，楼层元素本身不换，滚动位置由调用方保持。
+ * 格式化 / 正则 / HTML 接线任何一步抛错（I051、T72）：这一候选改为原样显示转义原文，候选切换照常可用。
+ */
 export function fillFloor(ctx, el, model, swipeIndex) {
+    try {
+        const rendered = fillRendered(ctx, el, model, swipeIndex);
+        el.classList.remove('stcr-mes--broken');
+        faults.delete(el);
+        return rendered;
+    } catch (error) {
+        return fillRaw(ctx, el, model, swipeIndex, error);
+    }
+}
+
+function fillRendered(ctx, el, model, swipeIndex) {
     const rendered = renderMessage(ctx.handle, model.index, swipeIndex);
     const swipe = model.swipes[rendered.swipeIndex];
+    if (swipe.text.includes(RENDER_FAULT_MARK) && isDevInstance(globalThis.location)) throw new Error('T72 测试注入：格式化抛错（只在开发实例生效）');
     const block = el.querySelector(':scope > .mes_block');
     block.replaceChildren();
     const redact = ctx.redactFor?.(model) ?? null;
@@ -87,6 +108,42 @@ export function fillFloor(ctx, el, model, swipeIndex) {
     block.append(text);
     syncBookmarkMarks(ctx, el);
     return rendered;
+}
+
+/**
+ * 原样显示：名字行（名字旁小标签"原样显示"）+ 转义后的原文（保留换行）。不跑正则、Markdown、HTML。
+ * 脱敏显示开着时照常遮词；遮词本身失败就不显示原文（与 I033 一致：宁可不显示也不露出原词）。
+ */
+function fillRaw(ctx, el, model, swipeIndex, error) {
+    const swipes = Array.isArray(model.swipes) ? model.swipes : [];
+    const shown = swipes[swipeIndex] ? swipeIndex : swipes[model.swipeId] ? model.swipeId : 0;
+    const swipe = swipes[shown] ?? {};
+    console.error(`[st-reader] 第 ${model.index + 1} 楼（候选 ${shown + 1}）显示失败，改为原样显示：`, error);
+    faults.set(el, { index: model.index, swipe: shown, total: swipes.length, error });
+    el.classList.add('stcr-mes--broken');
+    el.classList.remove('reasoning');
+    el.dataset.swipe = String(shown);
+    const block = el.querySelector(':scope > .mes_block');
+    block.replaceChildren();
+    const name = h('span', { class: 'name_text', text: model.name ?? '' });
+    const title = h('div', { class: 'flex-container alignItemsBaseline stcr-mes-title' }, name,
+        h('span', { class: 'stcr-raw-tag', 'data-stcr-ignore-anchor': '', title: '这一楼没能按正常方式显示，下面是没经过任何处理的原文。⋯ 里可以复制错误信息', text: '原样显示' }),
+        h('small', { class: 'timestamp', text: formatStamp(swipe.sendDate ?? model.date) }));
+    const row = h('div', { class: 'ch_name flex-container justifySpaceBetween' }, h('div', { class: 'flex-container flex1 alignitemscenter' }, title),
+        h('div', { class: 'stcr-floor-toolbar', role: 'toolbar', 'aria-label': '楼层工具' },
+            iconButton('fa-bug', '复制错误信息（版本、楼号、出错位置；不含正文）', { 'data-act': 'copy-error' })));
+    if (swipes.length > 1) row.append(buildSwipeControl(model, shown));
+    row.append(iconButton('fa-ellipsis', '这一楼的工具', { class: 'stcr-mes-more', 'data-act': 'more' }));
+    const text = h('div', { class: 'mes_text stcr-raw-text', text: typeof swipe.text === 'string' ? swipe.text : '' });
+    try {
+        const redact = ctx.redactFor?.(model) ?? null;
+        if (redact) { redactElement(name, redact); redactElement(text, redact); }
+    } catch (redactError) {
+        console.warn('[st-reader] 原样显示时脱敏失败，这一楼先不显示原文', redactError);
+        text.textContent = '（脱敏没做成，为了不露出原词，这一楼先不显示原文）';
+    }
+    block.append(row, text);
+    return { swipeIndex: shown, html: '', reasoningHtml: '' };
 }
 
 let styleScopes = 0;

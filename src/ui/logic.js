@@ -509,3 +509,26 @@ export function restoreSummary(report) {
         .filter(([, count]) => count > 0).map(([label, count]) => `${label} ${count} 条`);
     return parts.length ? `已从 ST 服务器恢复${parts.join('、')}` : '';
 }
+
+/**
+ * "复制错误信息"的内容（T72、I051）：版本、楼号、候选、错误名 / 消息 / 堆栈、浏览器。不含聊天正文。
+ * fault 来自 floorToolbar 的 floorFault()；version 是阅读器版本号。
+ */
+export function faultReport(fault, version, { now = new Date(), userAgent = globalThis.navigator?.userAgent ?? '' } = {}) {
+    const error = fault?.error;
+    const name = error?.name || 'Error';
+    const message = String(error?.message ?? error ?? '').slice(0, 500);
+    const stack = typeof error?.stack === 'string' ? error.stack.slice(0, 4000) : '';
+    return [
+        'ST Reader 显示失败报告（不含聊天正文）',
+        `版本：v${version || '未知'}`,
+        `楼号：第 ${(fault?.index ?? -1) + 1} 楼，候选 ${(fault?.swipe ?? 0) + 1} / ${Math.max(1, fault?.total ?? 1)}`,
+        `时间：${now.toISOString()}`,
+        `浏览器：${userAgent || '未知'}`,
+        `错误：${name}: ${message}`,
+        stack ? `堆栈：\n${stack}` : '堆栈：（无）',
+    ].join('\n');
+}
+
+/** 开发实例专用的测试注入（T72）：候选原文含这个记号时 floorToolbar 假装格式化抛错。正式环境（非 8100）不生效。 */
+export const RENDER_FAULT_MARK = '【STCR-T72 测试注入：这一候选故意显示失败】';

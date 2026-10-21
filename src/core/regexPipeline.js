@@ -61,7 +61,9 @@ export function runDisplayRegex(text, options, runScript) {
         const identity = original.id || original;
         if (seen.has(identity)) continue;
         seen.add(identity);
-        const script = structuredClone(original);
+        // 宿主里的全局 / 预设脚本是活对象，可能被别的扩展包成 Proxy 或带函数字段，structuredClone 会抛 DataCloneError
+        // 让整楼显示失败（I051 / T72）。只拷本函数会改写的字段；原脚本不动。
+        const script = { ...original, trimStrings: Array.isArray(original.trimStrings) ? [...original.trimStrings] : [] };
         const mode = Number(script.substituteRegex);
         if (mode === 1 || mode === 2) script.findRegex = substituteNames(script.findRegex, options, mode === 2 ? escapeRegex : value => value);
         script.substituteRegex = 0;

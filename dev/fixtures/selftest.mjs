@@ -16,7 +16,7 @@ export async function testFixtures() {
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
     await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
-        assert.equal(chats[1].messages.length, 10);
+        assert.equal(chats[1].messages.length, 11);
         assert.match(chats[1].messages[6].mes, /^<!doctype html>/);
         assert.match(chats[1].messages[6].mes, /st-reader-fixture\.invalid/);
         assert.match(chats[1].messages[7].mes, /^```html/);
@@ -30,6 +30,14 @@ export async function testFixtures() {
         assert.ok(mixed.length > 1200);
         assert.equal((multi.match(/<style>/g) ?? []).length, 2);
         assert.match(multi, /旅人走过一段散文/);
+    });
+    await test('T72 纸舟第 11 楼社区卡结构：散文、四个 details、样式盒、状态栏 style、<selection>；第 2 候选带测试注入记号', () => {
+        const floor = chats[1].messages[10];
+        assert.equal(floor.swipes.length, 2);
+        assert.equal(floor.mes, floor.swipes[0]);
+        assert.equal((floor.mes.match(/<details><summary>/g) ?? []).length, 4);
+        assert.ok(floor.mes.includes('<selection>') && floor.mes.includes('<style>') && floor.mes.includes('linear-gradient') && floor.mes.includes('虚构'));
+        assert.ok(!floor.swipes[0].includes('STCR-T72 测试注入') && floor.swipes[1].startsWith('【STCR-T72 测试注入'));
     });
     await test('I013 宿主补字段/更改当前 chat 后 PNG 仍有效，关键字段或正则变化仍拒绝', () => {
         const expected = makeCard(CHARACTERS[0]), changed = structuredClone(expected);

@@ -9,7 +9,11 @@ export function htmlWidth(width = 390) {
 }
 const requireHtml = html => { if (typeof html !== 'string') throw new TypeError('HTML 必须为字符串'); return html; };
 
-const BLOCK_TAGS = new Set('html head body style address article aside blockquote details dialog div dl dt dd fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr main menu nav ol p pre section table ul'.split(' '));
+// D35 ①：只有这些标签能在顶层起始一段裸 HTML；其余（details/summary/p/h1–h6/span…、自定义标签）在顶层既不起始也不延伸，交给正文格式化器。
+const START_TAGS = new Set('html body style div section article main header footer aside nav table figure dl'.split(' '));
+// D35 ②：正文里的容器。顶层打开着它们时，里面的 div 等也算正文（不能把一个 details 切成两半）。
+// 不含常省略闭合的 p/li：漏写 </p> 不能让后面的网页再也认不出来。
+const PROSE_CONTAINERS = new Set('details blockquote ul ol'.split(' '));
 const VOID_TAGS = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
 
 // 只用于找原文边界，不修复或执行 HTML。保留原始偏移，属性内的 >、CSS/脚本里的伪标签不参与配对。
@@ -37,18 +41,24 @@ function detectRawHtml(rawText) {
     structuralLength += rawText.slice(cursor).replace(/\s/g, '').length;
     // 沿用 D15 的识别门槛；D26 只收窄区间，不把散文偶然提到的标签或普通内联 HTML 变成网页。
     if (!hasDocumentTag || tokens.length < 2 || tagLength / Math.max(1, structuralLength) < .12) return [];
-    const blocks = [], stack = [];
+    const blocks = [], stack = [], prose = [];
     let start = null, end = null, closedDocument = false;
     const finish = () => {
         if (start !== null && end !== null) blocks.push({ start, end, html: rawText.slice(start, end), kind: 'raw' });
         start = end = null; closedDocument = false; stack.length = 0;
     };
     for (const token of tokens) {
-        // 顶层标签之间只有空白/注释则属同一段（例如 style + div）；遇到散文另起一段。
-        if (start !== null && !stack.length && end !== null && (rawText.slice(end, token.start).replace(/<!--[\s\S]*?-->/g, '').trim()
-            || (closedDocument && !token.closing && ['html', 'body'].includes(token.name)))) finish();
+        const starts = !token.closing && START_TAGS.has(token.name);
+        // D35 ③④：栈归零即一段结束；到下一个起始标签之间只有空白/注释才并入（例如 style + div），散文或非起始标签就此截断。
+        if (start !== null && !stack.length && end !== null && (!starts || rawText.slice(end, token.start).replace(/<!--[\s\S]*?-->/g, '').trim()
+            || (closedDocument && ['html', 'body'].includes(token.name)))) finish();
         if (start === null) {
-            if (token.closing || !BLOCK_TAGS.has(token.name)) continue;
+            if (PROSE_CONTAINERS.has(token.name) && !token.void) {
+                if (!token.closing) prose.push(token.name);
+                else if (prose.includes(token.name)) prose.length = prose.lastIndexOf(token.name);
+                continue;
+            }
+            if (!starts || prose.length) continue;
             start = token.start;
         }
         if (token.closing) {

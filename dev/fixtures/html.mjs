@@ -37,4 +37,33 @@ export const SCENE_HTML = `<style>
 export const MIXED_HTML = `『纸月观测站』\n${SCENE_HTML}\n合上虚构的观测簿，故事仍在书页上继续。`;
 export const SECOND_SCENE_HTML = '<style>body{background:#e3ecf5;color:#24384d}.blue-post{padding:24px;border:2px dashed #7491ae}</style><section class="blue-post"><h2>第二站：虚构蓝邮局</h2><p>这一段有自己的 body 底色，透明默认值不能覆盖它。</p></section>';
 export const MULTI_HTML = `『两座虚构站台』\n${SCENE_HTML}\n旅人走过一段散文，来到第二座站台。\n${SECOND_SCENE_HTML}\n两张网页已经结束，这句仍是正文。`;
+// T72（I051、D35）：模仿社区卡的楼层结构（全部新编虚构）——散文 + 三个 details + 渐变胶囊样式盒 + 含 <style> 的状态栏 + <selection> + 小剧场 details。
+const PILL = 'display:inline-block;padding:2px 12px;border-radius:999px;color:#fff;font-size:13px;background:linear-gradient(90deg,#f29bb8,#9bbcf2)';
+export const COMMUNITY_BOX_HTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-radius:14px;background:linear-gradient(135deg,#fbe4ea,#e2ebfb)">
+<span style="${PILL}">好感 72</span><span style="${PILL}">体力 45</span><span style="${PILL}">纸灯 × 1</span></div>
+<style>
+.harbor-status{margin-top:8px;padding:8px 12px;border:1px solid #d9c6a5;border-radius:10px;background:#fffaf0;color:#6b5435;font-size:13px}
+.harbor-status b{color:#b0703a;margin-right:4px}
+</style>
+<div class="harbor-status"><b>时间</b>虚构历三年 · 夜　<b>地点</b>纸港口　<b>天气</b>薄雾</div>`;
+export const COMMUNITY_HTML = `夜色压低了纸港口的灯。星灯把一只纸船推进水里，回头说：“三天后，灯塔见。”
+
+测试旅人没有回答，只把船票折成一只更小的船，放在她的掌心。这一段是普通散文，应该按正文排版。
+
+<details><summary>摘要</summary>
+星灯与测试旅人在虚构的纸港口分别，约定三日后在灯塔重逢。
+</details>
+<details><summary>平行事件</summary>
+雾岚在河的另一头捡到一封没有署名的信。
+</details>
+<details><summary>主线记录</summary>
+第三章 · 纸港口（虚构）——分别。
+</details>
+
+${COMMUNITY_BOX_HTML}
+<selection>选项：一、送别　二、留下　三、独自去灯塔</selection>
+
+<details><summary>小剧场</summary>
+纸船小声说：“其实我会游泳。”（虚构）
+</details>`;
 export const HTML_MESSAGES = [PHONE_HTML, `\`\`\`html\n${GAME_HTML}\n\`\`\``, MIXED_HTML, MULTI_HTML];

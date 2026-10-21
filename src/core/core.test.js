@@ -80,6 +80,19 @@ export async function testCoreLogic() {
         equal(runDisplayRegex('A+B AAB', { scripts: [escaped], placement: 2, depth: 0, characterName: 'A+B' }, runLiteralRegex), 'hit AAB');
         equal(runLiteralRegex(script('c', '/[/g', 'bad'), 'safe'), 'safe');
     });
+    await test('T72 宿主脚本是 Proxy 或带函数字段时照常执行，不抛 DataCloneError，也不改原脚本（I051）', () => {
+        const plain = script('p', '/<status>(.*?)<\\/status>/g', '<div>$1</div>', { trimStrings: ['7'], placement: [2] });
+        const proxied = new Proxy({ ...plain, id: 'proxied', trimStrings: new Proxy(['7'], {}) }, {});
+        const withFunction = { ...plain, id: 'fn', hook() { return 1; } };
+        for (const target of [proxied, withFunction]) {
+            const before = JSON.stringify(target);
+            equal(runDisplayRegex('甲<status>72</status>', { scripts: [target], placement: 2, depth: 0 }, runLiteralRegex), '甲<div>2</div>');
+            equal(JSON.stringify(target), before);
+        }
+        const macro = script('m', '/{{char}}/g', 'hit', { substituteRegex: 2 });
+        runDisplayRegex('A', { scripts: [macro], placement: 2, depth: 0, characterName: 'A' }, runLiteralRegex);
+        equal(macro.findRegex, '/{{char}}/g'); equal(macro.substituteRegex, 2);
+    });
     await test('只读宏：原文、替换串、trim 和捕获拼接均不进入宿主宏解释器', () => {
         const forbiddenExecutor = () => { throw new Error('不应调用可能执行宏的宿主'); };
         const options = { placement: 2, depth: 0, userName: '旅人', characterName: '甲' };
