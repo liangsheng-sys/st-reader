@@ -4,7 +4,7 @@
 
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
-    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport } from './logic.js';
+    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport } from './logic.js';
 
 const results = [];
 function check(name, fn) {
@@ -53,6 +53,13 @@ export async function testUiLogic() {
         const bare = faultReport({ index: 0, swipe: 0, total: 0, error: '只是字符串' }, '', { now: new Date(0), userAgent: '' });
         equal(bare.includes('版本：v未知') && bare.includes('候选 1 / 1') && bare.includes('错误：Error: 只是字符串') && bare.includes('堆栈：（无）'), true);
         equal(faultReport({ index: 0, error: { message: 'x'.repeat(9000), stack: 'y'.repeat(9000) } }, '1').length < 5000, true);
+    });
+    check('卡片导出诊断（T73）：只有设置、计数与提示，不含正文', () => {
+        const text = cardExportReport({ version: '0.2.2', template: '纸张', size: '竖版', mask: '涂黑', floors: 3, styled: 1, warnings: ['有背景图拿不到（bad.invalid），PNG 里用斜纹占位代替'] },
+            { now: new Date(Date.UTC(2026, 9, 21, 4)), userAgent: '虚构浏览器/1.0' });
+        for (const part of ['不含聊天正文', '版本：v0.2.2', '模板：纸张；尺寸：竖版；遮盖：涂黑', '楼层：3 段，其中 1 段带楼内样式', '- 有背景图拿不到', '浏览器：虚构浏览器/1.0']) equal(text.includes(part), true);
+        const bare = cardExportReport({}, { now: new Date(0), userAgent: '' });
+        equal(bare.includes('版本：v未知') && bare.includes('（无，或还没导出过）'), true);
     });
     check('楼层时间：同年省略年份，跨年补年份，坏值为空', () => {
         const now = new Date(2026, 8, 28, 12);

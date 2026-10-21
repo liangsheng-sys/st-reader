@@ -8,11 +8,12 @@
 
 import { exportCard, wrapMaskSpans } from '../core/cardExport.js';
 import { store } from '../core/store.js';
+import { getVersion } from '../core/updateService.js';
 import { buildPieces, createPieceCache, findThoughts, scrubNote } from './cardPieces.js';
 import { colorPicker, readableOn } from './colorPicker.js';
-import { h, iconButton } from './dom.js';
+import { copyText, h, iconButton } from './dom.js';
 import { scopeFloorStyles } from './floorToolbar.js';
-import { CARD_ICON_CHOICES, CARD_SIZES, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
+import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
 
 const PREFS_KEY = 'stcr:ui:card:v1';
@@ -142,7 +143,14 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const status = h('div', { class: 'stcr-studio-status', role: 'status', 'aria-live': 'polite' });
         const stage = h('div', { class: 'stcr-studio-stage' },
             slot, hover, status,
-            h('p', { class: 'stcr-studio-tip', text: '点预览里的词 = 临时遮住（只对这张卡有效）；拖选一串字也能一次遮住。点已遮住的地方，可以单独换它的样子、取消或加入永久。' }));
+            h('p', { class: 'stcr-studio-tip', text: '点预览里的词 = 临时遮住（只对这张卡有效）；拖选一串字也能一次遮住。点已遮住的地方，可以单独换它的样子、取消或加入永久。' }),
+            // T73：导出在隔离副本里重画，美化楼偶尔会和预览有出入；说明 + 可复制的诊断（不含正文）
+            h('details', { class: 'stcr-studio-diff' },
+                h('summary', { text: '预览与导出不一致？' }),
+                h('p', { text: '导出会把卡片在一个隔离副本里重画一遍。正文美化（楼内样式、背景图）会一起带上；网上的背景图能取到就嵌进图片，取不到的地方显示斜纹占位，并在右侧给出提示。动画只保留静止的一帧；没有字体文件的字体会换成系统字体。' }),
+                h('p', { text: '如果还是差很多，点下面复制诊断信息发给作者（只有设置和数量，不含聊天内容）。' }),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'copy-diag' },
+                    h('i', { class: 'fa-solid fa-stethoscope', 'aria-hidden': 'true' }), ' 复制诊断信息')));
 
         const tpl = h('div', { class: 'stcr-studio-tpls', role: 'group', 'aria-label': '模板' },
             ...TEMPLATES.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-tpl-btn', 'data-tpl': item.id },
@@ -282,6 +290,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         if (act === 'close') { close(); return; }
         if (act === 'export') { doExport(mine); return; }
         if (act === 'rules') { showRules(mine); return; }
+        if (act === 'copy-diag') { copyDiagnostics(mine); return; }
         const mapEdit = target.closest('[data-map-edit]');
         if (mapEdit) { editMapping(mine, Number(mapEdit.dataset.mapEdit), mapEdit); return; }
         if (act === 'fold-words') {
@@ -860,6 +869,17 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         mine.els.status.classList.toggle('stcr-studio-status--error', !!text && error);
     }
 
+    async function copyDiagnostics(mine) {
+        let version = '';
+        try { version = await getVersion(); } catch { /* 版本号拿不到也照样复制 */ }
+        const label = (list, id) => list.find(item => item.id === id)?.label ?? id;
+        const ok = await copyText(cardExportReport({
+            version, template: label(TEMPLATES, template(mine)), size: CARD_SIZES[mine.prefs.size]?.label ?? mine.prefs.size, mask: label(MASKS, mine.prefs.mask),
+            floors: mine.card?.querySelectorAll('.mes').length ?? 0, styled: mine.card?.querySelectorAll('[data-stcr-css]').length ?? 0, warnings: mine.lastWarnings,
+        }));
+        toast(ok ? '已复制诊断信息（不含聊天内容）' : '复制失败，请打开浏览器控制台查看');
+    }
+
     function showNote(mine, text, kind = 'warn') {
         if (!text) { mine.els.note.replaceChildren(); return; }
         mine.els.note.replaceChildren(h('p', { class: `stcr-studio-note-line stcr-studio-note-line--${kind}` },
@@ -1014,7 +1034,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             link.click();
             link.remove();
             toast(`已导出：${name}（在浏览器的下载文件夹里）`);
-            if (warnings.length) showNote(mine, `字体提示：${warnings.join(' ')}`);
+            mine.lastWarnings = warnings;
+            if (warnings.length) showNote(mine, `提示：${warnings.join(' ')}`);
         } catch (error) {
             if (st !== mine) return;
             console.error('[st-reader] 卡片导出失败：', error);

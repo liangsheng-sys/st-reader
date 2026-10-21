@@ -30,7 +30,18 @@ export const GLOBAL_REGEX = [
     regex('reasoning', '思维链显示', '/【思考标记】/g', '【思考命中】', { placement: [6] }),
     regex('disabled', '禁用对照', '/【禁止命中】/g', '错误：禁用脚本被执行', { disabled: true }),
 ];
-export const SCOPED_REGEX = [regex('scope', '星灯专属', '/【星灯暗号】/g', '<span class="stcr-fixture-scope">星灯作用域命中</span>')];
+// T73（I052）：社区常见的"正则美化"——正则把标签替换成自带 <style> / 背景图的盒子。只匹配纸舟第 12 楼里的专用标签。
+const BEAUTY_DOT = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><circle cx="6" cy="6" r="2" fill="#c9a77a"/></svg>').toString('base64')}`;
+const beauty = (id, scriptName, findRegex, replaceString) => ({ ...regex(id, scriptName, findRegex, replaceString), id: `stcr-t73-${id}`, scriptName: `STCR T73 · ${scriptName}` });
+export const BEAUTY_REGEX = [
+    beauty('char', '信纸标题', String.raw`/<char>([\s\S]*?)<\/char>/g`, '<div class="ttl">✦ $1 ✦</div>'),
+    beauty('letter', '信纸', String.raw`/<letter>([\s\S]*?)<\/letter>/g`, '<style>.paper{padding:18px 22px;border-radius:12px;color:#5a4630;font-family:serif;background:linear-gradient(180deg,#fbf3e4,#f1e2c6);box-shadow:0 2px 10px rgba(0,0,0,.25);border:1px solid #d9c2a0}.paper .ttl{text-align:center;font-weight:bold;letter-spacing:.3em;color:#8a5a2b;margin-bottom:8px}.paper p{margin:.4em 0}</style><div class="paper">$1</div>'),
+    beauty('stamp', '邮戳', '/【邮戳】/g', '<span style="display:inline-block;padding:2px 10px;border-radius:999px;color:#fff;background:linear-gradient(90deg,#d98b6a,#b0623f)">邮戳</span>'),
+    beauty('dots', '花边（内嵌图）', '/【花边】/g', `<div style="height:24px;background-image:url(${BEAUTY_DOT});background-repeat:repeat-x;background-size:12px 12px"></div>`),
+    beauty('web', '外链背景', '/【外链】/g', '<div style="padding:6px 10px;border:1px dashed #c9a77a;background-image:url(https://example.invalid/stcr-paper.png)">这一格的背景是网上的图片（虚构地址，永远取不到）</div>'),
+];
+export const BEAUTY_TEXT = '<letter><char>纸舟</char>\n今晚的港口很安静，纸船都睡着了。这是一封完全虚构的信，用来检查"正则美化"在分享卡片里是否和阅读器里一样。\n\n【邮戳】 寄给测试旅人（虚构）\n【花边】\n【外链】</letter>';
+export const SCOPED_REGEX =[regex('scope', '星灯专属', '/【星灯暗号】/g', '<span class="stcr-fixture-scope">星灯作用域命中</span>')];
 
 export const THEME = {
     name: THEME_NAME, main_text_color: 'rgba(235, 226, 205, 1)', italics_text_color: 'rgba(142, 215, 195, 1)',
@@ -103,6 +114,8 @@ export function makeSmallChats() {
         ...HTML_MESSAGES.map((html, index) => makeMessage(paper.name, html, index + 6)),
         // T72：社区卡结构样本；第 2 个候选带测试注入记号，开发实例里会故意走"原样显示"
         makeMessage(paper.name, COMMUNITY_HTML, 10, { swipeCount: 2 }),
+        // T73：正则美化楼（BEAUTY_REGEX）
+        makeMessage(paper.name, BEAUTY_TEXT, 11),
     ];
     second[10].swipes[1] = `${RENDER_FAULT_MARK}\n\n${second[10].swipes[1]}`;
     delete second[5].swipe_info[0].extra.reasoning;

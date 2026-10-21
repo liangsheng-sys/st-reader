@@ -185,6 +185,60 @@ export async function testCardExportBrowser() {
                 assert(element.outerHTML === beforeHtml, '开关更改了预览');
             } finally { element.remove(); }
         });
+        const at = (image, x, y) => { const i = (y * image.width + x) * 4; return [image.data[i], image.data[i + 1], image.data[i + 2]]; };
+        await test('T73 楼内 <style> 的作用域编号进快照：卡片美化在 PNG 里与预览一致（I052）', async () => {
+            const element = document.createElement('div');
+            element.innerHTML = '<div class="mes_text" data-stcr-css="9073"><style>#stcr_chat [data-stcr-css="9073"] .custom-paper{height:60px;background:linear-gradient(#f6e7c8,#f6e7c8);border-radius:8px}</style><div class="custom-paper">虚构信笺</div></div>';
+            element.style.cssText = 'width:200px;';
+            chat.append(element);
+            try {
+                const box = element.querySelector('.custom-paper').getBoundingClientRect(), origin = element.getBoundingClientRect();
+                const png = await pixels(await exportCard(element, { ...cleanOptions, replaceNames: false, width: 200 }));
+                const [r, g, b] = at(png, Math.round(box.left - origin.left + box.width - 10), Math.round(box.top - origin.top + box.height / 2));
+                assert(r > 235 && g > 220 && b > 185 && b < 215, `信笺底色丢失：rgb(${r},${g},${b})`);
+            } finally { element.remove(); }
+        });
+        await test('T73 含 var() 的简写（宿主气泡 border）整条复制，PNG 里边框不丢', async () => {
+            const sheet = document.createElement('style');
+            sheet.textContent = '.stcr-t73-var{--stcr-t73-c:rgb(20,180,60);height:40px;border:6px solid var(--stcr-t73-c);border-radius:calc(var(--stcr-t73-r,0px) + 2px)}';
+            document.head.append(sheet);
+            const element = document.createElement('div');
+            element.innerHTML = '<div class="stcr-t73-var">虚构气泡</div>';
+            element.style.cssText = 'width:200px;';
+            chat.append(element);
+            try {
+                const png = await pixels(await exportCard(element, { ...cleanOptions, replaceNames: false, width: 200 }));
+                const [r, g, b] = at(png, 100, 2);
+                assert(r < 60 && g > 150 && b < 100, `简写边框丢失：rgb(${r},${g},${b})`);
+            } finally { element.remove(); sheet.remove(); }
+        });
+        await test('T73 外链背景按 D23 内嵌；拿不到的用斜纹占位并逐项提示，其余照常导出', async () => {
+            const canvas = document.createElement('canvas'); canvas.width = canvas.height = 4;
+            const paint = canvas.getContext('2d'); paint.fillStyle = 'rgb(220,30,30)'; paint.fillRect(0, 0, 4, 4);
+            const red = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            const calls = [], warnings = [];
+            const fetchFn = async (url, init) => {
+                calls.push({ url, credentials: init.credentials });
+                if (url.startsWith('https://ok.invalid/')) return new Response(red, { headers: { 'content-type': 'image/png' } });
+                throw new TypeError('虚构的跨域拒绝');
+            };
+            const element = document.createElement('div'); element.style.cssText = 'width:200px;';
+            element.innerHTML = '<style>#stcr_chat .t73-pseudo::before{content:"";display:block;height:20px;background-image:url(https://ok.invalid/red.png)}</style>'
+                + '<div style="height:40px;background-image:url(https://ok.invalid/red.png);background-size:cover"></div>'
+                + '<div style="height:40px;background-image:url(https://bad.invalid/paper.png)"></div><div class="t73-pseudo"></div><p>其余文字照常</p>';
+            // 外层在页面里 display:none，页面自己不去加载这些外链（发布测试拦一切外网）；快照外壳强制 display:block，副本照常排版
+            const hidden = document.createElement('div'); hidden.style.display = 'none'; hidden.append(element);
+            chat.append(hidden);
+            try {
+                const png = await pixels(await exportCard(element, { ...cleanOptions, replaceNames: false, width: 200, fetchFn, onWarning: message => warnings.push(message) }));
+                const ok = at(png, 100, 20), bad = at(png, 100, 60), pseudo = at(png, 100, 90);
+                assert(ok[0] > 200 && ok[1] < 60, `可读外链没内嵌：rgb(${ok})`);
+                assert(pseudo[0] > 200 && pseudo[1] < 60, `::before 的外链没内嵌：rgb(${pseudo})`);
+                assert(bad[0] > 180 && Math.abs(bad[0] - bad[2]) < 50 && bad[1] > 170, `拿不到的外链没有占位：rgb(${bad})`);
+                assert(warnings.some(message => message.includes('斜纹占位') && message.includes('bad.invalid')), `没有逐项提示：${warnings.join(' | ')}`);
+                assert(calls.length === 2 && calls.every(call => call.credentials === 'omit'), `请求次数或凭据不对：${JSON.stringify(calls)}`);
+            } finally { hidden.remove(); }
+        });
         await test('导出没有 fetch，失败路径与成功路径都清理隔离文档', async () => {
             const originalFetch = window.fetch; let calls = 0;
             window.fetch = (...args) => { calls++; return originalFetch(...args); };

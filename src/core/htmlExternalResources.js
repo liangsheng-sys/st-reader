@@ -29,16 +29,18 @@ function cssTokens(text, pattern) {
     return matches;
 }
 
-/** 在离线解析 DOM 上内嵌资源，完成后静态 iframe 与 PNG 栅格化都不需要联网。 */
-export async function embedHtmlResources(doc, { baseUrl = document.baseURI, fetchFn = globalThis.fetch.bind(globalThis), signal, onWarning = message => console.warn('[st-reader] HTML 截图资源：', message) } = {}) {
+/**
+ * 只读资源加载器（D23）：按浏览器 CORS 规则取用户内容已引用的展示资源，转成 data URL；跨站不带凭据，有数量与体积上限。
+ * HTML 截图与 T73 卡片导出共用。warn 只记来源站点，不记完整地址或聊天内容。
+ */
+export function createResourceLoader({ baseUrl = document.baseURI, fetchFn = globalThis.fetch.bind(globalThis), signal, onWarning = message => console.warn('[st-reader] 展示资源：', message) } = {}) {
     const cache = new Map(), warnings = []; let total = 0;
     const warn = (message, url) => {
-        // 不把带查询参数的资源地址或聊天内容写入日志；调用者可展示温和降级提示。
         let origin = ''; try { origin = new URL(url, baseUrl).origin; } catch { /* 无效地址 */ }
         const text = `${message}${origin && origin !== 'null' ? `（${origin}）` : ''}`;
         if (!warnings.includes(text)) { warnings.push(text); onWarning(text); }
     };
-    async function resource(raw, base, kind) {
+    function resource(raw, base = baseUrl, kind = 'binary') {
         signal?.throwIfAborted();
         const url = htmlResourceUrl(cssUnescape(raw), base);
         if (cache.has(url)) return cache.get(url);
@@ -71,6 +73,12 @@ export async function embedHtmlResources(doc, { baseUrl = document.baseURI, fetc
         })();
         cache.set(url, promise); return promise;
     }
+    return { resource, warn, warnings };
+}
+
+/** 在离线解析 DOM 上内嵌资源，完成后静态 iframe 与 PNG 栅格化都不需要联网。 */
+export async function embedHtmlResources(doc, { baseUrl = document.baseURI, fetchFn = globalThis.fetch.bind(globalThis), signal, onWarning = message => console.warn('[st-reader] HTML 截图资源：', message) } = {}) {
+    const { resource, warn, warnings } = createResourceLoader({ baseUrl, fetchFn, signal, onWarning });
     async function urls(value, base) {
         const pattern = /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|((?:\\.|[^)\\])*))\s*\)/gi;
         let out = '', last = 0;

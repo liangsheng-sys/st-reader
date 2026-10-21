@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { assertDevPath, ensureDevDirectory, writeDevFile, requireServerStopped, DEV_ROOT, USER_ROOT, PROJECT_ROOT } from './paths.mjs';
 import { makeCharacterPng } from './png.mjs';
 import {
-    FIXTURE_ID, CHARACTERS, GLOBAL_REGEX, THEME, THEME_NAME, GROUP_ID, GROUP_CHAT, BIG_CHAT,
+    FIXTURE_ID, CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, THEME, THEME_NAME, GROUP_ID, GROUP_CHAT, BIG_CHAT,
     makeCard, makeHeader, makeSmallChats, makeGroup, makeGroupMessages, makeLargeMessages,
 } from './data.mjs';
 
@@ -50,7 +50,7 @@ export async function generateFixtures() {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     settings.extension_settings ??= {};
     const ext = settings.extension_settings;
-    ext.regex = [...(ext.regex ?? []).filter(script => !String(script.id).startsWith('stcr-t11-')), ...GLOBAL_REGEX];
+    ext.regex = [...(ext.regex ?? []).filter(script => !/^stcr-t(11|73)-/.test(String(script.id))), ...GLOBAL_REGEX, ...BEAUTY_REGEX];
     ext.character_allowed_regex = [...new Set([...(ext.character_allowed_regex ?? []), CHARACTERS[0].avatar])];
     ext.disabledExtensions = (ext.disabledExtensions ?? []).filter(name => !['regex', 'third-party/st-reader', 'third-party/Ny-font-manager'].includes(name));
     // 禁止自动加入远程字体预设；本任务只导入开发目录中的小型 OFL 字体。
