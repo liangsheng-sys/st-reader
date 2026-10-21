@@ -6,7 +6,7 @@ node "%~dp0selftest.mjs"
 if errorlevel 1 goto failed
 node "%~dp0..\src\ui\ui.test.js"
 if errorlevel 1 goto failed
-node "%~dp0test-performance.mjs" --chat-cache --core-browser --ui-browser
+node "%~dp0test-performance.mjs" --chat-cache --backup --core-browser --ui-browser
 if errorlevel 1 goto failed
 node "%~dp0audit-readonly.mjs"
 if errorlevel 1 goto failed

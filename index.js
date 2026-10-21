@@ -105,6 +105,9 @@ eventSource.on(event_types.APP_READY, async () => {
         const { store } = await import('./src/core/store.js');
         startCssScope(); await store.ready();
         console.log('[st-reader] T13 样式、存储与锚点模块已就绪。');
+        // T70 / D33：自动备份到 ST 的 user/files/；启动时本地为空或落后就先从服务器合并回来（不阻塞入口挂载）
+        const { startBackup } = await import('./src/core/backupService.js');
+        startBackup().then(({ restored }) => { if (restored) console.log('[st-reader] 已从 ST 服务器恢复阅读器数据。'); });
     } catch (error) { console.error('[st-reader] 样式与存储初始化失败：', error); }
     // 界面入口（T21）：魔杖菜单、顶栏按钮、/reader。格式化失败也挂入口，打开时会再试一次并提示。
     try {

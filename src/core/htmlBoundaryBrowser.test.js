@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { createSandbox } from './htmlRenderer.js';
 import { mountBoundaryExample } from './htmlBoundaryDemo.js';
 import { MIXED_HTML, MULTI_HTML } from '../../dev/fixtures/html.mjs';
@@ -35,7 +36,7 @@ async function inspectBackground(root, html, allowNetwork) {
 export async function testHtmlBoundaryBrowser() {
     const results = [], root = document.createElement('div');
     const context = SillyTavern.getContext();
-    const hostState = () => JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: context.extensionSettings, character: context.characterId, group: context.groupId });
+    const hostState = () => JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: foreignExtensionSettings(context.extensionSettings), character: context.characterId, group: context.groupId });
     const before = hostState(), baseline = new Set(document.querySelectorAll('[data-stcr-html-frame]'));
     root.style.cssText = 'position:fixed;left:-20000px;top:0;width:700px'; document.body.append(root);
     const test = async (name, run) => { await run(); results.push({ name: `T51 ${name}`, passed: true }); };

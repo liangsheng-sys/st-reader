@@ -3,7 +3,9 @@
 // 只存阅读器自己的状态，绝不写聊天、chatMetadata、swipe_id（D02）。
 // I012 迁移：T21 曾暂存在 localStorage；首次加载时若 store 里还没有，就搬过去，落盘成功后才删旧键。
 // store 不可用（极少见）时退回 localStorage，保证能读能记。
+// T70 / D33："更新后提醒"开关另存一份到 ST 的 extension_settings（换浏览器、清站点数据也在），以那边为准。
 
+import { hostSettings } from '../core/hostSettings.js';
 import { store } from '../core/store.js';
 import { normalizePrefs, pruneProgress } from './logic.js';
 
@@ -37,6 +39,8 @@ export function loadPrefs() {
             progress = pruneProgress(readLocal(PROGRESS_KEY) ?? {});
             useStore = false;
         }
+        const notice = hostSettings.read().updateNotice;
+        if (typeof notice === 'boolean' && notice !== prefs.updateNotice) prefs = normalizePrefs({ ...prefs, updateNotice: notice });
     })();
     return loading;
 }
@@ -77,6 +81,9 @@ export function setPrefs(patch) {
     const previous = prefs;
     prefs = normalizePrefs({ ...prefs, ...patch });
     saveSoon(PREFS_KEY, () => prefs, 300);
+    if (prefs.updateNotice !== previous.updateNotice) {
+        try { hostSettings.patch({ updateNotice: prefs.updateNotice }); } catch (error) { console.warn('[st-reader] 更新提醒开关没写进 ST 设置：', error); }
+    }
     for (const listener of listeners) listener(prefs, previous);
     return prefs;
 }

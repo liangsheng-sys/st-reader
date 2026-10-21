@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { createCssScope, refreshCssScope, startCssScope } from './cssScope.js';
 import { createStore } from './store.js';
 import { createAnchor, getAnchorText, relocateAnnotations, resolveAnchor } from './anchor.js';
@@ -21,7 +22,7 @@ function testDatabase(storeName) {
 function hostSnapshot() {
     const context = SillyTavern.getContext();
     return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, characterId: context.characterId, groupId: context.groupId,
-        extensionSettings: context.extensionSettings, theme: context.powerUserSettings.theme });
+        extensionSettings: foreignExtensionSettings(context.extensionSettings), theme: context.powerUserSettings.theme });
 }
 
 /** 真实 DOM、CSSOM、IndexedDB 与宿主字体；所有测试数据写独立测试表，finally 删除。 */

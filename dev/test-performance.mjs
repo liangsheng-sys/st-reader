@@ -121,6 +121,25 @@ try {
         trace.samples.forEach((id, index) => { const f = nodes.get(id).callFrame; const key = `${f.functionName || '(anonymous)'} ${f.url}`; costs.set(key, (costs.get(key) ?? 0) + trace.timeDeltas[index]); });
         console.log('采样 CPU（ms）', [...costs].sort((a, b) => b[1] - a[1]).slice(0, 22).map(([name, cost]) => [name, Math.round(cost / 1000)]));
     }
+    // T70：真写 .dev 的 user/files/，再清 IndexedDB、刷新，验证自动恢复；最后删掉标记批注。
+    if (process.argv.includes('--backup')) {
+        const module = "import('/scripts/extensions/third-party/st-reader/src/core/backupBrowser.test.js')";
+        try {
+            const written = await evaluate(`${module}.then(m=>m.testBackupBrowserWrite())`);
+            const onDisk = JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'data/default-user/user/files/st-reader-backup.json')), 'utf8'));
+            if (onDisk.data.annotations[written.id]?.note !== written.note) throw new Error('磁盘上的 st-reader-backup.json 没有刚写的批注');
+            // 只删阅读器自己的库（等于用户清掉了阅读器的浏览器数据）；不能清整个站点，否则 Ny 字体等宿主数据也没了
+            // 先到同源的静态文件页（不加载 ST，没人占着库），在那里删
+            await send('Page.navigate', { url: `${origin}/manifest.json` }); await delay(800);
+            const deleted = await evaluate(`new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase('st-reader'); r.onsuccess = () => resolve(true); r.onerror = () => reject(r.error); r.onblocked = () => reject(new Error('st-reader 库被占用')); })`);
+            if (!deleted) throw new Error('没删掉 st-reader 库');
+            await send('Page.navigate', { url: `${origin}/?t70Restore=1` }); await delay(1000);
+            for (let i = 0; ; i++) { if (await evaluate('Boolean(window.stcrSelfTest && document.querySelector("#stcr_topbar_button"))')) break; if (i > 120) throw new Error('刷新超时'); await delay(250); }
+            const restored = await evaluate(`${module}.then(m=>m.testBackupBrowserRestored(${JSON.stringify(written.id)}))`);
+            report ??= {}; report.backup = { ...written, ...restored, onDisk: true };
+            console.log(`自动备份浏览器回归通过：${written.waitedMs} ms 写入 ${written.bytes} 字节，清 IndexedDB 后恢复 ${restored.restored} 条`);
+        } catch (error) { failure = error; console.error(`自动备份浏览器回归失败：${error.message}`); }
+    }
     // 可选完整回归只在此独立浏览器进行。
     if (process.argv.includes('--core-browser')) {
         await evaluate(`document.querySelector('.character_select[ch_name="STCR_T11_Mist.png"]')?.click()`);

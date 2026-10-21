@@ -294,6 +294,8 @@ T13 接口见5.5–5.8，T14接口见5.9–5.11。T12 已交付签名与行为�
 
 `StcrStoreError.code`：`UNAVAILABLE / INVALID_STATE / INVALID_DATA / INVALID_BACKUP / BACKUP_TOO_LARGE / ASSET_LIMIT / MISSING_ASSET / ASSET_IN_USE / ASSET_CONFLICT`。聊天键沿用 StcrDataError；图片类型/大小使用 TypeError/RangeError，浏览器解码、配额和存储错误保留原错误。失败时 UI 提示并保留用户输入，不能显示“已保存”。不提供清库接口。
 
+**T70 增补**：`onChange / revision / snapshot / markSynced / mergeBackup` 与纯函数 `mergeNewer` 见 §5.16；快照新增 `rev / syncedId / syncedRev` 三个顶层字段（旧快照按 0 / null 读取，不为此迁移写入）。
+
 ```js
 /** @typedef {{exact:string,prefix:string,suffix:string}} TextQuote */
 /** @typedef {{chatKey:string,mesIndex:number,swipeIndex:number,part:'body'|'reasoning',quote:TextQuote,rawHash:string}} Anchor */
@@ -671,3 +673,49 @@ if (lastSeen !== version) {
 **开发联接保护**：固定 `.dev` 启动器的预载模块仅在本进程对阅读器 manifest 响应加 `X-STCR-Dev-Directory: 1`。check/run 看见标记立即返回 dev，零 Git 请求。本仓库现已有 origin，不能再以“联接一定没有远端”作为前提；此标记不改 manifest、不写宿主源码、正式 ST 没有此标记。未打标记的普通非 Git/无远端安装仍通过 ST version 响应判定。浏览器不能通用地识别服务端 NTFS 联接；正式实例人工联接到已有远端的 Git 工作目录会遵循 ST 的更新行为。
 
 Node 的 `testUpdateServiceLogic` 用响应替身覆盖两安装位置、dev / 失败区分、双击去重、更新失败不重试、日志解析、已读持久化。浏览器 `stcrSelfTest({core:false,updateService:true})` 读真实 manifest / CHANGELOG，验证开发提示、零 Git、独立 settings 与宿主不变；`stcrUpdateDemo()` 显示开发验收面板。均只挂本机 8100；未修改正式 src/ui，Opus T54b 按本合同接线。`createUpdateService` 工厂仅用于注入测试传输 / settings，UI 应使用上述单例方法。
+
+**T70 增补（D33，见 §5.16）**：默认单例的已读值改为先读写 ST 的 `extension_settings['st-reader'].lastSeenVersion`，同时仍写 `store.settings` 同名键；ST 设置里没有时回落读 store（0.2.x 升级上来的人）。函数签名与返回不变；`createUpdateService({settings})` 注入方式不变。
+
+### 5.16 自动备份到 ST 服务器（T70 / D33，2026-10-21，Opus 按 D32 交付）
+
+IndexedDB 仍是主存与读取路径；本节只**增加**接口，§5.5 已有签名与行为不变（唯一可见差异：`importAll` 无新增时不再推进修订号）。
+
+**store 增补**（`import { store, mergeNewer } from '../core/store.js'`）
+
+| 签名 | 约定 |
+|---|---|
+| `store.onChange(listener)` | 每次**数据**提交后同步回调 `{rev}`；返回退订函数。只改元信息（`exportAll` 记导出时间、`markSynced`）不通知。回调抛错只记日志 |
+| `store.revision()` | `{rev, syncedId, syncedRev, empty}`。rev：本地修订号（每次数据变更 +1，旧快照按 0）；syncedId / syncedRev：上次与服务器一致时那份的 mirrorId 与本地 rev；empty：六类全空 |
+| `store.snapshot()` | 只读：`{json, rev, bytes}`；json 与 `exportAll()` 同格式，另带顶层 `rev`，**不**记“上次导出”、不改修订号；超 24 MiB 抛 `BACKUP_TOO_LARGE` |
+| `store.markSynced({id, rev})` | 记同步标记；不 bump、不通知 |
+| `store.mergeBackup(json)` | D33 合并，返回 `{report:{分类:{added,updated,kept}}, changed, localNewer}`；与 `importAll` 同样完整校验。修订号先取 `max(本地, 文件 rev)`，有改动再 +1 |
+| `mergeNewer(target, incoming)` | 纯函数（就地改 target）：记录同 id 以 `updatedAt` 新者胜，本地独有 / 较新保留；屏蔽词并集；设置只补本地没有的键（本地已有的键保留本地值）；最后校验图片引用 |
+
+**`src/core/hostSettings.js`**：`hostSettings.available()`、`hostSettings.read()`（冻结副本）、`hostSettings.patch(patch)`（写 `getContext().extensionSettings['st-reader']` 后调 ST 的 `saveSettingsDebounced()`；只接受 `rev / mirrorId / mirroredAt / bytes / lastDaily / dailies / lastSeenVersion / updateNotice`，其他字段抛 TypeError）；`hostBackedSettings(storeSettings)` 给 updateService 用；`foreignExtensionSettings(settings)` 仅供测试快照去掉本扩展那一格。只碰这一格，不碰 chat / chatMetadata，不调聊天保存。
+
+**`src/core/backupService.js`**（单例导出；`createBackupService` 工厂仅测试注入）
+
+| 签名 | 约定 |
+|---|---|
+| `startBackup()` | 扩展加载后（index.js，`store.ready()` 之后）调一次：订阅 `store.onChange` → `scheduleMirror()`；`pagehide` → `flushMirror({keepalive:true})`；按 `planSync` 做启动合并。返回 Promise `{restored: report\|null, error?}`，不抛错 |
+| `whenStarted()` | 上面那个 Promise；未启动为 null。UI 打开阅读器前最多等 5 秒，以便读到恢复回来的阅读设置 |
+| `scheduleMirror()` | 3 秒防抖；状态变 `pending` |
+| `mirrorNow({force=false}={})` | 立刻写；无改动且已同步时跳过（force 例外）。永不抛错，返回最新状态。并发调用合并成一次，期间的新改动写完后再补一次 |
+| `flushMirror()` | 有排队才写（关阅读器、pagehide） |
+| `restoreFromServer()` | 手动合并：`{ok:true, report}` 或 `{ok:false, code, message}`；服务器没有文件为 `NO_BACKUP` |
+| `getMirrorStatus()` / `onMirrorStatus(fn)` | 冻结 `{state:'never'\|'pending'\|'saving'\|'ok'\|'error'\|'unavailable', mirroredAt, bytes, rev, code, message, restoredAt}`；mirroredAt / bytes 启动时取自 ST 设置 |
+| 纯函数 | `planSync({local, host})` → `'restore'\|'mirror'\|'none'`；`planRotation(names, keep=7)`；`dailyCandidates(today, known)`；`dailyName(date)`；`toBase64(text)` |
+
+写入顺序：`store.snapshot()` → UTF-8 → base64 → `POST /api/files/upload {name:'st-reader-backup.json', data}`（ST 用 write-file-atomic 覆盖写到当前用户 `user/files/`；文件名须匹配 `^[a-zA-Z0-9_\-.]+$`，已在 ST 1.14.0 `src/endpoints/files.js` 核对）→ 当天第一次另传 `st-reader-backup-YYYYMMDD.json`（本地日期）→ 轮替 → `hostSettings.patch({rev, mirrorId:新 UUID, mirroredAt, bytes, lastDaily, dailies})` → `store.markSynced`。读回走静态 `GET /user/files/st-reader-backup.json`（`cache:'no-store'`），404 视为“没有备份”。
+
+轮替：ST 没有列目录接口，用 `POST /api/files/verify {urls}` 探测“记录过的日备份 + 最近 40 天”的文件名是否存在，按日期留最新 7 份，其余 `POST /api/files/delete {path:'user/files/<名>'}`；只处理匹配 `^st-reader-backup-\d{8}\.json$` 的名字，删失败下次再试。轮替失败不影响主文件。
+
+启动合并（`planSync`）：ST 设置里没有 mirrorId → 先探文件（防 settings.json 被重置）；本地空 → 合并；`syncedId ≠ mirrorId`（别的浏览器写过 / 本浏览器从没同步过）→ 合并；ST 记的 rev 大于本地 → 合并；本地 rev 大于 syncedRev → 备份；否则不动。合并后本地有服务器那份没有的内容才回写。**启动合并没成功（读服务器失败、非 404）之前绝不写服务器**，避免清空过的浏览器用空数据覆盖备份。mirrorId 用随机 UUID 而不是只比 rev：两个浏览器各自计数会撞号。
+
+错误码：`HOST_UNAVAILABLE`（ST 设置接口不可用 → 状态 unavailable）、`HOST_NOT_READY`、`FILES_UNAVAILABLE`（上传 404，例如精简后端）、`FORBIDDEN`、`HTTP_<状态>`、`TIMEOUT`、`NETWORK`、`NO_BACKUP`、`BACKUP_TOO_LARGE`。超时 60 秒。`pagehide` 时请求体小于 60000 字符才用 `keepalive`，且不写日备份。
+
+D02：以上接口不写 chats 目录、不碰聊天；`readonlyGuard.js` 名单不变。`dev/audit-readonly.mjs` 新增 `userFiles` 类：`/api/files/`、`/user/files/` 只许出现在 `backupService.js` 与其两个测试文件，出现在别处即失败。
+
+测试：Node `testBackupServiceLogic`（11 项，内存替身的 user/files 与 extension_settings）覆盖 rev 比对、合并规则、7 份轮替只删自己、空浏览器不覆盖、两浏览器并集、接口不可用的提示、已读版本回落。浏览器 `dev/test-performance.mjs --backup`（已进 `test-release.cmd`）在 8100 真写 `.dev/data/default-user/user/files/`，断言服务器文件与磁盘文件的数据 = `exportAll()`，再只删 `st-reader` 这个 IndexedDB 库（不清整站，免得清掉 Ny 字体等宿主数据）、刷新，断言自动恢复，最后删掉标记批注并再备份一次。
+
+UI 接线（Opus）：Aa → ⋯ “备份”两行：`mirrorStatusText(getMirrorStatus())`，按钮“立即备份”=`mirrorNow({force:true})`、“从服务器恢复”=`restoreFromServer()`，旁边保留导出 / 导入 JSON；第一次打开阅读器时若启动合并恢复了内容，toast `restoreSummary(report)`；关阅读器 `flushProgress().finally(flushMirror)`；“更新后提醒”开关同步写 `hostSettings.updateNotice`，加载时以 ST 设置为准。

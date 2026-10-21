@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { wrapMaskSpans, exportCard, createCardMessage } from './cardExport.js';
 import { maskHtmlString } from './codeTransforms.js';
 import { createStore } from './store.js';
@@ -16,7 +17,7 @@ function assertTemporaryCleanup(baseline) {
 }
 const hostState = () => {
     const context = SillyTavern.getContext();
-    return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: context.extensionSettings,
+    return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: foreignExtensionSettings(context.extensionSettings),
         character: context.characterId, group: context.groupId });
 };
 async function pixels(blob) {

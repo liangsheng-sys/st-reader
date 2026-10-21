@@ -4,7 +4,7 @@
 
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
-    reasoningTitle, swipePreviews, wordAt } from './logic.js';
+    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary } from './logic.js';
 
 const results = [];
 function check(name, fn) {
@@ -29,6 +29,21 @@ export async function testUiLogic() {
         equal(reasoningTitle(120), '思考了 2 分钟');
         equal(reasoningTitle(null), '思考过程');
         equal(reasoningTitle(-1), '思考过程');
+    });
+    check('自动备份状态行（T70）：时间 · 大小；没备份过、出错、不可用各有说法', () => {
+        const now = new Date(2026, 9, 21, 12);
+        equal(formatBytes(820), '820 B'); equal(formatBytes(36 * 1024), '36 KB'); equal(formatBytes(1.24 * 1024 * 1024), '1.2 MB'); equal(formatBytes(null), '');
+        const at = new Date(2026, 9, 21, 9, 30).toISOString();
+        equal(mirrorStatusText({ state: 'ok', mirroredAt: at, bytes: 1.2 * 1024 * 1024 }, now).text, '上次自动备份：10-21 09:30 · 1.2 MB');
+        equal(mirrorStatusText({ state: 'ok', mirroredAt: new Date(2025, 0, 2, 8, 5).toISOString(), bytes: 900 }, now).text, '上次自动备份：2025-01-02 08:05 · 900 B');
+        equal(mirrorStatusText({ state: 'never' }, now).warn, false);
+        const failed = mirrorStatusText({ state: 'error', message: 'ST 文件接口不可用', mirroredAt: at, bytes: 2048 }, now);
+        equal(failed.text, '上次自动备份：10-21 09:30 · 2 KB；这次没备份成功：ST 文件接口不可用'); equal(failed.warn, true);
+        equal(mirrorStatusText({ state: 'error', message: 'ST 文件接口不可用' }, now).text, '这次没备份成功：ST 文件接口不可用');
+        equal(mirrorStatusText({ state: 'unavailable', message: 'ST 设置接口不可用' }, now).text.includes('导出'), true);
+        equal(restoreSummary({ annotations: { added: 2, updated: 1, kept: 0 }, bookmarks: { added: 1, updated: 0 }, settings: { added: 0, updated: 0 } }), '已从 ST 服务器恢复批注 3 条、收藏 1 条');
+        equal(restoreSummary({ annotations: { added: 0, updated: 0 } }), '');
+        equal(restoreSummary(null), '');
     });
     check('楼层时间：同年省略年份，跨年补年份，坏值为空', () => {
         const now = new Date(2026, 8, 28, 12);
@@ -188,7 +203,8 @@ export async function testUiLogic() {
         equal(stOwnerSort('chat_size', 'desc').label, '聊天最多');
         equal(names(stOwnerSort('date_last_chat', 'desc')), ['乙', '甲', 'Ann']);
         equal(names(stOwnerSort('fav', 'desc')).at(-1), '乙', '收藏：');
-        equal(names(stOwnerSort('chat_size', 'desc')), ['Ann', '甲', '乙'], '同值按名字：');
+        // 名字比较跟 ST 一样用运行环境的默认语言（中文环境 甲 < 乙，其他环境可能相反），期望值按同一规则算
+        equal(names(stOwnerSort('chat_size', 'desc')), ['Ann', ...['甲', '乙'].sort((a, b) => a.localeCompare(b))], '同值按名字：');
         equal(names(stOwnerSort('create_date', 'desc')), ['甲', '乙', 'Ann'], '三种日期格式：');
         equal(parseStDate('胡说'), 0);
         equal(OWNER_SORTS.length, 10);

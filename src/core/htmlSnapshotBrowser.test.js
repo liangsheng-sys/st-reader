@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { createSandbox, renderStatic, exportRenderedHtml } from './htmlRenderer.js';
 import { transformHtmlOffline } from './codeTransforms.js';
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
@@ -13,7 +14,7 @@ export async function testHtmlSnapshotBrowser() {
     const results = [], test = async (name, run) => { try { await run(); results.push({ name: `I032 ${name}`, passed: true }); } catch (error) { results.push({ name: `I032 ${name}`, passed: false, error: error.message }); console.error(name, error); } };
     const selector = '[data-stcr-html-frame],[data-stcr-html-static],[data-stcr-parse-frame]';
     const baseline = new Set(document.querySelectorAll(selector)), ctx = SillyTavern.getContext();
-    const hostBefore = JSON.stringify([ctx.chat, ctx.chatMetadata, ctx.extensionSettings]);
+    const hostBefore = JSON.stringify([ctx.chat, ctx.chatMetadata, foreignExtensionSettings(ctx.extensionSettings)]);
     const root = document.createElement('div'); root.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:400px;overflow:auto;z-index:2147483646'; document.body.append(root);
     const localImage = document.createElement('canvas'); localImage.width = localImage.height = 4;
     localImage.getContext('2d').fillStyle = '#12abcd'; localImage.getContext('2d').fillRect(0, 0, 4, 4);
@@ -173,7 +174,7 @@ export async function testHtmlSnapshotBrowser() {
     } finally {
         root.remove();
         await test('宿主聊天/候选/设置未改，新增 iframe 均已释放', () => {
-            assert(hostBefore === JSON.stringify([ctx.chat, ctx.chatMetadata, ctx.extensionSettings]), '宿主状态被改变');
+            assert(hostBefore === JSON.stringify([ctx.chat, ctx.chatMetadata, foreignExtensionSettings(ctx.extensionSettings)]), '宿主状态被改变');
             assert(![...document.querySelectorAll(selector)].some(node => !baseline.has(node)), '临时 DOM 泄漏');
         });
     }

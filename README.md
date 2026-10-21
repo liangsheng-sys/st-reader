@@ -47,7 +47,7 @@ ST Reader 不保存、编辑、删除、导入或重命名聊天文件，不修�
 
 阅读器打开时会临时静音聊天里由消息自带的样式，关闭即恢复，不改聊天。
 
-**ST Reader 不向作者或统计服务收集、上传任何信息**，没有遥测、广告、统计服务或云端账户。批注、收藏、阅读设置、屏蔽词、替换规则及小图片素材保存在当前浏览器的阅读器独立存储中；手动导出的 JSON 和 PNG 由你保管。清理站点数据、换浏览器或换访问地址前，可在 **Aa → 更多设置 → 导出我的批注与收藏** 备份；导入只恢复阅读器数据，不导入聊天文件。
+**ST Reader 不向作者或统计服务收集、上传任何信息**，没有遥测、广告、统计服务或云端账户。批注、收藏、阅读设置、屏蔽词、替换规则及小图片素材先存在当前浏览器的阅读器独立存储（IndexedDB）里；**每次改动后约 3 秒，阅读器会把这份数据自动备份到你自己 ST 的 `data/<用户>/user/files/st-reader-backup.json`**——用的是 ST 自带的文件接口，不在 chats 目录，不碰聊天。每天另存一份 `st-reader-backup-YYYYMMDD.json`，只留最近 7 份，多出的只删这些阅读器自己命名的文件。清了站点数据或换了浏览器，下次打开 ST 会自动从这份备份合并回来并提示“已从 ST 服务器恢复……”；合并时同一条以较新的为准，不删你现有的。上次备份的时间和大小在 **Aa → 更多设置 → 备份**，那里也有“立即备份”“从服务器恢复”。“已读版本”“更新后提醒”这类小开关存在 ST 自己的扩展设置里（随 ST 的 settings.json 保存）。没有第三方云：想异地保存，请自己备份 ST 的 data 目录。手动导出的 JSON 和 PNG 由你保管；导入只恢复阅读器数据，不导入聊天文件。
 
 同一次页面会话内，最近 3 个聊天的正文与已读页会留在内存中，按估算占用限制在 150 MB 内，超限淘汰旧缓存。读取聊天列表时会预取当前聊天的第一页；ST 的接口需要一次读取该聊天全文，但只提前构建第一页。重开命中缓存时先显示已有内容，同时在后台检查文件摘要；检查结果保留 60 秒，期间重开不重复检查。发现变化不会自动替换正在看的正文，刷新页面会重新读取。**正文缓存不写入 IndexedDB，刷新页面即清空**；关闭阅读器仍会保留限额内的缓存。
 
@@ -97,4 +97,4 @@ ST Reader 不保存、编辑、删除、导入或重命名聊天文件，不修�
 
 ## English
 
-ST Reader is a read-only SillyTavern extension for browsing chats, switching between response variants, annotating passages, bookmarking conversations, and exporting redacted PNG cards or HTML snapshots. It reuses your ST theme, display regexes, and supported local fonts. Chat files stay unchanged; reader data is stored locally, with no telemetry or information collection by the extension. User-provided HTML may load external resources by default, including assets for screenshots; you can turn this off. Install the repository URL through **Extensions → Install extension**. Source code is public under **AGPL-3.0**.
+ST Reader is a read-only SillyTavern extension for browsing chats, switching between response variants, annotating passages, bookmarking conversations, and exporting redacted PNG cards or HTML snapshots. It reuses your ST theme, display regexes, and supported local fonts. Chat files stay unchanged; reader data is stored in the browser and automatically backed up to your own ST user folder (`data/<user>/user/files/`, not the chats folder), with no telemetry, third-party cloud, or information collection by the extension. User-provided HTML may load external resources by default, including assets for screenshots; you can turn this off. Install the repository URL through **Extensions → Install extension**. Source code is public under **AGPL-3.0**.
