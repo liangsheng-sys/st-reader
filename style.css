@@ -103,6 +103,9 @@
 #stcr_root .stcr-scroll {
     position: absolute;
     inset: 0;
+    /* I053：自成层叠上下文。主题或楼内样式给 .mes 之类设了大 z-index 时，也只在正文里比高低，
+     * 盖不过叠在阅读器上的面板（更新说明、提示、设置）。 */
+    isolation: isolate;
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
@@ -746,6 +749,13 @@
     #stcr_root .stcr-settings--bar .stcr-set-backup .stcr-set-ctl { flex-wrap: nowrap; }
 }
 #stcr_root .stcr-last-export.stcr-warn { color: #f5b400; }
+/* T70：备份两行——上面一行是上次自动备份，下面一行是按钮；长条样式里也独占一整行 */
+#stcr_root .stcr-set-ctl.stcr-backup-ctl { flex-direction: column; align-items: flex-start; gap: 4px; }
+#stcr_root .stcr-backup-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+#stcr_root .stcr-backup-sep { width: 1px; height: 1em; margin: 0 4px; background-color: var(--stcr-border); }
+#stcr_root .stcr-mirror-status.stcr-warn { color: #f5b400; }
+#stcr_root .stcr-settings--bar .stcr-set-more > .stcr-set-backup { flex-basis: 100%; height: auto; align-items: flex-start; }
+#stcr_root .stcr-settings--bar .stcr-set-backup .stcr-set-ctl.stcr-backup-ctl { height: auto; }
 
 /* ── 右侧批注面板（02 §1.6） ── */
 #stcr_root .stcr-panel {
@@ -1494,3 +1504,5 @@
 #stcr_root button.stcr-banner-text:disabled { cursor: progress; opacity: .7; text-decoration: none; }
 #stcr_root .stcr-banner-close { flex: none; min-width: 28px; height: 28px; font-size: 12px; }
 #stcr_root.stcr-has-banner .stcr-follow { top: 52px; }
+#stcr_root .stcr-set-backup > .stcr-set-label { align-self: flex-start; line-height: 1.6; }
+@media (max-width: 599px) { #stcr_root .stcr-backup-sep { display: none; } }

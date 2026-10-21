@@ -3,7 +3,8 @@
 // T42：两列栅格（左标签右控件），每行控件从同一条竖线起步；思维链"折叠 / 展开 / 隐藏"一组三选一。
 // T45 验收后：两种样子可切换——"长条"（底部一条，各项横排、同一条中线对齐，不挡正文，默认）/ "面板"（T42 的两列栅格）。
 // 同一套控件，只换 CSS（.stcr-settings--bar）。手机上两种都是底部半屏抽屉。
-// ⋯ 里：排版、导出/导入备份。有数据且 14 天没导出时，Aa 上亮一个小点（只提醒，不弹窗）。
+// ⋯ 里：排版、备份。T70 起自动备份到 ST 服务器；第一行是上次自动备份的时间与大小，第二行手动按钮。
+// 自动备份用不了、且有数据 14 天没导出时，Aa 上亮一个小点（只提醒，不弹窗）。
 
 import { h, iconButton } from './dom.js';
 import { effectivePrefs, PREF_LIMITS } from './logic.js';
@@ -15,8 +16,11 @@ export function themeFontSize() {
     return Number.isFinite(size) ? size : 15;
 }
 
-/** @param {{onExport:()=>void, onImport:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions versionRow：⋯ 顶部的版本与更新（T54b） */
-export function createSettingsBar({ onExport, onImport, versionRow = null }) {
+/**
+ * @param {{onExport:()=>void, onImport:()=>void, onMirror:()=>void, onRestore:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions
+ * versionRow：⋯ 顶部的版本与更新（T54b）；onMirror / onRestore：立即备份 / 从服务器恢复（T70）
+ */
+export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, versionRow = null }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -49,6 +53,13 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'b', text: '原样' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-dir': 'a', text: '书页' }));
     const lastExport = h('span', { class: 'stcr-set-hint stcr-last-export' });
+    const mirrorLine = h('span', { class: 'stcr-set-hint stcr-mirror-status', role: 'status' });
+    const mirrorBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-mirror-now', onclick: () => onMirror(),
+        title: '马上把批注、收藏、规则和设置写到你 ST 的 data/<用户>/user/files/（平时改完 3 秒会自动写）' },
+        h('i', { class: 'fa-solid fa-cloud-arrow-up', 'aria-hidden': 'true' }), ' 立即备份');
+    const restoreBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-mirror-restore', onclick: () => onRestore(),
+        title: '把 ST 服务器上那份合并回来：缺的补上，同一条以较新的为准，不删你现有的' },
+        h('i', { class: 'fa-solid fa-clock-rotate-left', 'aria-hidden': 'true' }), ' 从服务器恢复');
     const more = h('div', { class: 'stcr-set-more', hidden: true },
         versionRow?.el ?? null,
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
@@ -56,12 +67,16 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
             h('div', { class: 'stcr-set-ctl' }, dirSeg, h('span', { class: 'stcr-set-hint', text: '原样 = 和 ST 一样；书页 = 压平聊天框、像读小说' }))),
         h('div', { class: 'stcr-set-item stcr-set-backup' }, h('span', { class: 'stcr-set-label', text: '备份' }),
-            h('div', { class: 'stcr-set-ctl' },
-                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onExport() },
-                    h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出我的批注与收藏'),
-                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport() },
-                    h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入'),
-                lastExport)));
+            h('div', { class: 'stcr-set-ctl stcr-backup-ctl' },
+                h('div', { class: 'stcr-backup-line' }, mirrorLine),
+                h('div', { class: 'stcr-backup-line' },
+                    mirrorBtn, restoreBtn,
+                    h('span', { class: 'stcr-backup-sep', 'aria-hidden': 'true' }),
+                    h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onExport(), title: '另存一份 JSON 文件到浏览器的下载文件夹' },
+                        h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出 JSON'),
+                    h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport(), title: '从导出过的 JSON 文件合并回来' },
+                        h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入 JSON'),
+                    lastExport))));
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
     const layoutBtn = iconButton('fa-table-cells-large', '换成面板样式', { class: 'stcr-set-layout-btn' });
     const row = (label, ...controls) => h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: label }), h('div', { class: 'stcr-set-ctl' }, ...controls));
@@ -140,12 +155,18 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
         versionRow?.sync();
     }
-    /** 备份状态：{text:'上次导出：3 天前', remind:boolean} */
+    /** 手动导出状态：{text:'上次导出：3 天前', remind:boolean}；remind 由调用方结合自动备份算好 */
     function setBackupStatus({ text, remind }) {
         lastExport.textContent = text;
         lastExport.classList.toggle('stcr-warn', remind);
         fab.classList.toggle('stcr-fab--remind', remind);
-        fab.title = remind ? '阅读设置（有一阵子没导出备份了）' : '阅读设置';
+        fab.title = remind ? '阅读设置（自动备份没成功，也有一阵子没导出了）' : '阅读设置';
+    }
+    /** 自动备份那一行：{text, warn}（logic.mirrorStatusText）；busy 时两个按钮先禁用 */
+    function setMirrorStatus({ text, warn }, busy = false) {
+        mirrorLine.textContent = text;
+        mirrorLine.classList.toggle('stcr-warn', warn);
+        mirrorBtn.disabled = restoreBtn.disabled = busy;
     }
     function openMore() {
         open();
@@ -163,7 +184,7 @@ export function createSettingsBar({ onExport, onImport, versionRow = null }) {
         moreBtn.setAttribute('aria-expanded', 'false');
         fab.setAttribute('aria-expanded', 'false');
     }
-    return { fab, panel, sync, open, openMore, close, setBackupStatus, isOpen: () => !panel.hidden };
+    return { fab, panel, sync, open, openMore, close, setBackupStatus, setMirrorStatus, isOpen: () => !panel.hidden };
 }
 
 function switchInput(label) {

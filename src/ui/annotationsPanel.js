@@ -47,7 +47,7 @@ export function createPanel({ marks, getHandle, getChatKey, onJump, onCard, onPi
             iconButton('fa-xmark', '关闭面板', { class: 'stcr-panel-close', 'data-act': 'close-panel' })),
         h('div', { class: 'stcr-panel-scope-row' }, scopeSeg),
         filters, list,
-        h('button', { type: 'button', class: 'stcr-btn stcr-panel-foot', text: '这些数据存在浏览器里，记得定期导出备份 ›', onclick: () => onBackupHint() }));
+        h('button', { type: 'button', class: 'stcr-btn stcr-panel-foot', text: '这些会自动备份到你的 ST 服务器 · 备份设置 ›', onclick: () => onBackupHint() }));
 
     for (const button of tabButtons) button.addEventListener('click', () => { tab = button.dataset.tab; render(); });
     scopeSeg.addEventListener('click', event => {

@@ -1,9 +1,10 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { createSandbox } from './htmlRenderer.js';
 import { SCENE_HTML } from '../../dev/fixtures/html.mjs';
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-const hostState = () => { const c = SillyTavern.getContext(); return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, settings: c.extensionSettings, character: c.characterId, group: c.groupId }); };
+const hostState = () => { const c = SillyTavern.getContext(); return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, settings: foreignExtensionSettings(c.extensionSettings), character: c.characterId, group: c.groupId }); };
 
 // 合成内容自行回报几何量；不加 allow-same-origin、不从宿主跨源读取 DOM。
 function observe(root, html, options = {}) {

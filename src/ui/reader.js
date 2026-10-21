@@ -6,6 +6,7 @@ import { getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js
 import { maskHtmlString } from '../core/cardExport.js';
 import { initFormatter } from '../core/formatter.js';
 import { store } from '../core/store.js';
+import { flushMirror, getMirrorStatus, mirrorNow, onMirrorStatus, restoreFromServer, whenStarted } from '../core/backupService.js';
 import { createPanel } from './annotationsPanel.js';
 import { backupStatus, describeStoreError, exportBackup, pickAndImport } from './backup.js';
 import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
@@ -16,7 +17,7 @@ import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, foldRuns, formatStamp, isFolded, parseJumpInput, pickSwipe, progressText, swipePreviews } from './logic.js';
+import { effectivePrefs, foldRuns, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -44,6 +45,8 @@ const thumb = file => `/thumbnail?type=avatar&file=${encodeURIComponent(file)}`;
 let S = null; // 打开期间的会话状态；关闭即整体丢弃
 /** 本页已经提示过"有新内容"的聊天（D28：同一聊天同一页面会话只提示一次；重新加载成功后清掉，下次变化再提示）。 */
 const staleNoticed = new Set();
+/** 启动时从 ST 服务器恢复的结果，第一次打开阅读器时提示一次（T70）。 */
+let restoreNotice = null, restoreNoticeTaken = false;
 /** 浏览器回归用的故障注入（uiBrowser.test.js）：'open' / 'close' 时在对应流程中途抛错一次。正式使用不会设置。 */
 let testFault = null;
 export function injectReaderFault(stage) { testFault = stage; }
@@ -68,6 +71,12 @@ export async function openReader({ tab, chatKey } = {}) {
         return;
     }
     await initFormatter();
+    // T70：启动时的服务器合并要先做完（最多等 5 秒），恢复回来的阅读设置才读得到
+    const started = whenStarted();
+    if (started) {
+        const result = await Promise.race([started, new Promise(resolve => setTimeout(() => resolve(null), 5000))]);
+        if (!restoreNoticeTaken && result?.restored) { restoreNotice = restoreSummary(result.restored); restoreNoticeTaken = true; }
+    }
     await loadPrefs();
     const html = await SillyTavern.getContext().renderExtensionTemplateAsync(`${EXTENSION_ID}/src/ui/templates`, 'reader');
     if (S) return; // 等模板期间又被打开过一次
@@ -86,7 +95,7 @@ export async function openReader({ tab, chatKey } = {}) {
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
         chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
-        banner: null, staleOff: null, reloading: false,
+        banner: null, staleOff: null, reloading: false, restoring: false,
     };
     S = session;
     session.marks = createMarks({
@@ -119,7 +128,8 @@ export async function openReader({ tab, chatKey } = {}) {
         confirm: (message, ok) => confirmDialog(message, ok),
     });
     session.docPanel = createDocPanel({ root });
-    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), versionRow: createVersionRow({ docPanel: session.docPanel }) });
+    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(),
+        versionRow: createVersionRow({ docPanel: session.docPanel }) });
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
         onCard: range => openCardFromSelection(range),
@@ -180,6 +190,7 @@ export async function openReader({ tab, chatKey } = {}) {
     session.cleanup.push(onPrefsChange(onPrefs));
     session.cleanup.push(onFavoriteChatsChange(chatKey => { if (S === session && chatKey === session.chatKey) syncChatFav(session); }));
     session.cleanup.push(followHostWidth(root));
+    session.cleanup.push(onMirrorStatus(() => { if (S === session) showMirrorStatus(session); }));
     session.cleanup.push(muteHostMessageStyles(root, () => { if (S === session) closeReader(); }));
     try {
         maybeFault('open');
@@ -188,6 +199,7 @@ export async function openReader({ tab, chatKey } = {}) {
         session.scroller.focus({ preventScroll: true });
         setTopbarState(true);
         refreshBackupStatus();
+        if (restoreNotice) { const text = restoreNotice; restoreNotice = null; setTimeout(() => say(text), 300); }
         if (!highlightSupported()) setTimeout(() => say('这个浏览器太旧，划线能保存但看不到颜色；请升级浏览器。'), 800);
 
         const current = getCurrentChatKey();
@@ -293,7 +305,8 @@ export function closeReader() {
         S = null;
         session.token++;
         session.controller?.abort();
-        flushProgress();
+        // 进度落盘后把排队的自动备份立刻写掉（T70：关阅读器即 flush）
+        flushProgress().finally(() => flushMirror());
         session.selUi.hideBubble();
         session.marks.destroy();
         session.chat.replaceChildren();
@@ -875,26 +888,60 @@ async function doExport() {
 
 function doImport() {
     const session = S;
-    pickAndImport({ root: session.root, toast: say, confirm: (content, ok) => confirmDialog(content, ok), onImported: async () => {
-        if (S !== session) return;
-        await reloadPrefs();
-        if (session.handle && await session.marks.loadChat(session.chatKey)) {
-            for (const el of renderedFloors()) session.marks.paintFloor(el);
-        }
-        resetFavoriteChats(); // 备份里可能带进收藏的聊天
-        if (session.chatKey) syncChatFav(session);
-        session.drawer.refreshFavorites();
-        refreshBackupStatus();
-    } });
+    pickAndImport({ root: session.root, toast: say, confirm: (content, ok) => confirmDialog(content, ok), onImported: () => afterDataMerged(session) });
 }
 
 async function refreshBackupStatus() {
     const session = S;
     if (!session) return;
+    showMirrorStatus(session);
     try {
         const status = await backupStatus();
-        if (S === session) session.settings.setBackupStatus(status);
+        // 自动备份正常时不再催手动导出（D33）；只在自动备份用不了时才亮小点
+        const mirror = getMirrorStatus();
+        const remind = status.remind && ['error', 'unavailable', 'never'].includes(mirror.state);
+        if (S === session) session.settings.setBackupStatus({ ...status, remind });
     } catch { /* 存储不可用时不提醒 */ }
+}
+
+function showMirrorStatus(session) {
+    const status = getMirrorStatus();
+    session.settings.setMirrorStatus(mirrorStatusText(status), status.state === 'saving' || session.restoring);
+}
+
+async function doMirror() {
+    const session = S;
+    const status = await mirrorNow({ force: true });
+    if (S !== session) return;
+    say(status.state === 'ok' ? '已备份到 ST 服务器' : `没备份成功：${status.message || '原因不明'}`);
+    refreshBackupStatus();
+}
+
+async function doRestore() {
+    const session = S;
+    if (session.restoring) return;
+    session.restoring = true;
+    showMirrorStatus(session);
+    let result;
+    try { result = await restoreFromServer(); } finally { session.restoring = false; }
+    if (S !== session) return;
+    showMirrorStatus(session);
+    if (!result.ok) { say(`没恢复成功：${result.message}`); return; }
+    say(restoreSummary(result.report) || '服务器上那份的内容你这里都有，没有需要恢复的');
+    await afterDataMerged(session);
+}
+
+/** 导入 / 从服务器恢复之后：设置、划线、收藏都重读一遍。 */
+async function afterDataMerged(session) {
+    if (S !== session) return;
+    await reloadPrefs();
+    if (session.handle && await session.marks.loadChat(session.chatKey)) {
+        for (const el of renderedFloors()) session.marks.paintFloor(el);
+    }
+    resetFavoriteChats(); // 备份里可能带进收藏的聊天
+    if (session.chatKey) syncChatFav(session);
+    session.drawer.refreshFavorites();
+    refreshBackupStatus();
 }
 
 // ───────────────────────── 聊天加载 ─────────────────────────

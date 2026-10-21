@@ -13,6 +13,8 @@ const patterns = {
     forbiddenCalls: /\b(?:saveChat|deleteMessage|deleteLastMessage|renameChat|clearChat|addOneMessage|updateChatMetadata|saveMetadata)\s*\(/,
     hostWrites: /(?:swipe_id|chatMetadata|chat_metadata)\s*(?:=(?!=)|\+=|\?\?=)|getContext\(\)\.chat.*(?:=(?!=)|\.push\(|\.splice\()/,
     network: /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|https?:\/\/|@import/,
+    // T70 / D33：ST 的用户文件区（data/<用户>/user/files/，不在 chats 目录）。只许自动备份模块使用。
+    userFiles: /\/api\/files\/|\/user\/files\/\$\{|['"`]\/user\/files\//,
 };
 const report = Object.fromEntries(Object.keys(patterns).map(key => [key, []]));
 let bytes = 0;
@@ -30,6 +32,7 @@ for (const [kind, hits] of Object.entries(report)) {
     // I032 的纯函数测试将禁写路径作为“须拒绝”的输入，不发送请求；调用/赋值检查仍不豁免。
     if (kind === 'forbiddenPaths') failed ||= extension.some(line => !['src/core/readonlyGuard.js:', 'src/core/htmlSnapshot.test.js:'].some(prefix => line.startsWith(prefix)));
     if (kind === 'forbiddenCalls' || kind === 'hostWrites') failed ||= extension.length > 0;
+    if (kind === 'userFiles') failed ||= extension.some(line => !['src/core/backupService.js:', 'src/core/backupService.test.js:', 'src/core/backupBrowser.test.js:'].some(prefix => line.startsWith(prefix)));
 }
 const trackedData = execFileSync('git', ['ls-files', '.dev', '.tmp', 'docs/*.png'], { cwd: root, encoding: 'utf8' }).trim();
 console.log(`扩展运行文件总体积（含 LICENSE）：${bytes} 字节；.dev/.tmp/docs/*.png 已跟踪文件：${trackedData || '0'}`);

@@ -1,5 +1,6 @@
 // ST Reader — AGPL-3.0
 import { store } from './store.js';
+import { hostBackedSettings } from './hostSettings.js';
 
 const EXTENSION_NAME = 'st-reader';
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -48,7 +49,7 @@ function httpError(status, updating) {
 
 /** 工厂仅用于隔离测试；正式 UI 使用下方单例导出。目录名与 API 均不可由调用者指定。 */
 export function createUpdateService({ fetchImpl = (...args) => globalThis.fetch(...args),
-    getContext = () => globalThis.SillyTavern?.getContext(), settings = store.settings,
+    getContext = () => globalThis.SillyTavern?.getContext(), settings = hostBackedSettings(store.settings),
     rootUrl = DEFAULT_ROOT, origin = globalThis.location?.origin } = {}) {
     let checking = null, updating = null;
     function resource(name) {

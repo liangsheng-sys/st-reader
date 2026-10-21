@@ -2,6 +2,7 @@
 import { createUpdateService, updateService } from './updateService.js';
 import { isDevInstance } from './readonlyGuard.js';
 import { store } from './store.js';
+import { hostSettings } from './hostSettings.js';
 
 const assert = (value, message) => { if (!value) throw new Error(message); };
 function requireDev() { if (!isDevInstance(location)) throw new Error('版本自测只允许 .dev 开发实例'); }
@@ -55,16 +56,19 @@ export async function testUpdateServiceBrowser() {
         }
         assert(requests.every(request => request.method === 'GET' && /\/(manifest\.json|CHANGELOG\.md)$/.test(request.path)), '开发检查触发了其他请求');
     });
-    await test('lastSeenVersion 使用真实扩展 settings 并恢复原值', async () => {
-        const previous = await store.settings.all();
+    await test('lastSeenVersion 写进 ST 的 extension_settings 与扩展 settings，并恢复原值', async () => {
+        const previous = await store.settings.all(), previousHost = hostSettings.read().lastSeenVersion;
         try {
             await service.markVersionSeen(version);
             assert(await store.settings.get('lastSeenVersion') === version && await createUpdateService().getLastSeenVersion() === version, '已读版本未持久化');
+            assert(hostSettings.read().lastSeenVersion === version, '已读版本没进 extension_settings（T70 / I053）');
         } finally {
             if (Object.hasOwn(previous, 'lastSeenVersion')) await store.settings.set('lastSeenVersion', previous.lastSeenVersion);
             else await store.settings.remove('lastSeenVersion');
+            hostSettings.patch({ lastSeenVersion: previousHost });
         }
         assert(JSON.stringify(await store.settings.all()) === JSON.stringify(previous), '验收后设置未恢复');
+        assert(hostSettings.read().lastSeenVersion === previousHost, '验收后 extension_settings 未恢复');
     });
     await test('可见面板显示版本与开发提示，更新按钮禁用，宿主聊天不变', async () => {
         try {

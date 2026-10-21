@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { createSandbox, renderStatic, exportRenderedHtml } from './htmlRenderer.js';
 import { maskHtmlString, transformHtmlOffline } from './codeTransforms.js';
 import { PHONE_HTML, GAME_HTML } from '../../dev/fixtures/html.mjs';
@@ -8,7 +9,7 @@ import { testHtmlHeightBrowser } from './htmlHeightBrowser.test.js';
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const selector = '[data-stcr-html-frame],[data-stcr-html-static],[data-stcr-parse-frame]';
-const hostState = () => { const c = SillyTavern.getContext(); return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, settings: c.extensionSettings, character: c.characterId, group: c.groupId }); };
+const hostState = () => { const c = SillyTavern.getContext(); return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, settings: foreignExtensionSettings(c.extensionSettings), character: c.characterId, group: c.groupId }); };
 function waitReport(marker) {
     let timer, listener;
     const promise = new Promise((resolve, reject) => {

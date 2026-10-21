@@ -474,3 +474,38 @@ export function filterOwners(owners, { query = '', tags = [] } = {}) {
     const wanted = [...tags];
     return owners.filter(owner => matchesFilter(query, owner.name) && wanted.every(tag => owner.tags?.includes(tag)));
 }
+
+/** 文件大小："820 B" / "36 KB" / "1.2 MB"。 */
+export function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * 自动备份状态那一行（T70）："上次自动备份：10-21 09:30 · 1.2 MB"；没成功时说原因。
+ * status 来自 core getMirrorStatus()。返回 {text, warn}。
+ */
+export function mirrorStatusText(status, now = new Date()) {
+    const when = status?.mirroredAt ? new Date(status.mirroredAt) : null;
+    const valid = when && Number.isFinite(when.getTime());
+    const stamp = valid ? `${when.getFullYear() === now.getFullYear() ? '' : `${when.getFullYear()}-`}${pad(when.getMonth() + 1)}-${pad(when.getDate())} ${pad(when.getHours())}:${pad(when.getMinutes())}` : '';
+    const size = formatBytes(status?.bytes);
+    const last = valid ? `上次自动备份：${stamp}${size ? ` · ${size}` : ''}` : '';
+    switch (status?.state) {
+        case 'saving': return { text: '正在备份到 ST 服务器…', warn: false };
+        case 'pending': return { text: last ? `${last}（有新改动，几秒后备份）` : '有新改动，几秒后备份', warn: false };
+        case 'unavailable': return { text: `没法自动备份：${status.message || 'ST 设置接口不可用'}。请用"导出"手动保存`, warn: true };
+        case 'error': return { text: `${last ? `${last}；` : ''}这次没备份成功：${status.message || '原因不明'}`, warn: true };
+        default: return last ? { text: last, warn: false } : { text: '还没自动备份过（改一条批注或点"立即备份"）', warn: false };
+    }
+}
+
+const RESTORE_LABELS = [['annotations', '批注'], ['bookmarks', '收藏'], ['replaceRules', '替换规则'], ['maskWords', '屏蔽词'], ['assets', '图片'], ['settings', '设置']];
+/** "已从 ST 服务器恢复批注 3 条、收藏 1 条"；没有新内容返回空串。 */
+export function restoreSummary(report) {
+    const parts = RESTORE_LABELS.map(([key, label]) => [label, (report?.[key]?.added ?? 0) + (report?.[key]?.updated ?? 0)])
+        .filter(([, count]) => count > 0).map(([label, count]) => `${label} ${count} 条`);
+    return parts.length ? `已从 ST 服务器恢复${parts.join('、')}` : '';
+}

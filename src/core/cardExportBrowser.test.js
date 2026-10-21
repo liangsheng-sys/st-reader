@@ -1,4 +1,5 @@
 // ST Reader — AGPL-3.0
+import { foreignExtensionSettings } from './hostSettings.js';
 import { exportCard, createCardMessage, bindCardSource, wrapMaskSpans } from './cardExport.js';
 import { maskTextNodesInPlace, prepareCardAssets } from './cardContent.js';
 import { buildCardFontCss, rasterizeCardIcon } from './cardFonts.js';
@@ -11,7 +12,7 @@ const assert = (value, message) => { if (!value) throw new Error(message); };
 const cleanOptions = { rules: [], assets: [], maskWords: [], scale: 1 };
 function snapshot() {
     const context = SillyTavern.getContext();
-    return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: context.extensionSettings,
+    return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, settings: foreignExtensionSettings(context.extensionSettings),
         character: context.characterId, group: context.groupId, theme: context.powerUserSettings.theme, style: document.getElementById('chat')?.getAttribute('style') });
 }
 async function pixels(blob) {
