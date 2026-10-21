@@ -134,7 +134,7 @@ I009 实证：187208字节的 Ny JetBrainsMono（兼容重复导入别名）实�
 
 T53 内存计量：按 UTF-16 字符串、对象/字段/引用估算，原始数组、深度索引、已构建模型和不同 pageSize 的页均计费；限额为 **150,000,000 字节**，不是整页 JS 堆的硬上限。字符串共享仍保守重复计费；未渲染楼层不提前转模型。超限先淘汰最久未打开项，单项超限可以阅读但不缓存。仍在使用的句柄保有独立旧快照直到 close，不会因别的打开动作淘汰而读坏；这些活动引用及 DOM、格式化结果不属于 LRU 保留量。缓存模块不访问 store、localStorage、IndexedDB 或宿主可变数组。
 
-T57 / D28 修订：缓存命中直接返回包含角色、群组与正文快照的句柄，首屏不等网络；首次命中或距离上次校验完成已满 60 秒时，在后台调用一次 `/api/chats/search` 比较 file_size / last_mes / 楼数。变化只通知句柄订阅者，不自动重取或替换正文。完整接口与失败、重载行为见 §5.14。宿主摘要不是精确 mtime/hash，**同大小、同末消息日期、同楼数的原地改字无法识别**；刷新或显式 reload 强制重读。
+T57 / D28 修订：缓存命中直接返回包含角色、群组与正文快照的句柄，首屏不等网络；首次命中或距离上次校验完成已满 60 秒时，在后台调用一次 `/api/chats/search` 比较 file_size / last_mes / 楼数（**T71 / D34 起取消 60 秒复用，见 §5.14**）。变化只通知句柄订阅者，不自动重取或替换正文。完整接口与失败、重载行为见 §5.14。宿主摘要不是精确 mtime/hash，**同大小、同末消息日期、同楼数的原地改字无法识别**；刷新或显式 reload 强制重读。
 
 T57 性能验收用 `stcrSelfTest({cachePerformance:true})` 或 `dev/test-chat-cache.cmd`，计时从正式 openReader 调用到首屏 DOM 就绪并完成一次绘制（rAF 后下一任务）。缓存命中首屏必须 <300 ms；后台校验的完整摘要读取耗时单独记录，不计入首屏。后者另验真实页面刷新空缓存与完整浏览器回归。原 21 MB 和 53 MB 样本均保留，没有搬走大文件缩短 search 扫描；T53 旧同步计时失败记录保留在 I040。
 
@@ -164,7 +164,7 @@ UI 文件位于 `src/ui/` 时从 `../core/chatSource.js`、`../core/formatter.js
 
 所有列表的 `options` 为 `{signal?: AbortSignal}`。取消时抛 `AbortError`，UI 不应弹成失败提示。冷读时，同聊天并发打开共享在途角色/摘要/正文请求（内部独立 signal）；取消单个等待者不取消其他人，最后一人取消才终止共享请求。网络错误保留原错误；HTTP/键/关闭状态使用 `StcrDataError`，`code` 为 `HTTP_<状态码>`、`INVALID_KEY`、`INVALID_RESPONSE`、`NOT_FOUND`、`CLOSED`；越界参数抛 RangeError，聊天坏行抛 TypeError。不要把错误当成空聊天。
 
-T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。T57 起预取命中也遵循 D28：直接准备缓存页，后台校验，60 秒内复用结果。T59 负责重展开接线；T57 未改 `src/ui/`。
+T53 / I042：五个列表 API 都在后台预取 `getCurrentChatKey()` 的第一页，不阻塞列表，也不预取列表中其他聊天。并行列表读取合并同一次自动预取；错误静默结束。现有 UI 首次打开抽屉会读角色/群列表，因此自动接通；已画好的抽屉再次展开不调用 core，此路径仍需 Opus 在 `drawer.open()` 调用 `prefetchCurrentChat().catch(() => {})`。T57 起预取命中也遵循 D28：直接准备缓存页，后台校验，60 秒内复用结果（T71 / D34 起：当前聊天零网络比对宿主内存，不复用结果，见 §5.14）。T59 负责重展开接线；T57 未改 `src/ui/`。
 
 ### 5.2 数据类型（JSDoc）
 
@@ -596,7 +596,7 @@ view.destroy();
 
 策略依据：[CSP frame-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-src) 与 [CSP 规范](https://www.w3.org/TR/CSP/)。除了检查 CSP 字符串，本卡还在浏览器中检查内容窗口的 performance 资源记录及子框架请求，避免仅凭属性字符串判定断网。
 
-### 5.14 内存缓存与后台变化通知（T53 / T57；D24 / D28）
+### 5.14 内存缓存与后台变化通知（T53 / T57 / T71；D24 / D28 / D34）
 
 缓存只在当前页面内存，默认 3 个聊天、150,000,000 字节估算上限。原始数组、深度索引、冻结角色与 header 快照、已建模型和页均计费。close 只释放本句柄；LRU 淘汰不破坏其他活动句柄。刷新页面清空，不写 store / IndexedDB / localStorage。
 
@@ -609,7 +609,15 @@ view.destroy();
 | `handle.validation` | 本次打开对应的 Promise，结果为冻结 `{state:'loaded'\|'fresh'\|'stale'\|'error'\|'discarded',checkedAt:number\|null,durationMs:number,code?:string}`；只用于诊断或额外状态，**首屏不能 await**。冷读返回 loaded、null、0；命中共享同一个在途校验。fresh 是摘要一致；stale 是已确认变化；error 表示未能校验；discarded 表示清空/淘汰/重载后旧校验作废 |
 | `handle.close()` | 幂等，自动退掉本句柄全部通知；不取消其他句柄或该缓存项的后台校验，不自动重取正文 |
 
-第一次缓存命中时后台调一次 search；校验完成后的结果保留 60 秒（包括错误结果，以免连续开关反复打请求），到期后再次打开才重新校验，没有定时轮询。文件大小、末消息日期或楼数变化为 changed，摘要中找不到文件为 missing。缺字段/断网不报“最新”，也不凭空报变化；有旧正文仍可读。后台请求 20 秒超时，错误结果 code 为 TIMEOUT / INCOMPLETE_SUMMARY / HTTP_<状态> / VALIDATION_FAILED。已确认的 stale 不因后续失败或摘要变回而撤销。
+**T71 / D34 改写校验时机（取代下句原文“结果保留 60 秒”）**：
+- **宿主当前聊天**（`getCurrentChatKey()` 等于该键且 `getContext().chat` 是数组）：命中时用纯函数 `matchesHostChat(快照楼, 宿主 chat)` 同步比对楼数、末楼 `send_date`、各楼候选数与 `swipe_id`（单候选有无 `swipes` 数组等价），零网络。一致 → 直接复用，`validation` 立即为 `{state:'fresh', source:'host'}`；不一致 → 当作 `reload:true` 冷读，不发变化通知（不弹横幅）。ST 是**先发事件、后存盘**（`MESSAGE_SENT` 在 `saveChatConditional()` 之前），所以当前聊天冷读后若文件仍落后于宿主内存，等 250 / 500 / 1000 ms 各重读一次，仍不一致就返回读到的文件内容（下次打开再比）。
+- **非当前聊天**：每次命中都后台 search 一次，不复用结果（含错误结果）；同时在途的校验共享一个。search 等浏览器空闲（`requestIdleCallback`，至多 500 ms；Node 为 setTimeout 0）再发，不与首屏渲染抢时间。横幅只在这条路径发现变化时出现。
+- `invalidateChat(chatKey)`：同步去掉该键的缓存项与在途冷读、中止其后台校验，不预取、不读文件；返回是否有东西被作废；坏键 / 空值返回 false。已打开的旧句柄照常可读。
+- `watchHostChatEvents()`：只读订阅 `INVALIDATING_EVENTS`（`MESSAGE_SENT / MESSAGE_RECEIVED / MESSAGE_EDITED / MESSAGE_DELETED / MESSAGE_SWIPED / MESSAGE_UPDATED / CHAT_CHANGED / CHAT_DELETED / GROUP_CHAT_DELETED`），回调只调 `invalidateChat(getCurrentChatKey())`；两个删除事件另按载荷文件名 / 群 ID 作废已缓存的其他键。回调里不碰 chat / chatMetadata、不调任何保存。返回幂等退订函数；index.js 在 APP_READY 订阅、pagehide 退订。
+- `getChatCacheStats()` 新增计数：`liveChecks / liveReloads / eventInvalidations / hostSaveWaits`。`createChatSource` 新增可选注入 `wait(ms, signal)` 仅供测试。
+- UI：顶栏“重新读取”（`fa-rotate-right`）调 `openChat(key, {reload:true})`，读成功才换正文，失败保留旧正文。
+
+以下为 T57 原文，“60 秒”部分已被上面取代：第一次缓存命中时后台调一次 search；校验完成后的结果保留 60 秒（包括错误结果，以免连续开关反复打请求），到期后再次打开才重新校验，没有定时轮询。文件大小、末消息日期或楼数变化为 changed，摘要中找不到文件为 missing。缺字段/断网不报“最新”，也不凭空报变化；有旧正文仍可读。后台请求 20 秒超时，错误结果 code 为 TIMEOUT / INCOMPLETE_SUMMARY / HTTP_<状态> / VALIDATION_FAILED。已确认的 stale 不因后续失败或摘要变回而撤销。
 
 clearChatCache、LRU 淘汰和 reload 会中止被移除项的后台请求；即使传输忽略取消，迟到响应也不能通知、重填缓存或污染新快照。冷读共享请求仍由独立 signal 管理，全部等待者取消才中止；显式重载与清缓存隔离在途旧冷读。signal 只负责取得句柄之前的取消，取得后由 close 管理订阅生命周期。
 
@@ -631,7 +639,7 @@ handle.close();
 // 将 next 交给显示管线，并为新句柄重新订阅。
 ```
 
-Node 覆盖三种变更、失联/缺字段/删除、60 秒边界、并发、晚订阅/退订、抛错、关闭、清空/淘汰/重载竞态；浏览器以实际只读 API 与正式阅读器计时，变化通知使用响应副本模拟，不修改聊天文件。`dev/test-release.cmd` 依次运行 Node、UI、缓存性能与完整浏览器、五主题 × 三显示模式及只读审计。
+Node 覆盖三种变更、失联/缺字段/删除、每次命中都校验（T71 前为 60 秒边界）、当前聊天实时比对与存盘延迟重试、事件作废与九个事件的订阅 / 退订、并发、晚订阅/退订、抛错、关闭、清空/淘汰/重载竞态；浏览器以实际只读 API 与正式阅读器计时，变化通知使用响应副本模拟，不修改聊天文件。`dev/test-release.cmd` 依次运行 Node、UI、缓存性能与完整浏览器、五主题 × 三显示模式及只读审计。
 
 ### 5.15 版本与更新合同（T54a / D25）
 

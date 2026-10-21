@@ -109,6 +109,12 @@ eventSource.on(event_types.APP_READY, async () => {
         const { startBackup } = await import('./src/core/backupService.js');
         startBackup().then(({ restored }) => { if (restored) console.log('[st-reader] 已从 ST 服务器恢复阅读器数据。'); });
     } catch (error) { console.error('[st-reader] 样式与存储初始化失败：', error); }
+    try {
+        // T71 / D34：只读订阅 ST 的消息 / 聊天事件，命中就作废对应聊天的内存缓存（回调里不碰 chat、不调保存）
+        const { watchHostChatEvents } = await import('./src/core/chatSource.js');
+        const stopChatEvents = watchHostChatEvents();
+        window.addEventListener('pagehide', () => stopChatEvents(), { once: true });
+    } catch (error) { console.error('[st-reader] 聊天事件订阅失败：', error); }
     // 界面入口（T21）：魔杖菜单、顶栏按钮、/reader。格式化失败也挂入口，打开时会再试一次并提示。
     try {
         const { mountEntries } = await import('./src/ui/mount.js');
