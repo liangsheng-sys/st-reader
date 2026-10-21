@@ -495,6 +495,9 @@
 #stcr_root .stcr-row-fav:hover { opacity: 1; }
 #stcr_root .stcr-row-fav.stcr-on { opacity: 1; color: #f5b400; }
 #stcr_root .stcr-chat-fav.stcr-on { color: #f5b400; }
+/* T71 顶栏"重新读取"：读的时候图标转圈 */
+#stcr_root .stcr-reload-btn.stcr-busy i { animation: stcr-spin .9s linear infinite; }
+@keyframes stcr-spin { to { transform: rotate(360deg); } }
 @media (pointer: coarse) { #stcr_root .stcr-row-fav { opacity: .45; } }
 
 /* ── 状态：加载 / 空 / 出错 ── */

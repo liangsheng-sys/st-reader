@@ -90,7 +90,7 @@ export async function openReader({ tab, chatKey } = {}) {
         stateBox: root.querySelector('.stcr-state'), progressBtn: root.querySelector('.stcr-progress'),
         progressLine: root.querySelector('.stcr-progress-line > span'), topPercent: root.querySelector('.stcr-top-percent'),
         titleOwner: root.querySelector('.stcr-title-owner'), titleFile: root.querySelector('.stcr-title-file'),
-        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), redactBadge: root.querySelector('.stcr-redact-badge'),
+        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), redactBadge: root.querySelector('.stcr-redact-badge'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
@@ -491,6 +491,7 @@ function onClick(event) {
             case 'jump': openJump(); return;
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
             case 'stale-reload': reloadStale(); return;
+            case 'reload': reloadStale(); return;
             case 'stale-dismiss': hideStaleBanner(session); session.scroller.focus({ preventScroll: true }); return;
             case 'continue': loadChat(actEl.dataset.key, { index: Number(actEl.dataset.index) }); return;
             case 'open-drawer': session.drawer.open('recent'); return;
@@ -763,6 +764,7 @@ async function toggleBookmark(mes, forSwipe) {
 /** 顶栏 ☆：收藏整个聊天（D19）。楼 / 候选的收藏在楼层工具条和右侧面板。 */
 async function syncChatFav(session) {
     const button = session.favBtn;
+    session.reloadBtn.hidden = !(session.handle && session.chatKey);
     if (!session.handle || !session.chatKey) { button.hidden = true; return; }
     try { await loadFavoriteChats(); } catch { button.hidden = true; return; }
     if (S !== session) return;
@@ -1012,6 +1014,7 @@ function releaseChat(session) {
     session.titleOwner.textContent = '阅读器';
     session.titleFile.textContent = '';
     session.favBtn.hidden = true;
+    session.reloadBtn.hidden = true;
     session.follow.hidden = true;
     session.follow.dataset.key = '';
 }
@@ -1048,7 +1051,7 @@ function hideStaleBanner(session) {
     session.root.classList.remove('stcr-has-banner');
 }
 
-/** 点横幅：先只读地重新读一遍（reload:true），读成功才换正文并回到原来那一楼；失败旧正文不动，给一句提示。 */
+/** 点横幅或顶栏"重新读取"（T71 / D34 ④）：先只读地重新读一遍（reload:true），读成功才换正文并回到原来那一楼；失败旧正文不动，给一句提示。 */
 async function reloadStale() {
     const session = S;
     if (!session?.handle || session.reloading) return;
@@ -1056,6 +1059,7 @@ async function reloadStale() {
     const anchor = captureAnchor();
     const label = session.banner?.querySelector('.stcr-banner-text');
     session.reloading = true;
+    session.reloadBtn.classList.add('stcr-busy'); session.reloadBtn.disabled = true;
     if (label) { label.textContent = '正在重新加载…'; label.disabled = true; }
     try {
         const next = await openChat(chatKey, { pageSize: PAGE_SIZE, reload: true });
@@ -1070,6 +1074,7 @@ async function reloadStale() {
         say(`重新加载失败：${describeError(error)} 下面仍是之前的内容。`);
     } finally {
         session.reloading = false;
+        session.reloadBtn.classList.remove('stcr-busy'); session.reloadBtn.disabled = false;
     }
 }
 

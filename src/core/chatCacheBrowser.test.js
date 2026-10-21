@@ -1,6 +1,6 @@
 // ST Reader — AGPL-3.0
-// 只在开发实例加载；以真实同源请求计时；首屏绘制与 D28 后台校验分开记录。
-import { createChatSource, makeChatKey, clearChatCache, getChatCacheStats } from './chatSource.js';
+// 只在开发实例加载；以真实同源请求计时；首屏绘制与 D34 后台校验分开记录。
+import { createChatSource, makeChatKey, clearChatCache, getChatCacheStats, getCurrentChatKey, matchesHostChat } from './chatSource.js';
 
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -16,7 +16,7 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
     const check = (name, passed) => { results.push({ name: `T53 ${name}`, passed }); };
     const key = makeChatKey({ avatarUrl: 'STCR_T11_Mist.png', fileName: performanceCheck ? 'STCR-90-大文件-1600楼' : 'STCR-03-普通阅读' });
     const ctx = () => SillyTavern.getContext();
-    let changeSummary = false, clockOffset = 0;
+    let changeSummary = false;
     const read = async (url, body, { signal } = {}) => {
         const started = performance.now();
         const response = await fetch(url, { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify(body), signal });
@@ -27,7 +27,9 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
         if (changeSummary && url === '/api/chats/search') return data.map(item => ({ ...item, file_size: String(item.file_size) + '-模拟变化' }));
         return data;
     };
-    const source = createChatSource({ read, getContext: ctx, prefetchOnList: false, now: () => Date.now() + clockOffset });
+    // 这一段测"非当前聊天"的后台校验与横幅：给 source 的宿主上下文里不选任何聊天
+    const notCurrent = () => Object.assign(Object.create(ctx()), { getCurrentChatId: () => null });
+    const source = createChatSource({ read, getContext: notCurrent, prefetchOnList: false });
     let handle, firstPage;
     try {
         for (let i = 0; i < (performanceCheck ? 4 : 2); i++) {
@@ -39,10 +41,11 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
             handle.close(); handle = null;
         }
         check('真实 API 命中复用冻结页，正文只下载一次', requests.filter(x => x.path === '/api/chats/get').length === 1 && Object.isFrozen(firstPage));
-        check('首次命中后台校验一次，60 秒内再次打开复用结果', requests.filter(x => x.path === '/api/chats/search').length === 2 && validations.slice(1).every(item => item.state === 'fresh'));
+        const opened = performanceCheck ? 4 : 2;
+        check('D34 非当前聊天每次命中都后台校验一次（无 60 秒复用）', requests.filter(x => x.path === '/api/chats/search').length === opened && validations.slice(1).every(item => item.state === 'fresh'));
         const backgroundValidationMs = validations.slice(1, 2).map(item => round(item.durationMs));
         check('缓存条数与估算字节均不超限', source.getChatCacheStats().entries === 1 && source.getChatCacheStats().bytes <= 150_000_000);
-        clockOffset += 60_000; changeSummary = true;
+        changeSummary = true;
         handle = await source.openChat(key); let notifications = 0;
         handle.onStale(event => { if (event.chatKey === key && event.reason === 'changed') notifications++; });
         const changed = await handle.validation;
@@ -51,6 +54,17 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
         handle.onStale(() => closed++); handle.close(); handle = null; await paint();
         check('浏览器晚订阅补发，关闭句柄取消尚未发出的通知', late === 1 && closed === 0);
         source.clearChatCache();
+        // D34 ①：用 ST 内存里真实的当前聊天与文件比对。规则若误判，每次打开当前聊天都会白白冷读
+        const liveKey = getCurrentChatKey();
+        if (liveKey && Array.isArray(ctx().chat)) {
+            const live = createChatSource({ read, getContext: ctx, prefetchOnList: false }), searchesBefore = requests.filter(x => x.path === '/api/chats/search').length;
+            const cold = await live.openChat(liveKey); cold.close();
+            const hit = await live.openChat(liveKey), result = await hit.validation; hit.close();
+            check('D34 真实当前聊天：文件快照与宿主内存比对一致，命中零网络', hit.cacheHit && result.source === 'host' && live.getChatCacheStats().liveReloads === 0
+                && requests.filter(x => x.path === '/api/chats/search').length === searchesBefore + 1);
+            live.clearChatCache();
+        } else check('D34 真实当前聊天比对（此轮宿主未选聊天，跳过）', true);
+        check('D34 宿主内存多一楼即判过时（纯函数在真实页面）', !matchesHostChat([{ mes: '虚构', send_date: 1 }], [{ mes: '虚构', send_date: 1 }, { mes: '虚构', send_date: 2 }]));
         check('主动清空与新实例均为空（真实刷新另由开发脚本验证）', source.getChatCacheStats().entries === 0 && createChatSource().getChatCacheStats().entries === 0);
 
         if (performanceCheck) {
@@ -69,6 +83,7 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
                 } else if (path.startsWith('/api/')) uiRequests.push({ path, ms: round(performance.now() - started), opening });
                 return response;
             };
+            const readerIsCurrent = getCurrentChatKey() === key, expectedSearches = readerIsCurrent ? 1 : 4;
             try {
                 clearChatCache();
                 setPrefs({ mode: 'scroll', direction: 'b', drawerPinned: false, panelPinned: false, hideUser: false });
@@ -79,15 +94,15 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
                         assert(performance.now() - started < 30000, '阅读器加载超时'); await delay(10);
                     }
                     await paint(); readerMs.push(round(performance.now() - started));
-                    // 计时已结束。后台响应另记，下一轮前等完以核对 60 秒结果复用。
-                    while (uiRequests.filter(x => x.path === '/api/chats/search').length < (i ? 2 : 1)) {
+                    // 计时已结束。后台响应另记，下一轮前等完（D34：非当前聊天每次命中都校验一次）。
+                    while (uiRequests.filter(x => x.path === '/api/chats/search').length < (readerIsCurrent ? 1 : i + 1)) {
                         assert(performance.now() - started < 30000, '后台摘要校验超时'); await delay(10);
                     }
                     await Promise.all(validationWork); closeReader(); await paint();
                 }
                 check('正式阅读器四次打开也只下载一次正文', uiRequests.filter(x => x.path === '/api/chats/get').length === 1 && getChatCacheStats().hits >= 3);
                 check('21 MB 缓存命中时首屏渲染完成 < 300 ms（后台校验单独记录）', readerMs.slice(1).every(ms => ms < 300));
-                check('正式阅读器后台只校验一次，结果在 60 秒内复用', uiRequests.filter(x => x.path === '/api/chats/search').length === 2);
+                check('正式阅读器每次命中各校验一次（当前聊天则零网络比对）', uiRequests.filter(x => x.path === '/api/chats/search').length === expectedSearches);
             } finally { closeReader(); setPrefs(prefs); window.fetch = originalFetch; clearChatCache(); }
         }
         check('宿主聊天、候选、选择与元信息未改变', before === snapshot());

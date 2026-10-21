@@ -50,10 +50,34 @@ function summary(row, owner) {
         preview: String(row.preview_message ?? row.mes ?? '').slice(0, 240) });
 }
 
+const swipeCount = message => Math.max(1, Array.isArray(message?.swipes) ? message.swipes.length : 0);
+const swipeIndex = message => Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
+const sendDate = message => { const value = message?.send_date; return value === undefined || value === null ? '' : normalizeDate(value) ?? String(value); };
+/**
+ * D34 ①：快照与宿主内存里的当前聊天是否一致（纯函数，只读）。
+ * 比楼数、末楼 send_date、各楼候选数与 swipe_id；只有一个候选的楼不管有没有 swipes 数组都算 1 个。
+ */
+export function matchesHostChat(messages, hostChat) {
+    if (!Array.isArray(messages) || !Array.isArray(hostChat) || messages.length !== hostChat.length) return false;
+    if (!messages.length) return true;
+    if (sendDate(messages.at(-1)) !== sendDate(hostChat.at(-1))) return false;
+    for (let index = 0; index < messages.length; index++) {
+        if (swipeCount(messages[index]) !== swipeCount(hostChat[index]) || swipeIndex(messages[index]) !== swipeIndex(hostChat[index])) return false;
+    }
+    return true;
+}
+/** D34 ②：命中即作废对应聊天缓存的 ST 事件。 */
+export const INVALIDATING_EVENTS = Object.freeze(['MESSAGE_SENT', 'MESSAGE_RECEIVED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'MESSAGE_UPDATED', 'CHAT_CHANGED', 'CHAT_DELETED', 'GROUP_CHAT_DELETED']);
+const HOST_SAVE_RETRIES = [250, 500, 1000];
+
 /** 注入读取器仅供纯逻辑测试；默认实例只使用上述同源白名单。 */
-export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now } = {}) {
+export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now,
+    wait = (ms, signal) => new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason ?? new DOMException('已取消', 'AbortError')); }, { once: true });
+    }) } = {}) {
     const cache = createMemoryChatCache({ maxEntries: cacheEntries, maxBytes: cacheBytes }), pending = new Map();
-    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0 };
+    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0, liveChecks: 0, liveReloads: 0, eventInvalidations: 0, hostSaveWaits: 0 };
     let generation = 0, automaticPrefetch = null;
     const abortCheck = signal => { if (signal?.aborted) throw signal.reason ?? new DOMException('已取消', 'AbortError'); };
     function fingerprint(row) {
@@ -99,9 +123,8 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         return entry;
     }
     function validateEntry(entry) {
+        // D34 ③：每次命中都后台校验一次，不再复用 60 秒内的结果；同时在途的校验共享
         if (entry.validationJob) return entry.validationJob;
-        const age = entry.validation ? now() - entry.validation.checkedAt : -1;
-        if (age >= 0 && age < 60_000) return Promise.resolve(entry.validation);
         const epoch = generation, controller = new AbortController(), started = performance.now();
         entry.validationController = controller;
         const timeout = setTimeout(() => controller.abort(), 20_000);
@@ -109,7 +132,9 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         const result = (state, extra = {}) => Object.freeze({ state, checkedAt: now(), durationMs: performance.now() - started, ...extra });
         counts.validations++;
         // 返回句柄不等待这里。所有错误转换成结果；失败不是“已确认最新”。
-        const job = Promise.resolve().then(async () => {
+        // D34 起每次命中都校验：等浏览器空闲（首屏画完）再发 search，免得和渲染抢时间
+        const idle = new Promise(resolve => globalThis.requestIdleCallback ? requestIdleCallback(() => resolve(), { timeout: 500 }) : setTimeout(resolve, 0));
+        const job = idle.then(async () => {
             try {
                 const info = await readSummary(parseChatKey(entry.key), controller.signal);
                 if (!current()) return result('discarded');
@@ -221,13 +246,33 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         abortCheck(signal);
         if (typeof reload !== 'boolean') throw new TypeError('reload 必须为布尔值');
         if (reload) { cache.remove(chatKey); pending.delete(chatKey); }
-        let entry = cache.peek(chatKey);
+        // 宿主没有可比的 chat 数组时（不是当前聊天、或宿主未就绪）退回后台校验
+        const hostChat = () => { try { const chat = getCurrentChatKey() === chatKey ? getContext().chat : null; return Array.isArray(chat) ? chat : null; } catch { return null; } };
+        let entry = cache.peek(chatKey), live = null;
+        // D34 ①：宿主当前聊天就在内存里，直接比；对不上就当 reload 冷读，不弹横幅
+        if (entry && (live = hostChat())) {
+            counts.liveChecks++;
+            if (!matchesHostChat(entry.messages, live)) { cache.remove(chatKey); pending.delete(chatKey); counts.liveReloads++; entry = undefined; }
+        }
         const cacheHit = Boolean(entry);
         if (entry) { counts.hits++; cache.touch(entry); }
-        else entry = await acquireEntry(chatKey, signal);
+        else {
+            entry = await acquireEntry(chatKey, signal);
+            // ST 先发事件、后存盘（saveChatConditional 在 MESSAGE_SENT 之后）：刚读到的文件若还落后于宿主内存，稍等再读，最多约 2 秒
+            for (const delay of HOST_SAVE_RETRIES) {
+                const current = hostChat();
+                if (!current || matchesHostChat(entry.messages, current)) break;
+                counts.hostSaveWaits++;
+                await wait(delay, signal);
+                cache.remove(chatKey); pending.delete(chatKey);
+                entry = await acquireEntry(chatKey, signal);
+            }
+        }
         abortCheck(signal);
         const total = entry.messages.length, header = entry.header;
-        const validation = cacheHit ? validateEntry(entry) : Promise.resolve(Object.freeze({ state: 'loaded', checkedAt: null, durationMs: 0 }));
+        const validation = !cacheHit ? Promise.resolve(Object.freeze({ state: 'loaded', checkedAt: null, durationMs: 0 }))
+            : live ? Promise.resolve(Object.freeze({ state: 'fresh', checkedAt: now(), durationMs: 0, source: 'host' }))
+                : validateEntry(entry);
         const subscriptions = new Set();
         let closed = false;
         function ensureOpen() { if (closed) throw new StcrDataError('CLOSED', '聊天已关闭，请重新打开'); }
@@ -297,11 +342,53 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         pending.clear(); automaticPrefetch = null;
     }
     function getChatCacheStats() { return Object.freeze({ ...cache.info(), ...counts, pending: pending.size }); }
-    return { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats };
+    /** D34 ②：作废一个聊天的缓存项与在途冷读（不预取、不读文件）。返回是否有东西被作废。 */
+    function invalidateChat(chatKey) {
+        if (typeof chatKey !== 'string' || !chatKey) return false;
+        let key;
+        try { const parsed = parseChatKey(chatKey); key = makeChatKey(parsed.isGroup ? { groupId: parsed.groupId, fileName: parsed.fileName } : { avatarUrl: parsed.avatarUrl, fileName: parsed.fileName }); }
+        catch { return false; }
+        const had = Boolean(cache.peek(key)) || pending.has(key);
+        cache.remove(key); pending.delete(key);
+        if (automaticPrefetch?.key === key) automaticPrefetch = null;
+        if (had) counts.eventInvalidations++;
+        return had;
+    }
+    /**
+     * 只读订阅 INVALIDATING_EVENTS：回调里只作废缓存，不碰 chat / chatMetadata，不调任何保存方法。
+     * 删除事件另按文件名作废（删的可能不是当前聊天）。返回退订函数。
+     */
+    function watchHostChatEvents() {
+        const { eventSource, event_types: types } = getContext();
+        if (!eventSource?.on || !types) return () => {};
+        const handlers = [];
+        for (const name of INVALIDATING_EVENTS) {
+            const type = types[name];
+            if (!type) continue;
+            const handler = payload => {
+                try {
+                    invalidateChat(getCurrentChatKey());
+                    if ((name === 'CHAT_DELETED' || name === 'GROUP_CHAT_DELETED') && payload !== undefined && payload !== null) {
+                        const target = String(payload).replace(/\.jsonl$/i, '');
+                        for (const key of cache.info().keys) {
+                            const parsed = parseChatKey(key);
+                            if (parsed.fileName === target || parsed.groupId === target) invalidateChat(key);
+                        }
+                    }
+                } catch (error) { console.warn('[st-reader] 聊天缓存作废失败：', error); }
+            };
+            eventSource.on(type, handler);
+            handlers.push([type, handler]);
+        }
+        return () => {
+            for (const [type, handler] of handlers.splice(0)) (eventSource.removeListener ?? eventSource.off)?.call(eventSource, type, handler);
+        };
+    }
+    return { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents };
 }
 
 /** 默认公开接口；options 支持 AbortSignal。具体类型与示例见 03 §5。 */
-export const { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats } = createChatSource();
+export const { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents } = createChatSource();
 
 /**
  * @typedef {object} ChatSummary
