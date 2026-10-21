@@ -75,3 +75,23 @@
 | T62 | **隐藏楼误判为系统楼**（I050）：系统楼样式判定改为 `isNarrator || (isSystem && 名字为 System/空 && 无 swipes)`；其余 `is_system` 楼按普通楼渲染（头像、工具条、swipe、收藏、划线可用），名字旁加淡色小标签“已隐藏”；“隐藏用户楼”折叠对隐藏的用户楼同样生效；cardPieces/cardStudio 同步；fixture 星灯聊天第 1–3 楼加 `is_system:true`；浏览器回归；manifest 0.2.1；CHANGELOG 0.2.1 | Opus | 通过（人类 2026-10-03“已通过”，含验收后补充的“隐藏 ST 已隐藏的楼”开关） | 人类真实 ST 里被隐藏过的楼左对齐、能切 swipe；真正的旁白楼仍居中小字 |
 | T63 | 复查 + 推送 0.2.1 | Fable / 人类 | Fable 复查通过（`handoff/2026-10-03_fable_to_human_T63.md`）；人类推送待做 | 同 T61 流程 |
 
+
+## M7 信任与正确性修补（v0.3.0）
+原文 `docs/feedback/v0.2.1真实使用反馈.txt`（截图不入库）。astra 缺席，core 由 Opus 按 D32 接管。顺序 T70 → T71 → T72 → T73，每卡一个分支、从上一卡合入后的 main 开工；T74 复查发布。提示词 `prompts/opus_T70-T73.md`。
+| ID | 任务 | 负责 | 状态 | 验收标准 |
+|---|---|---|---|---|
+| T70 | **自动备份到 ST 服务器 + 轻量设置上服务器**（D33、I053）：core 新增 `backupService.js`：`scheduleMirror()`（3 s 防抖；阅读器关闭、`pagehide` 立即）、`mirrorNow()`、`restoreFromServer()`、`getMirrorStatus()`；store 每次 `mutate` 后触发；文件 `st-reader-backup.json` + 每日首写另存 `st-reader-backup-YYYYMMDD.json` 只留 7 份（多余用 `/api/files/delete` 删自己的文件）；`extension_settings['st-reader']` 存 `{rev, mirroredAt, bytes, lastSeenVersion, updateNotice}` 走 `saveSettingsDebounced`；启动比对 rev 并按 D33 合并；UI：Aa → 更多设置"备份"行显示上次时间与大小、"立即备份 / 从服务器恢复"；更新提醒改读 `extension_settings`；文档面板层级修正；README 只读与隐私段、使用说明"设置与备份"改写；03 §5.16 写合同；selftest 覆盖合并规则与 rev 比对；浏览器回归在 8100 真写 `.dev` 用户目录 | Opus | 待开始 | 开发实例改一条批注后 3 秒内 `.dev/data/default-user/user/files/st-reader-backup.json` 更新；清站点数据再开阅读器批注自动回来并有提示；日备份不超 7 份；`audit-readonly` 仍通过；更新面板只弹一次 |
+| T71 | **缓存校验事件驱动**（D34、I055）：`chatSource` 去掉 60 s 复用；当前聊天用 `getContext().chat` 实时比对并直接冷读；`index.js` 挂载时只读订阅 D34 列出的 `eventSource` 事件 → `invalidateChat(chatKey)`；非当前聊天每次后台校验；顶栏"重新读取"按钮；03 §5.14 改写；`chatCache.test.js` 更新 60 秒断言、补事件作废与实时比对；README 隐私段"60 秒"一句删掉 | Opus | 待开始 | 在 ST 发一条新消息后立刻打开阅读器直接看到新楼、无横幅；改非当前聊天的 fixture 后打开出现横幅；"重新读取"可用；Node / 浏览器回归全绿 |
+| T72 | **显示失败兜底 + 裸 HTML 边界**（I051、D35）：①`reader.js` 渲染抛错时显示转义原文（保留换行）、名字旁小标签"原样显示"、⋯菜单加"复制错误信息"（版本、楼号、错误栈，不含正文）并 `console.error`；②`htmlRenderer.detectHtmlBlocks` 按 D35 改，`htmlRenderer.test.js` 补"散文 + div 盒 + `<selection>` + details"；③fixture 新增一楼模仿社区结构（散文、三个 `<details><summary>`、带 inline style 渐变胶囊的 div 盒、含 `<style>` 的状态栏、一个 `<selection>` 自定义标签），正常渲染不得失败；④该样本五主题下过 `testTextAlignBrowser` | Opus | 待开始 | 新样本：散文按正文排版、details 可折叠、div 盒进沙箱、`<selection>` 内文字按正文显示；用测试注入让格式化抛错时看到原文而不是"显示失败" |
+| T73 | **卡片导出保留美化**（I052）：用 fixture 的正则美化楼（含楼内 `<style>`、`background-image` 为 data: 与 https 外链、`<char>` 标题）复现预览与 PNG 的差异；修 `cardSnapshot` / `cardExport`：楼内 `<style>` 克隆进快照并前缀到卡片根、`background-*` 全部 longhand 复制、外链图片按 D23 内嵌、失败逐项提示不整块丢；工作台状态栏加"预览与导出不一致？"提示 | Opus | 待开始 | 预览与导出 PNG 肉眼一致；外链图片拿不到时 PNG 上有占位并有提示 |
+| T74 | 复查 + 0.3.0（manifest 0.3.0、CHANGELOG、README 隐私与 TT 一句、使用说明"备份"一节） | Fable / 人类 | 待开始 | 同 T61 流程 |
+
+## M8 阅读打磨（v0.3.1）
+提示词 `prompts/opus_T80-T83.md`。顺序 T80 → T81 → T82 → T83。
+| ID | 任务 | 负责 | 状态 | 验收标准 |
+|---|---|---|---|---|
+| T80 | **导航与悬浮件**（反馈 2、6、8；I054、D37）：①跟随条重做：默认收成右缘一枚细长胶囊（楼名 + 候选序号），悬停 / 点按展开为整条（上一楼 ↑、下一楼 ↓、回到本楼开头、候选切换、收藏星）；≥1000px 停在正文列右侧空白处不压字，<1000px 贴右缘；"左 / 右"偏好记入 prefs；②键盘 `[` `]` 上下楼；③Aa → 显示新增"隐藏 HTML 工具条"（悬停 HTML 块时淡入）；④手机竖屏顶栏：标题 `min-width:0` 省略、✕ `flex-shrink:0` 固定右上、`padding-top: env(safe-area-inset-top)`；390×844 无头浏览器断言 ✕ 完全在视口内且可点；⑤README 当前边界加 TT 一句 | Opus | 待开始 | 1366 宽窗口下跟随条不与正文重叠；上下楼一键到位；手机档 ✕ 可点 |
+| T81 | **脱敏统一**（D36、D38；反馈 3、5、10）：①Aa 脱敏区"自动名字"全局开关，四处跟随；②Aa 脱敏区"管理屏蔽词与替换规则…"按钮打开 `createRulesManager`；③规则编辑支持"更多原词"（`aliases`），列表一行显示 `灯塔、灯台 → 某地`；store 校验、导出 / 导入、`textTransforms` 长词优先含 aliases；旧 JSON 导入不受影响 | Opus | 待开始 | 开脱敏显示后角色名显示为 char；复制脱敏版代码里名字已换；一条规则两个原词都被替换；Aa 里一键到规则管理 |
+| T82 | **滚动性能**（I020；反馈 1）：Performance 录 10 秒连续滚轮，定位 `ensureWindow` / `isShown` / `getBoundingClientRect` 的布局抖动；改 IntersectionObserver 哨兵 + 缓存楼高 + `content-visibility:auto` + passive 监听 + 进度条节流；`dev/test-performance.cmd` 新增"连续滚动 10 秒长帧（>50 ms）≤ 2、翻屏 P95 < 60 ms"并全绿 | Opus | 待开始 | 4000 楼样本滚轮阅读不卡顿；性能脚本通过且 I020 可关 |
+| T83 | **内联 SVG**（反馈 12）：正文格式化器放行 `<svg>` 及常用子标签（仍禁 `href / xlink:href`、脚本、外部 `use`）；沙箱与卡片导出中 SVG 可见；fixture 加一楼含内联 SVG 图标与渐变 | Opus | 待开始 | 样本楼 SVG 在正文、卡片 PNG 里都可见 |
+| T84 | 复查 + 0.3.1 | Fable / 人类 | 待开始 | 同 T61 流程 |

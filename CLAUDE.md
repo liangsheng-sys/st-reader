@@ -28,3 +28,8 @@
 - 卡片是给别人看的：默认继承用户当前主题色与字体，另外至少三套模板（继承主题 / 纸张 / 深色），要好看到用户愿意发出去。
 - 脱敏遮盖三种样式：涂黑、主题色块、小图案。被遮的词必须完全不可辨认（不是模糊）。
 - 每个交付都附"人类验收步骤"：双击什么、点哪里、看到什么。
+
+## 临时授权（D32，2026-10-21 起，astra 缺席期间）
+
+- 你可以改 `src/core/`、`dev/`、`install/`，条件见 `docs/05_DECISIONS.md` D32：§5 合同只增不改；`readonlyGuard.js` 名单与 `audit-readonly.mjs` 不放宽；交付前 `node dev/selftest.mjs`、`node src/ui/ui.test.js`、`dev/test-release.cmd` 全绿；交接信单列"core 改动"。
+- 上面"`src/core/` 是 astra 的，不要改"一句在 D32 撤销前暂停生效；astra 回归后以交接信和 03 §5 为准。

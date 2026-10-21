@@ -113,3 +113,7 @@ README、0.1.0 CHANGELOG 与小白发布指南已交付待验收；外链按 D22
 
 人类："已发布更新。" T63 推送完成。新增 `prompts/fable_resume.md`（续接规划）与 `prompts/explorer_free.md`（D31 自由探索）。
 
+
+## 2026-10-21 · v0.2.1 真实使用反馈（第三批）+ 社区反馈
+
+原文 `docs/feedback/v0.2.1真实使用反馈.txt`（三张截图不入库）。人类另问三件事：需求是否太多要拆；GPT 套餐到期 astra 缺席，Opus 顶上；TT 是否要单独版本。规划者拍板 D32–D38，开 M7（0.3.0：备份上服务器、缓存事件驱动、显示失败兜底与裸 HTML 边界、卡片丢美化）与 M8（0.3.1：跟随条与上下楼、脱敏统一、滚动性能、SVG），I051–I056；HTML 内划线与离线 HTML 导出进 v2 候选。详见 `handoff/2026-10-21_fable_to_human_M7.md`。
