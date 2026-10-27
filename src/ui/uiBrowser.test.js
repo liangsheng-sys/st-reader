@@ -214,6 +214,20 @@ export async function testNavBrowser({ force = false, quiet = false, chatKey = '
         key(']', input); await wait(100);
         input.remove();
         check('输入框聚焦时 ] 不抢', current() === 4, `当前 ${current()}`);
+        // 验收后：多候选楼在收起的胶囊上就能换候选；"胶囊默认展开"让按钮列常驻（只切根节点的类）
+        scroller.focus();
+        key(']'); await wait(100);
+        const multi = root.querySelector('#stcr_chat .mes[mesid="5"]');
+        const next = follow.querySelector('.stcr-follow-pill [data-act="swipe-next"]');
+        check('收起时胶囊上有 ‹ › 换候选', current() === 5 && getComputedStyle(follow.querySelector('.stcr-follow-tools')).display === 'none' && next && next.getBoundingClientRect().height > 0, `当前 ${current()}`);
+        const before = Number(multi.dataset.swipe);
+        next?.click(); await wait(100);
+        check('点胶囊上的 › 换到下一个候选', Number(root.querySelector('#stcr_chat .mes[mesid="5"]').dataset.swipe) === before + 1 || next?.disabled, `${before} → ${root.querySelector('#stcr_chat .mes[mesid="5"]').dataset.swipe}`);
+        follow.querySelector('.stcr-follow-pill [data-act="swipe-prev"]')?.click(); await wait(100);
+        const pinnedBefore = root.classList.contains('stcr-follow-pinned');
+        root.classList.add('stcr-follow-pinned');
+        check('胶囊默认展开：按钮列常驻', getComputedStyle(follow.querySelector('.stcr-follow-tools')).display === 'flex');
+        root.classList.toggle('stcr-follow-pinned', pinnedBefore);
         const shell = root.querySelector('.stcr-html:not(.stcr-html--source)');
         if (shell) {
             const bar = shell.querySelector('.stcr-html-bar');

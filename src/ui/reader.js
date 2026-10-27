@@ -662,6 +662,7 @@ function applyPrefs(prefs) {
     root.classList.toggle('stcr-hide-reasoning', prefs.hideReasoning);
     root.classList.toggle('stcr-redacted', prefs.redact);
     root.classList.toggle('stcr-html-bar-hidden', prefs.htmlBarHidden);
+    root.classList.toggle('stcr-follow-pinned', prefs.followOpen);
     setRedactState(prefs.redact ? S.redact : null);
     setTitles(S);
     S.redactBadge.hidden = !prefs.redact;
@@ -1387,17 +1388,20 @@ function updateFollower() {
         if (!on) mark.querySelector('i').classList.replace('fa-solid', 'fa-regular');
         const open = follow.classList.contains('stcr-follow--open');
         // replaceChildren 会把 null 写成文字"null"，先滤掉
+        // 验收后：换候选 ‹ 2/5 › 收起时也在胶囊上，不用先展开（竖排：上一个在上，下一个在下）
         follow.replaceChildren(
-            h('button', { type: 'button', class: 'stcr-btn stcr-follow-pill', 'data-act': 'follow-toggle', 'aria-expanded': String(open),
-                title: `第 ${index + 1} 楼 · ${name}${many ? ` · 第 ${swipe + 1} 个候选，共 ${model.swipes.length} 个` : ''}（悬停或点按：上一楼 / 下一楼）` },
-            ...[h('span', { class: 'stcr-follow-name', text: name }),
-                many ? h('span', { class: 'stcr-follow-count', text: `${swipe + 1}/${model.swipes.length}` }) : null,
-                on ? h('i', { class: `fa-solid ${many ? 'fa-star' : 'fa-bookmark'} stcr-follow-dot`, 'aria-hidden': 'true' }) : null].filter(Boolean)),
+            h('div', { class: 'stcr-follow-pill' }, ...[
+                h('button', { type: 'button', class: 'stcr-btn stcr-follow-head', 'data-act': 'follow-toggle', 'aria-expanded': String(open),
+                    title: `第 ${index + 1} 楼 · ${name}（悬停或点按：上一楼 / 下一楼）` },
+                ...[h('span', { class: 'stcr-follow-name', text: name }),
+                    // 多候选楼的"已收藏这个候选"由候选数字右上的小星表示（.stcr-swipe-star），这里只标整楼书签
+                    on && !many ? h('i', { class: 'fa-solid fa-bookmark stcr-follow-dot', 'aria-hidden': 'true' }) : null].filter(Boolean)),
+                many ? buildSwipeControl(model, swipe) : null,
+            ].filter(Boolean)),
             h('div', { class: 'stcr-follow-tools' }, ...[
                 iconButton('fa-arrow-up', '上一楼（[）', { 'data-act': 'floor-prev', 'data-index': index, disabled: index === 0 }),
                 iconButton('fa-arrows-up-to-line', '回到这一楼开头', { 'data-act': 'follow-top', 'data-index': index }),
                 iconButton('fa-arrow-down', '下一楼（]）', { 'data-act': 'floor-next', 'data-index': index, disabled: index >= session.handle.total - 1 }),
-                many ? buildSwipeControl(model, swipe) : null,
                 target.matches('.stcr-mes--system') ? null : mark,
             ].filter(Boolean)));
         follow.dataset.key = key;
@@ -1425,7 +1429,7 @@ function setFollowOpen(open) {
     const follow = S?.follow;
     if (!follow || follow.classList.contains('stcr-follow--open') === open) return;
     follow.classList.toggle('stcr-follow--open', open);
-    follow.querySelector('.stcr-follow-pill')?.setAttribute('aria-expanded', String(open));
+    follow.querySelector('.stcr-follow-head')?.setAttribute('aria-expanded', String(open));
 }
 
 /** 上一楼 / 下一楼（T80，反馈 2）：跳过收起来的楼，把那一楼的名字行放到视口顶端；还没渲染到就整批跳过去。 */

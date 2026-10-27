@@ -83,7 +83,8 @@ export async function testUiLogic() {
         equal(normalizePrefs({ width: 684 }).width, 680);
     });
     check('T80 设置：HTML 工具条默认显示，楼层胶囊默认在右；坏值回默认', () => {
-        equal([DEFAULT_PREFS.htmlBarHidden, DEFAULT_PREFS.followSide], [false, 'right']);
+        equal([DEFAULT_PREFS.htmlBarHidden, DEFAULT_PREFS.followSide, DEFAULT_PREFS.followOpen], [false, 'right', false]);
+        equal([normalizePrefs({ followOpen: true }).followOpen, normalizePrefs({ followOpen: 'yes' }).followOpen], [true, false]);
         equal(normalizePrefs({ htmlBarHidden: true, followSide: 'left' }).followSide, 'left');
         equal(normalizePrefs({ htmlBarHidden: true }).htmlBarHidden, true);
         equal([normalizePrefs({ htmlBarHidden: 1, followSide: 'top' }).htmlBarHidden, normalizePrefs({ followSide: 'top' }).followSide], [false, 'right']);

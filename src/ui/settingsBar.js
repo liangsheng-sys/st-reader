@@ -46,6 +46,9 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         h('span', { class: 'stcr-seg', role: 'group', 'aria-label': '楼层胶囊位置' },
             h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-side': 'left', text: '左' }),
             h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-side': 'right', text: '右' })));
+    // T80 验收后：胶囊一直展开（上一楼 / 下一楼常驻）
+    const followOpen = switchInput('胶囊默认展开');
+    followOpen.el.title = '楼层胶囊的 ↑ ⤒ ↓ 和收藏一直显示，不用先把鼠标移上去';
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
     const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
@@ -95,7 +98,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
             row('行距', lineRange, lineValue),
             row('宽度', widthRange, widthValue),
             row('思维链', reasoningSeg),
-            row('显示', hideUser.el, hideStHidden.el, redact.el, htmlBar.el, sideSeg)),
+            row('显示', hideUser.el, hideStHidden.el, redact.el, htmlBar.el, sideSeg, followOpen.el)),
         more,
         h('div', { class: 'stcr-set-foot' }, layoutBtn, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
@@ -126,6 +129,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     htmlNet.input.addEventListener('change', () => setPrefs({ htmlNetwork: htmlNet.input.checked }));
     redact.input.addEventListener('change', () => setPrefs({ redact: redact.input.checked }));
     htmlBar.input.addEventListener('change', () => setPrefs({ htmlBarHidden: htmlBar.input.checked }));
+    followOpen.input.addEventListener('change', () => setPrefs({ followOpen: followOpen.input.checked }));
     sideSeg.addEventListener('click', event => {
         const side = event.target.closest('[data-side]')?.dataset.side;
         if (side) setPrefs({ followSide: side });
@@ -165,6 +169,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         htmlNet.input.checked = prefs.htmlNetwork;
         redact.input.checked = prefs.redact;
         htmlBar.input.checked = prefs.htmlBarHidden;
+        followOpen.input.checked = prefs.followOpen;
         for (const button of sideSeg.querySelectorAll('[data-side]')) button.classList.toggle('stcr-on', button.dataset.side === prefs.followSide);
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);

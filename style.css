@@ -925,15 +925,18 @@
     transition: opacity .15s, color .15s, box-shadow .15s;
 }
 #stcr_root .stcr-follow:hover, #stcr_root .stcr-follow--open { color: var(--stcr-text); box-shadow: 0 4px 18px var(--stcr-shadow); }
-#stcr_root .stcr-follow-pill {
+#stcr_root .stcr-follow-pill { display: flex; flex-direction: column; align-items: center; width: 32px; }
+/* 名字这一截：点按展开 / 收起 */
+#stcr_root .stcr-follow-head {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 7px;
-    width: 32px;
+    width: 100%;
     padding: 11px 0 10px;
-    border-radius: 999px;
+    border-radius: 999px 999px 0 0;
 }
+#stcr_root .stcr-follow-head:only-child { border-radius: 999px; }
 #stcr_root .stcr-follow-name {
     writing-mode: vertical-rl;
     text-orientation: mixed;
@@ -943,7 +946,6 @@
     white-space: nowrap;
     letter-spacing: .1em;
 }
-#stcr_root .stcr-follow-count { font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #stcr_root .stcr-follow-dot { font-size: 7px; color: var(--stcr-accent); }
 #stcr_root .stcr-follow-tools {
     display: none;
@@ -955,16 +957,16 @@
 }
 #stcr_root .stcr-follow:hover .stcr-follow-tools,
 #stcr_root .stcr-follow--open .stcr-follow-tools,
+#stcr_root.stcr-follow-pinned .stcr-follow-tools,
 #stcr_root .stcr-follow:has(:focus-visible) .stcr-follow-tools { display: flex; }
 #stcr_root .stcr-follow .stcr-icon-btn { min-width: 30px; height: 30px; font-size: 12.5px; border-radius: 999px; }
+/* 换候选（验收后放进收起的胶囊）：竖排 ‹ 2 / 5 ›，上一个在上、下一个在下 */
 #stcr_root .stcr-follow .stcr-swipes {
     flex-direction: column;
-    margin: 2px 0;
-    padding: 2px 0;
-    border-block: 1px solid color-mix(in srgb, var(--stcr-border) 35%, transparent);
+    padding: 0 0 4px;
     font-size: 10.5px;
 }
-#stcr_root .stcr-follow .stcr-swipes .stcr-icon-btn { min-width: 30px; height: 26px; }
+#stcr_root .stcr-follow .stcr-swipes .stcr-icon-btn { min-width: 30px; height: 24px; font-size: 11px; }
 #stcr_root .stcr-follow .stcr-swipe-count { padding: 4px 0 7px; border-radius: 6px; font-size: 10px; letter-spacing: -.02em; }
 /* 贴边时会压在字上：平时淡一点，碰到就清楚 */
 #stcr_root .stcr-follow--edge { opacity: .72; }
@@ -1506,7 +1508,9 @@
     #stcr_root .stcr-redact-badge > span { display: none; }
     #stcr_root .stcr-topbar { gap: 2px; padding: 0 4px; }
     #stcr_root .stcr-follow { top: 10px; width: 30px; }
-    #stcr_root .stcr-follow-pill { width: 28px; padding: 9px 0 8px; }
+    #stcr_root .stcr-follow-pill { width: 28px; }
+    #stcr_root .stcr-follow-head { padding: 9px 0 8px; }
+    #stcr_root .stcr-follow .stcr-swipes .stcr-icon-btn { min-width: 28px; height: 30px; }
     #stcr_root .stcr-follow-name { max-height: 5.5em; }
     #stcr_root .stcr-follow .stcr-icon-btn { min-width: 28px; height: 34px; }
     #stcr_root .stcr-drawer-tab-label { display: inline; }

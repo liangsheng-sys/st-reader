@@ -25,6 +25,7 @@ export const DEFAULT_PREFS = Object.freeze({
     htmlWidth: 390,        // T44b：HTML 渲染宽度，390 / 768 / 1200 / 'fit'；最近一次选的记成默认
     htmlBarHidden: false,  // T80：HTML 块上方的工具条平时藏起来，悬停块时淡入（触屏点块右上角）
     followSide: 'right',   // T80：楼层胶囊（跟随条）在正文列的哪一侧，'right' / 'left'
+    followOpen: false,     // T80 验收后：楼层胶囊一直展开（上一楼 / 下一楼常驻），不用先悬停
     drawerPinned: false,
     panelPinned: false,
     updateNotice: true,    // T54b：更新后第一次打开弹"本次更新了什么"；面板里勾"不再提醒"就关
@@ -51,7 +52,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'htmlBarHidden', 'drawerPinned', 'panelPinned', 'updateNotice']) {
+    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
