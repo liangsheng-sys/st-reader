@@ -2,7 +2,7 @@
 // 阅读器界面自测（T21）。纯 Node 运行，无依赖：node src/ui/ui.test.js
 // 1) logic.js 的纯逻辑；2) 静态铁律：src/ui 不直接 fetch、不碰 /api、不写 chat/元信息/swipe_id、不用 ST 按钮类名。
 
-import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
+import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, followPlacement, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport } from './logic.js';
 
@@ -81,6 +81,26 @@ export async function testUiLogic() {
         equal([p.direction, p.mode, p.fontDelta, p.lineHeight, p.width, p.hideUser, p.expandAllReasoning], ['b', null, 14, 2.4, 480, false, true]);
         equal(normalizePrefs({ lineHeight: 1.66, width: 684 }).lineHeight, 1.7);
         equal(normalizePrefs({ width: 684 }).width, 680);
+    });
+    check('T80 设置：HTML 工具条默认显示，楼层胶囊默认在右；坏值回默认', () => {
+        equal([DEFAULT_PREFS.htmlBarHidden, DEFAULT_PREFS.followSide], [false, 'right']);
+        equal(normalizePrefs({ htmlBarHidden: true, followSide: 'left' }).followSide, 'left');
+        equal(normalizePrefs({ htmlBarHidden: true }).htmlBarHidden, true);
+        equal([normalizePrefs({ htmlBarHidden: 1, followSide: 'top' }).htmlBarHidden, normalizePrefs({ followSide: 'top' }).followSide], [false, 'right']);
+    });
+    check('T80 楼层胶囊位置：列外空白够就停在列旁不压字，不够贴边', () => {
+        // 1366 宽、正文列 683 居中：右侧空白 341，停在列右 16px 处
+        const wide = { areaLeft: 0, areaRight: 1366, columnLeft: 341, columnRight: 1024, width: 34 };
+        equal(followPlacement({ ...wide, side: 'right' }), { mode: 'margin', left: 1040 });
+        equal(followPlacement({ ...wide, side: 'left' }), { mode: 'margin', left: 291 });
+        // 正文区左边不在 0（抽屉钉住）：坐标相对正文区
+        equal(followPlacement({ areaLeft: 300, areaRight: 1366, columnLeft: 500, columnRight: 1100, width: 34, side: 'right' }), { mode: 'margin', left: 816 });
+        // 手机：列占满，贴边，胶囊整个在区域内
+        const narrow = { areaLeft: 0, areaRight: 390, columnLeft: 0, columnRight: 390, width: 30 };
+        equal(followPlacement({ ...narrow, side: 'right' }), { mode: 'edge', left: 354 });
+        equal(followPlacement({ ...narrow, side: 'left' }), { mode: 'edge', left: 6 });
+        // 空白刚好差一点也贴边
+        equal(followPlacement({ areaLeft: 0, areaRight: 1000, columnLeft: 0, columnRight: 950, width: 34, side: 'right' }).mode, 'edge');
     });
     check('方向默认：B 滚动+跟随 ST 宽度，A 分页+680；用户改过的优先', () => {
         equal(effectivePrefs(normalizePrefs({})).mode, 'scroll');

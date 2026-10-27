@@ -219,7 +219,10 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             iconButton('fa-camera', '截图分享（脱敏，可框选一部分）', { 'data-act': 'html-shot' }));
         const frame = h('div', { class: 'stcr-html-frame' });
         const stage = h('div', { class: 'stcr-html-stage' }, frame);
-        const shell = h('div', { class: 'stcr-html', 'data-stcr-ignore-anchor': '', 'data-html-key': entry.key }, bar, stage);
+        // T80"隐藏 HTML 工具条"开着时，触屏没有悬停：点块右上角这个小钮把工具条叫出来（点别处收起）
+        const handle = iconButton('fa-ellipsis', 'HTML 工具条（渲染 / 原文、宽度、截图）', { class: 'stcr-html-handle', 'aria-expanded': 'false' });
+        const shell = h('div', { class: 'stcr-html', 'data-stcr-ignore-anchor': '', 'data-html-key': entry.key }, bar, stage, handle);
+        handle.addEventListener('click', () => showBar(shell, !shell.classList.contains('stcr-html--bar-on')));
         bar.addEventListener('click', event => {
             const mode = event.target.closest('[data-html]')?.dataset.html;
             if (mode) { setMode(entry, mode); return; }
@@ -231,6 +234,15 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         entry.scale = 1;
         return shell;
     }
+
+    function showBar(shell, on) {
+        shell.classList.toggle('stcr-html--bar-on', on);
+        shell.querySelector(':scope > .stcr-html-handle')?.setAttribute('aria-expanded', String(on));
+    }
+    // 叫出来的工具条：点到这一块以外就收起
+    scroller.addEventListener('click', event => {
+        for (const shell of chat.querySelectorAll('.stcr-html--bar-on')) if (!shell.contains(event.target)) showBar(shell, false);
+    });
 
     function paint(entry) {
         const s = get(entry.key);

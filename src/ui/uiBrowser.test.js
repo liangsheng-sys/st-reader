@@ -160,7 +160,82 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     results.push(...await testHiddenFloorsBrowser({ force, quiet: true }));
     results.push(...await testRawFallbackBrowser({ force, quiet: true }));
     results.push(...await testHtmlAfterRegexBrowser({ force, quiet: true }));
+    results.push(...await testNavBrowser({ force, quiet: true }));
     console.table(results);
+    return results;
+}
+
+/**
+ * T80：楼层胶囊与上下楼。打开纸舟合成聊天（只读），在当前视口下检查：
+ * 胶囊停在正文列外不压字（视口 ≥1000 时）、展开不变宽；↓ / ] 到下一楼开头，[ 回上一楼，输入框里按键不抢；
+ * "隐藏 HTML 工具条"时工具条不占位、平时看不见，叫出来才显示（只切根节点的类，不改用户设置）；顶栏按钮不被压缩。
+ */
+export async function testNavBrowser({ force = false, quiet = false, chatKey = 'STCR_T11_Paper.png/STCR-02-代码与长文' } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    if (isReaderOpen()) closeReader();
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `楼层胶囊：${name}`, passed: !!passed, detail: String(detail) });
+    const until = async (test, ms = 8000) => { const end = Date.now() + ms; while (!test() && Date.now() < end) await wait(50); return test(); };
+    try {
+        await openReader({ chatKey });
+        const root = document.getElementById('stcr_root');
+        await until(() => root.querySelectorAll('#stcr_chat .mes').length > 4 && getComputedStyle(root).position === 'fixed'); // 刚刷新时扩展样式表可能还没到
+        // 新浏览器第一次打开会弹"更新了什么"，开着时快捷键不响应
+        if (await until(() => root.querySelector('.stcr-doc'), 1500)) root.querySelector('.stcr-doc-close')?.click();
+        const scroller = root.querySelector('.stcr-scroll'), chat = root.querySelector('#stcr_chat'), follow = root.querySelector('.stcr-follow');
+        const view = () => scroller.getBoundingClientRect();
+        const topOf = index => Math.round(root.querySelector(`#stcr_chat .mes[mesid="${index}"]`).getBoundingClientRect().top - view().top);
+        const current = () => Number(follow.querySelector('[data-act="floor-next"]')?.dataset.index);
+        const floor = root.querySelector('#stcr_chat .mes[mesid="3"]');
+        scroller.scrollTop += floor.getBoundingClientRect().top - view().top + 40;
+        await until(() => !follow.hidden && current() === 3, 2000);
+        check('胶囊显示视口顶端这一楼', !follow.hidden && current() === 3, `当前 ${current()}`);
+        const f = follow.getBoundingClientRect(), c = chat.getBoundingClientRect();
+        if (innerWidth >= 1000) check('≥1000px：停在正文列外，不和正文重叠', f.left >= c.right || f.right <= c.left, `胶囊 ${Math.round(f.left)}–${Math.round(f.right)}，正文 ${Math.round(c.left)}–${Math.round(c.right)}`);
+        const tools = follow.querySelector('.stcr-follow-tools');
+        check('平时收成胶囊（按钮列藏着）', getComputedStyle(tools).display === 'none');
+        follow.querySelector('[data-act="follow-toggle"]').click();
+        check('点按展开，宽度不变', getComputedStyle(tools).display === 'flex' && Math.round(follow.getBoundingClientRect().width) === Math.round(f.width), follow.getBoundingClientRect().width);
+        follow.querySelector('[data-act="floor-next"]').click();
+        await wait(100);
+        check('↓ 到下一楼开头', current() === 4 && Math.abs(topOf(4) - 8) <= 2, `当前 ${current()}，楼顶 ${topOf(4)}`);
+        check('跳楼后仍展开（触屏可以连点）', follow.classList.contains('stcr-follow--open'));
+        scroller.click();
+        check('点别处收起', !follow.classList.contains('stcr-follow--open'));
+        const key = (k, target = scroller) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+        scroller.focus();
+        key(']'); await wait(100);
+        check('] 下一楼', current() === 5 && Math.abs(topOf(5) - 8) <= 2, `当前 ${current()}`);
+        key('['); await wait(100);
+        check('[ 上一楼', current() === 4 && Math.abs(topOf(4) - 8) <= 2, `当前 ${current()}`);
+        const input = h('input', { type: 'text' });
+        root.append(input);
+        input.focus();
+        key(']', input); await wait(100);
+        input.remove();
+        check('输入框聚焦时 ] 不抢', current() === 4, `当前 ${current()}`);
+        const shell = root.querySelector('.stcr-html:not(.stcr-html--source)');
+        if (shell) {
+            const bar = shell.querySelector('.stcr-html-bar');
+            const had = root.classList.contains('stcr-html-bar-hidden');
+            root.classList.add('stcr-html-bar-hidden');
+            await wait(300); // 淡出过渡走完
+            const hidden = getComputedStyle(bar);
+            check('隐藏 HTML 工具条：不占位、平时看不见', hidden.position === 'absolute' && hidden.visibility === 'hidden', `${hidden.position} / ${hidden.visibility}`);
+            shell.classList.add('stcr-html--bar-on');
+            check('叫出来（触屏点 ⋯）就显示', getComputedStyle(bar).visibility === 'visible');
+            shell.classList.remove('stcr-html--bar-on');
+            root.classList.toggle('stcr-html-bar-hidden', had);
+            if (!had) check('关掉开关：工具条回到块上方占位', getComputedStyle(bar).position === 'static');
+        } else check('样本里有渲染中的 HTML 块', false, '没找到');
+        const top = [...root.querySelector('.stcr-topbar').children].filter(el => !el.matches('.stcr-title'));
+        check('顶栏按钮不被压缩（I054）', top.every(el => getComputedStyle(el).flexShrink === '0'));
+        const x = root.querySelector('[data-act="exit"]').getBoundingClientRect();
+        check('✕ 完整在视口内', x.left >= 0 && x.top >= 0 && x.right <= innerWidth && x.bottom <= innerHeight, `${Math.round(x.left)},${Math.round(x.top)}–${Math.round(x.right)},${Math.round(x.bottom)}`);
+    } finally {
+        if (isReaderOpen()) closeReader();
+    }
+    if (!quiet) console.table(results);
     return results;
 }
 

@@ -38,6 +38,14 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     hideStHidden.el.title = '在 ST 里点过小眼睛（不发给模型）的楼，用户楼和角色楼都收成一行，点开能看';
     const redact = switchInput('脱敏显示');
     redact.el.title = '正文按屏蔽词与替换规则显示（只改阅读器里看到的，不改聊天）；划线照常可用';
+    // T80：HTML 块上方的工具条平时藏起来（鼠标移到块上淡入；触屏点块右上角）；楼层胶囊放正文哪一侧
+    const htmlBar = switchInput('隐藏 HTML 工具条');
+    htmlBar.el.title = 'HTML 块上方那条"渲染 / 原文 / 宽度 / 截图"平时不显示；鼠标移到块上会淡入，触屏点块右上角的小圆点';
+    const sideSeg = h('span', { class: 'stcr-follow-side', title: '写着楼名的那枚小胶囊（上一楼 / 下一楼）放在正文哪一边' },
+        h('span', { class: 'stcr-set-switch-label', text: '楼层胶囊' }),
+        h('span', { class: 'stcr-seg', role: 'group', 'aria-label': '楼层胶囊位置' },
+            h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-side': 'left', text: '左' }),
+            h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-side': 'right', text: '右' })));
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
     const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
@@ -87,7 +95,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
             row('行距', lineRange, lineValue),
             row('宽度', widthRange, widthValue),
             row('思维链', reasoningSeg),
-            row('显示', hideUser.el, hideStHidden.el, redact.el)),
+            row('显示', hideUser.el, hideStHidden.el, redact.el, htmlBar.el, sideSeg)),
         more,
         h('div', { class: 'stcr-set-foot' }, layoutBtn, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
@@ -117,6 +125,11 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     });
     htmlNet.input.addEventListener('change', () => setPrefs({ htmlNetwork: htmlNet.input.checked }));
     redact.input.addEventListener('change', () => setPrefs({ redact: redact.input.checked }));
+    htmlBar.input.addEventListener('change', () => setPrefs({ htmlBarHidden: htmlBar.input.checked }));
+    sideSeg.addEventListener('click', event => {
+        const side = event.target.closest('[data-side]')?.dataset.side;
+        if (side) setPrefs({ followSide: side });
+    });
     reasoningSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-reasoning]')?.dataset.reasoning;
         if (mode === 'hide') setPrefs({ hideReasoning: true });
@@ -151,6 +164,8 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         for (const button of htmlSeg.children) button.classList.toggle('stcr-on', button.dataset.htmlMode === prefs.htmlMode);
         htmlNet.input.checked = prefs.htmlNetwork;
         redact.input.checked = prefs.redact;
+        htmlBar.input.checked = prefs.htmlBarHidden;
+        for (const button of sideSeg.querySelectorAll('[data-side]')) button.classList.toggle('stcr-on', button.dataset.side === prefs.followSide);
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
         versionRow?.sync();

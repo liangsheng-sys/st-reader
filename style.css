@@ -34,6 +34,11 @@
     overflow: hidden;
     overflow: clip; /* 不让聚焦/滚到某元素时把整个阅读器外框推走（只有里面的滚动区能滚） */
     font-family: var(--mainFontFamily, inherit);
+    /* 手机刘海 / 状态栏（T80，I054）：顶栏让到安全区下面；border-box 让留白算在 100dvh 里，不把底栏挤出屏幕 */
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
 }
 #stcr_root *, #stcr_root *::before, #stcr_root *::after { box-sizing: border-box; }
 #stcr_root [hidden] { display: none !important; }
@@ -83,8 +88,10 @@
     z-index: 3;
     min-width: 0;
 }
+/* 顶栏按钮一律不被压缩：窄屏只让标题省略（I054：TauriTavern 手机竖屏 ✕ 被挤出屏幕） */
+#stcr_root .stcr-topbar > * { flex-shrink: 0; }
 #stcr_root .stcr-title {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
     display: flex;
     align-items: baseline;
@@ -275,6 +282,49 @@
 #stcr_root .stcr-html-fail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 18px; color: var(--stcr-faint); font-size: 13px;
     border-radius: 10px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stcr-border) 60%, transparent); }
 #stcr_root .stcr-html-src--hidden { display: none !important; }
+/* T80"隐藏 HTML 工具条"：渲染时工具条不占位，浮在块的右上角，平时透明；鼠标移到块上（或键盘聚焦进去）淡入。
+ * 触屏没有悬停：块右上角留一个淡淡的 ⋯，点它叫出工具条，点别处收起。看原文时工具条照常显示（那时块里只剩它）。 */
+#stcr_root .stcr-html { position: relative; }
+#stcr_root .stcr-html-handle { display: none; }
+#stcr_root.stcr-html-bar-hidden .stcr-html:not(.stcr-html--source) > .stcr-html-bar {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    max-width: calc(100% - 12px);
+    padding: 3px 4px 3px 10px;
+    border: 1px solid color-mix(in srgb, var(--stcr-border) 70%, transparent);
+    border-radius: 12px;
+    background: var(--stcr-panel);
+    box-shadow: 0 3px 14px var(--stcr-shadow);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .18s ease, visibility 0s linear .18s;
+}
+#stcr_root.stcr-html-bar-hidden .stcr-html:not(.stcr-html--source):hover > .stcr-html-bar,
+#stcr_root.stcr-html-bar-hidden .stcr-html:not(.stcr-html--source):has(> .stcr-html-bar :focus-visible) > .stcr-html-bar,
+#stcr_root.stcr-html-bar-hidden .stcr-html--bar-on:not(.stcr-html--source) > .stcr-html-bar {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .18s ease, visibility 0s;
+}
+@media (hover: none) {
+    #stcr_root.stcr-html-bar-hidden .stcr-html:not(.stcr-html--source) > .stcr-html-handle {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        z-index: 1;
+        display: inline-flex;
+        min-width: 30px;
+        height: 30px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--stcr-panel) 70%, transparent);
+        font-size: 12px;
+        opacity: .55;
+    }
+    /* 触屏上 :hover 会粘在最后点过的地方，只认 ⋯ 叫出来的状态 */
+    #stcr_root.stcr-html-bar-hidden .stcr-html:not(.stcr-html--source):not(.stcr-html--bar-on):hover > .stcr-html-bar { opacity: 0; visibility: hidden; }
+}
 
 /* HTML 截图（F10a）：沿用卡片工作台的外框与右侧设置栏，左边预览 + 框选 */
 #stcr_root .stcr-shot-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; overflow: auto; padding: 22px 24px 48px; }
@@ -853,25 +903,72 @@
 
 /* ── 抽屉"收藏"页签：按聊天分组 ── */
 
-/* ── 跟随条：长楼的名字行滚出去以后浮在正文右上角 ── */
+/* ── 楼层胶囊（T80，取代跟随条）：竖着的一枚细胶囊，写着视口顶端这一楼的名字与候选序号；
+ *    悬停 / 点按往下展开一列：上一楼、回到这一楼开头、下一楼、换候选、收藏。
+ *    横向位置由 reader.placeFollower 算：列外空白够就停在列旁不压字，不够（--edge）贴正文区边缘。 ── */
 #stcr_root .stcr-follow {
     position: absolute;
-    top: 8px;
+    top: 14px;
     z-index: 4;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 2px;
-    max-width: calc(100% - 16px);
-    padding: 2px 4px 2px 12px;
-    border: 1px solid var(--stcr-border);
+    width: 34px; /* 展开也不变宽：停在列旁时不往字上长 */
+    border: 1px solid color-mix(in srgb, var(--stcr-border) 70%, transparent);
     border-radius: 999px;
     background: var(--stcr-panel);
-    box-shadow: 0 3px 14px var(--stcr-shadow);
-    font-size: 13px;
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--stcr-shadow) 55%, transparent);
+    color: var(--stcr-faint);
+    font-size: 12px;
+    line-height: 1;
     animation: stcr-fade .15s ease-out;
+    transition: opacity .15s, color .15s, box-shadow .15s;
 }
-#stcr_root .stcr-follow-name { max-width: 12em; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--stcr-faint); }
-#stcr_root .stcr-follow .stcr-icon-btn { min-width: 28px; height: 28px; font-size: 12px; }
+#stcr_root .stcr-follow:hover, #stcr_root .stcr-follow--open { color: var(--stcr-text); box-shadow: 0 4px 18px var(--stcr-shadow); }
+#stcr_root .stcr-follow-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    width: 32px;
+    padding: 11px 0 10px;
+    border-radius: 999px;
+}
+#stcr_root .stcr-follow-name {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    max-height: 7.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: .1em;
+}
+#stcr_root .stcr-follow-count { font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#stcr_root .stcr-follow-dot { font-size: 7px; color: var(--stcr-accent); }
+#stcr_root .stcr-follow-tools {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 0 6px;
+    border-top: 1px solid color-mix(in srgb, var(--stcr-border) 50%, transparent);
+}
+#stcr_root .stcr-follow:hover .stcr-follow-tools,
+#stcr_root .stcr-follow--open .stcr-follow-tools,
+#stcr_root .stcr-follow:has(:focus-visible) .stcr-follow-tools { display: flex; }
+#stcr_root .stcr-follow .stcr-icon-btn { min-width: 30px; height: 30px; font-size: 12.5px; border-radius: 999px; }
+#stcr_root .stcr-follow .stcr-swipes {
+    flex-direction: column;
+    margin: 2px 0;
+    padding: 2px 0;
+    border-block: 1px solid color-mix(in srgb, var(--stcr-border) 35%, transparent);
+    font-size: 10.5px;
+}
+#stcr_root .stcr-follow .stcr-swipes .stcr-icon-btn { min-width: 30px; height: 26px; }
+#stcr_root .stcr-follow .stcr-swipe-count { padding: 4px 0 7px; border-radius: 6px; font-size: 10px; letter-spacing: -.02em; }
+/* 贴边时会压在字上：平时淡一点，碰到就清楚 */
+#stcr_root .stcr-follow--edge { opacity: .72; }
+#stcr_root .stcr-follow--edge:hover, #stcr_root .stcr-follow--edge.stcr-follow--open { opacity: 1; }
 #stcr_root.stcr-chrome-hidden .stcr-follow { opacity: .35; }
 #stcr_root.stcr-chrome-hidden .stcr-follow:hover { opacity: 1; }
 
@@ -1404,7 +1501,14 @@
     #stcr_root .stcr-panel--open, #stcr_root.stcr-panel-pinned .stcr-panel--open { transform: none; }
     #stcr_root .stcr-panel-close { display: inline-flex; }
     #stcr_root .stcr-item-x { opacity: .6; }
-    #stcr_root .stcr-follow-name { max-width: 6em; }
+    /* 顶栏：脱敏角标只留图标，给标题多留点地方 */
+    #stcr_root .stcr-redact-badge { padding: 2px 7px; }
+    #stcr_root .stcr-redact-badge > span { display: none; }
+    #stcr_root .stcr-topbar { gap: 2px; padding: 0 4px; }
+    #stcr_root .stcr-follow { top: 10px; width: 30px; }
+    #stcr_root .stcr-follow-pill { width: 28px; padding: 9px 0 8px; }
+    #stcr_root .stcr-follow-name { max-height: 5.5em; }
+    #stcr_root .stcr-follow .stcr-icon-btn { min-width: 28px; height: 34px; }
     #stcr_root .stcr-drawer-tab-label { display: inline; }
     /* 手机：名字行放不下，工具条点 ⋯ 后换到名字行下面单独一行 */
     #stcr_root #stcr_chat .stcr-mes .ch_name { flex-wrap: wrap; }
@@ -1518,3 +1622,6 @@
 #stcr_root.stcr-has-banner .stcr-follow { top: 52px; }
 #stcr_root .stcr-set-backup > .stcr-set-label { align-self: flex-start; line-height: 1.6; }
 @media (max-width: 599px) { #stcr_root .stcr-backup-sep { display: none; } }
+/* T80：Aa → 显示 里的"楼层胶囊 左 / 右" */
+#stcr_root .stcr-follow-side { display: inline-flex; align-items: center; gap: 8px; margin-left: 14px; }
+#stcr_root .stcr-follow-side .stcr-seg-btn { min-width: 2.6em; padding: 3px 10px; }

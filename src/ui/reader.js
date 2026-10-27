@@ -18,7 +18,7 @@ import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorFault, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, faultReport, foldRuns, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
+import { effectivePrefs, faultReport, foldRuns, followPlacement, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -175,7 +175,7 @@ export async function openReader({ tab, chatKey } = {}) {
             if (changed && getPrefs().redact) loadRedaction(session).then(() => { if (S === session) { refreshSideTexts(session); rerender(captureAnchor()); } });
         },
     });
-    session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼' });
+    session.follow = h('div', { class: 'stcr-follow', hidden: true, role: 'toolbar', 'aria-label': '当前这一楼', 'data-side': 'right' });
     root.querySelector('.stcr-body').prepend(session.drawer.el);
     root.querySelector('.stcr-body').append(session.panel.el);
     session.main.append(session.follow);
@@ -462,6 +462,7 @@ function onClick(event) {
     if (!target.isConnected) return;
     if (session.popover && !session.popover.contains(target) && !target.closest('[data-act="swipe-list"], [data-act="jump"]')) closePopover(session);
     if (session.settings.isOpen() && !session.settings.panel.contains(target) && target !== session.settings.fab) session.settings.close();
+    if (!session.follow.contains(target)) setFollowOpen(false);
     // 抽屉/面板没钉住时浮在正文上，点它外面就收起（02 §3.1）。
     let dismissedOverlay = false;
     if (session.drawer.isOpen() && !session.drawer.el.contains(target) && !target.closest('[data-act="drawer"], [data-act="open-drawer"]')
@@ -508,6 +509,9 @@ function onClick(event) {
                 return;
             }
             case 'follow-top': if (mes) scrollFloorTop(mes); return;
+            case 'follow-toggle': setFollowOpen(!session.follow.classList.contains('stcr-follow--open')); return;
+            case 'floor-prev': stepFloor(Number(actEl.dataset.index), -1); return;
+            case 'floor-next': stepFloor(Number(actEl.dataset.index), 1); return;
             case 'more': mes?.classList.toggle('stcr-toolbar-pinned'); return;
             case 'reasoning': if (mes) toggleReasoning(mes); return;
             case 'copy': if (mes) copyFloor(mes); return;
@@ -588,8 +592,10 @@ function handleKey(event) {
         case 'ArrowUp': paged ? flip(-1) : session.scroller.scrollBy({ top: -60 }); break;
         case 'Home': if (session.handle?.total) jumpTo(0); break;
         case 'End': if (session.handle?.total) jumpTo(session.handle.total - 1); break;
-        case '[': { const mes = keyTarget(); if (mes) stepSwipe(mes, -1); break; }
-        case ']': { const mes = keyTarget(); if (mes) stepSwipe(mes, 1); break; }
+        // T80：[ ] 上一楼 / 下一楼（以视口顶端这一楼为准）；换候选挪到 , .（同一个键上的 < >）
+        case '[': case ']': { const mes = currentFloor(); if (mes) stepFloor(Number(mes.getAttribute('mesid')), event.key === ']' ? 1 : -1); break; }
+        case ',': case '<': { const mes = keyTarget(); if (mes) stepSwipe(mes, -1); break; }
+        case '.': case '>': { const mes = keyTarget(); if (mes) stepSwipe(mes, 1); break; }
         case 'r': case 'R': { const mes = getPrefs().hideReasoning ? null : keyTarget(); if (mes) toggleReasoning(mes); break; }
         case 'b': case 'B': { const mes = keyTarget(); if (mes && !mes.classList.contains('stcr-mes--system')) toggleBookmark(mes, false); break; }
         case 'g': case 'G': openJump(); break;
@@ -655,6 +661,7 @@ function applyPrefs(prefs) {
     root.classList.toggle('stcr-hide-user', prefs.hideUser);
     root.classList.toggle('stcr-hide-reasoning', prefs.hideReasoning);
     root.classList.toggle('stcr-redacted', prefs.redact);
+    root.classList.toggle('stcr-html-bar-hidden', prefs.htmlBarHidden);
     setRedactState(prefs.redact ? S.redact : null);
     setTitles(S);
     S.redactBadge.hidden = !prefs.redact;
@@ -667,6 +674,7 @@ function applyPrefs(prefs) {
     if (shown.width !== null) root.style.setProperty('--stcr-width', `${shown.width}px`);
     else root.style.removeProperty('--stcr-width');
     if (prefs.direction !== 'a') root.classList.remove('stcr-chrome-hidden');
+    S.follow.dataset.side = prefs.followSide;
     S.settings.sync();
 }
 
@@ -1337,45 +1345,100 @@ function updateProgress() {
     setReadPosition(session.chatKey, first, { title: session.handle.title, owner: session.owner });
 }
 
+/** 视口顶端正在读的那一楼（露出一条缝的不算）；没有返回 null。 */
+function currentFloor() {
+    const session = S;
+    if (!session?.handle?.total) return null;
+    const view = session.scroller.getBoundingClientRect();
+    for (const el of renderedFloors()) {
+        if (!isShown(el)) continue;
+        if (el.getBoundingClientRect().bottom > view.top + 16) return el;
+    }
+    return null;
+}
+
 /**
- * 跟随条（T21 反馈）：长楼（比大半屏还高）的名字行滚出屏幕、还在读这一楼时，正文右上角浮出
- * 「名字 · ◂ 2/5 ▸ · ⤒」。这一楼读完（楼底滚过顶端）就消失。普通长度的楼不出现，免得滚动时一闪一闪。
+ * 楼层胶囊（T80，取代 T21 的跟随条；反馈 2、8）：平时是一枚竖着的细胶囊，写着视口顶端这一楼的名字和候选序号 2/5；
+ * 悬停或点按展开一列按钮：上一楼、回到这一楼开头、下一楼、换候选、收藏。
+ * 正文列外侧的空白放得下就停在列旁（左 / 右在 Aa → 显示里选），绝不压字；放不下（手机、窄窗口）贴正文区边缘。
+ * 展开是往下长的一列，宽度和胶囊差不多，不往字上盖。
  */
 function updateFollower() {
     const session = S;
     const follow = session?.follow;
     if (!follow) return;
-    let target = null;
-    if (session.handle?.total) {
-        const view = session.scroller.getBoundingClientRect();
-        for (const el of renderedFloors()) {
-            if (!isShown(el)) continue;
-            const r = el.getBoundingClientRect();
-            if (r.bottom <= view.top + 16) continue;
-            const head = el.querySelector(':scope > .mes_block > .ch_name');
-            if (head && !el.matches('.stcr-mes--system, .stcr-mes--broken') && r.height > view.height * 0.8
-                && head.getBoundingClientRect().bottom < view.top && r.bottom > view.top + 160) target = el;
-            break;
-        }
-    }
-    if (!target) { follow.hidden = true; return; }
+    const target = currentFloor();
+    if (!target) { follow.hidden = true; setFollowOpen(false); return; }
     const index = Number(target.getAttribute('mesid'));
     const swipe = Number(target.dataset.swipe);
-    const key = `${session.chatKey}:${index}:${swipe}`;
+    const floorMarked = target.classList.contains('stcr-floor-bookmarked');
+    const swipeMarked = target.classList.contains('stcr-swipe-bookmarked');
+    const key = `${session.chatKey}:${index}:${swipe}:${floorMarked}:${swipeMarked}`;
     if (follow.dataset.key !== key) {
         const model = session.handle.getMessage(index);
+        const many = model.swipes.length > 1;
+        const name = redactString(model.name, S.chatKey) || `第 ${index + 1} 楼`;
+        // 多候选的楼收藏"这个候选"（星，和楼层工具条一致），单候选的收藏整楼（书签）
+        const on = many ? swipeMarked : floorMarked;
+        const mark = many
+            ? iconButton('fa-star', on ? `取消收藏第 ${swipe + 1} 个候选` : `收藏这个候选（第 ${swipe + 1} 个）`, { 'data-act': 'bookmark-swipe', 'data-index': index, 'aria-pressed': String(on) })
+            : iconButton('fa-bookmark', on ? '取消收藏这一楼' : '收藏这一楼（B）', { 'data-act': 'bookmark-floor', 'data-index': index, 'aria-pressed': String(on) });
+        mark.classList.toggle('stcr-on', on);
+        if (!on) mark.querySelector('i').classList.replace('fa-solid', 'fa-regular');
+        const open = follow.classList.contains('stcr-follow--open');
         // replaceChildren 会把 null 写成文字"null"，先滤掉
-        follow.replaceChildren(...[
-            h('span', { class: 'stcr-follow-name', text: redactString(model.name, S.chatKey) }),
-            model.swipes.length > 1 ? buildSwipeControl(model, swipe) : null,
-            iconButton('fa-arrow-up', '回到这一楼开头', { 'data-act': 'follow-top', 'data-index': index }),
-        ].filter(Boolean));
+        follow.replaceChildren(
+            h('button', { type: 'button', class: 'stcr-btn stcr-follow-pill', 'data-act': 'follow-toggle', 'aria-expanded': String(open),
+                title: `第 ${index + 1} 楼 · ${name}${many ? ` · 第 ${swipe + 1} 个候选，共 ${model.swipes.length} 个` : ''}（悬停或点按：上一楼 / 下一楼）` },
+            ...[h('span', { class: 'stcr-follow-name', text: name }),
+                many ? h('span', { class: 'stcr-follow-count', text: `${swipe + 1}/${model.swipes.length}` }) : null,
+                on ? h('i', { class: `fa-solid ${many ? 'fa-star' : 'fa-bookmark'} stcr-follow-dot`, 'aria-hidden': 'true' }) : null].filter(Boolean)),
+            h('div', { class: 'stcr-follow-tools' }, ...[
+                iconButton('fa-arrow-up', '上一楼（[）', { 'data-act': 'floor-prev', 'data-index': index, disabled: index === 0 }),
+                iconButton('fa-arrows-up-to-line', '回到这一楼开头', { 'data-act': 'follow-top', 'data-index': index }),
+                iconButton('fa-arrow-down', '下一楼（]）', { 'data-act': 'floor-next', 'data-index': index, disabled: index >= session.handle.total - 1 }),
+                many ? buildSwipeControl(model, swipe) : null,
+                target.matches('.stcr-mes--system') ? null : mark,
+            ].filter(Boolean)));
         follow.dataset.key = key;
+        follow.hidden = false;
     }
-    follow.classList.toggle('stcr-swipe-bookmarked', target.classList.contains('stcr-swipe-bookmarked'));
-    const main = session.main.getBoundingClientRect(), chat = session.chat.getBoundingClientRect();
-    follow.style.right = `${Math.max(8, main.right - chat.right + 8)}px`;
+    follow.classList.toggle('stcr-swipe-bookmarked', swipeMarked); // 展开后候选数字右上的小星
     follow.hidden = false;
+    placeFollower(session);
+}
+
+/** 胶囊的横向位置：列外空白够就贴着列外侧，不够就贴正文区边缘（logic.followPlacement）。 */
+function placeFollower(session) {
+    const { follow, scroller, chat } = session;
+    const area = scroller.getBoundingClientRect(), column = chat.getBoundingClientRect();
+    const gutter = (scroller.offsetWidth - scroller.clientWidth) / 2; // 滚动条（两侧对称预留）
+    const side = follow.dataset.side === 'left' ? 'left' : 'right';
+    const width = matchMedia('(max-width: 599px)').matches ? 30 : 34; // 与 style.css 里胶囊的宽度一致；不量，省一次强制排版
+    const spot = followPlacement({ areaLeft: area.left + gutter, areaRight: area.right - gutter, columnLeft: column.left, columnRight: column.right, side, width });
+    follow.classList.toggle('stcr-follow--edge', spot.mode === 'edge');
+    const left = `${Math.round(spot.left + gutter)}px`;
+    if (follow.style.left !== left) follow.style.left = left;
+}
+
+function setFollowOpen(open) {
+    const follow = S?.follow;
+    if (!follow || follow.classList.contains('stcr-follow--open') === open) return;
+    follow.classList.toggle('stcr-follow--open', open);
+    follow.querySelector('.stcr-follow-pill')?.setAttribute('aria-expanded', String(open));
+}
+
+/** 上一楼 / 下一楼（T80，反馈 2）：跳过收起来的楼，把那一楼的名字行放到视口顶端；还没渲染到就整批跳过去。 */
+function stepFloor(from, delta) {
+    const session = S;
+    const total = session?.handle?.total ?? 0;
+    if (!Number.isInteger(from) || !total) return;
+    for (let i = from + delta; i >= 0 && i < total; i += delta) {
+        const el = floorEl(i);
+        if (!el) { jumpTo(i); return; }
+        if (isShown(el)) { scrollFloorTop(el); return; }
+    }
+    say(delta > 0 ? '已经是最后一楼' : '已经是第一楼');
 }
 
 // ───────────────────────── 楼层操作 ─────────────────────────
