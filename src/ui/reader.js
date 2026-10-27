@@ -95,8 +95,9 @@ export async function openReader({ tab, chatKey } = {}) {
         panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), redactBadge: root.querySelector('.stcr-redact-badge'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
-        userAvatar: '', restoreFocus: document.activeElement, cleanup: [], popover: null, popoverDismiss: null,
+        userAvatar: '', restoreFocus: document.activeElement, cleanup: [], hold: null, popover: null, popoverDismiss: null,
         chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
+        prebuilt: new Map(), renderVersion: 0, prebuildJob: 0, // T82：空闲时先建好的前后批
         banner: null, staleOff: null, reloading: false, restoring: false,
     };
     S = session;
@@ -314,6 +315,7 @@ export function closeReader() {
         session.chat.replaceChildren();
         session.staleOff?.();
         session.handle?.close();
+        dropPrebuilt(session);
         session.handle = null;
         session.drawer.destroy();
     } finally {
@@ -404,9 +406,12 @@ function wireEvents(session) {
         else if (pop?.matches('.stcr-sel-pop, .stcr-sel-menu, .stcr-swipe-list')) closePopover(session, { cancel: true });
         session.selUi.hideBubble();
         if (frame) return;
-        frame = requestAnimationFrame(() => { frame = 0; if (S === session) { ensureWindow(); updateProgress(); } });
+        // T82：每帧只看要不要接上 / 释放一批（读三个滚动数，不遍历楼层）；进度和胶囊由 trackVisibleFloors 在跨楼时更新
+        frame = requestAnimationFrame(() => { frame = 0; if (S === session) ensureWindow(); });
     }, { passive: true });
     scroller.addEventListener('wheel', onWheel, { passive: false });
+    const letGo = () => { session.hold = null; }; // 人接手滚动，holdAt 放手
+    for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown']) scroller.addEventListener(type, letGo, { passive: true });
     chat.addEventListener('mouseover', event => {
         const mes = event.target.closest?.('.mes[mesid]');
         if (mes) session.hoverIndex = Number(mes.getAttribute('mesid'));
@@ -427,6 +432,47 @@ function wireEvents(session) {
     const onResize = () => { if (S === session) { ensureWindow(); updateProgress(); } };
     window.addEventListener('resize', onResize);
     session.cleanup.push(() => window.removeEventListener('resize', onResize));
+    trackVisibleFloors(session);
+}
+
+/**
+ * T82（I020）：看得见的楼由 IntersectionObserver 记着（露出不到 16px 的不算，和 updateProgress 的老规矩一样），
+ * 滚动时不再每帧把 120 楼挨个 getBoundingClientRect。集合一变（跨进 / 跨出一楼），至多每 100ms 更新一次进度和楼层胶囊。
+ * 楼层进出 DOM（接批、释放、换候选重建）由 MutationObserver 跟着 observe / unobserve。
+ * 跳楼、翻页、改设置这些一次性的地方仍直接调 updateProgress()，按老办法当场量，结果不等观察器。
+ */
+function trackVisibleFloors(session) {
+    const visible = new Set();
+    let timer = 0, last = 0;
+    const flush = () => {
+        timer = 0; last = performance.now();
+        if (S !== session || !session.handle?.total) return;
+        let first = null, end = null;
+        for (const el of visible) {
+            if (!el.isConnected) { visible.delete(el); continue; }
+            const index = Number(el.getAttribute('mesid'));
+            if (first === null || index < first.index) first = { el, index };
+            if (end === null || index > end) end = index;
+        }
+        updateProgress(first ? { first: first.index, last: end, top: first.el } : { first: null });
+    };
+    const io = new IntersectionObserver(entries => {
+        for (const entry of entries) entry.isIntersecting ? visible.add(entry.target) : visible.delete(entry.target);
+        if (!timer) timer = setTimeout(flush, Math.max(0, 100 - (performance.now() - last)));
+    }, { root: session.scroller, rootMargin: '-16px 0px -16px 0px' });
+    const isFloor = node => node.nodeType === 1 && node.matches('.mes[mesid]');
+    const mo = new MutationObserver(records => {
+        for (const record of records) {
+            for (const node of record.removedNodes) if (isFloor(node)) { io.unobserve(node); visible.delete(node); }
+            for (const node of record.addedNodes) if (isFloor(node)) io.observe(node);
+        }
+    });
+    mo.observe(session.chat, { childList: true });
+    for (const el of renderedFloorsOf(session)) io.observe(el);
+    // 胶囊的横向位置只随正文区 / 正文列的尺寸变（拉窗口、钉抽屉、改宽度），不随滚动变
+    const ro = new ResizeObserver(() => { if (S === session && !session.follow.hidden) placeFollower(session); });
+    ro.observe(session.scroller); ro.observe(session.chat);
+    session.cleanup.push(() => { clearTimeout(timer); io.disconnect(); mo.disconnect(); ro.disconnect(); });
 }
 
 /** 松手后：正文里有选区就弹选中浮层（02 §1.5）。 */
@@ -677,11 +723,13 @@ function applyPrefs(prefs) {
     else root.style.removeProperty('--stcr-width');
     if (prefs.direction !== 'a') root.classList.remove('stcr-chrome-hidden');
     S.follow.dataset.side = prefs.followSide;
+    if (!S.follow.hidden) placeFollower(S); // 左 / 右换了（T82：位置不再每帧重算）
     S.settings.sync();
 }
 
 function onPrefs(next, previous) {
     if (!S) return;
+    dropPrebuilt(); // 任何显示设置都可能改楼层长相
     const anchor = captureAnchor();
     applyPrefs(next);
     if (next.hideUser !== previous.hideUser || next.hideStHidden !== previous.hideStHidden) { rerender(anchor); return; }
@@ -785,6 +833,7 @@ function onMarksChange(session) {
         const ctx = floorContext();
         for (const el of renderedFloors()) if (!el.classList.contains('stcr-mes--broken')) syncBookmarkMarks(ctx, el);
     }
+    dropPrebuilt(session); // 预建的楼带着旧的收藏标记
     session.follow.dataset.key = ''; // 跟随条里的星标跟着变
     updateFollower();
     clearTimeout(session.statusTimer);
@@ -863,6 +912,9 @@ function scrollToRange(range) {
     const rect = range.getBoundingClientRect();
     if (rect.top >= view.top + 40 && rect.bottom <= view.bottom - 40) return;
     S.scroller.scrollTop += rect.top - view.top - view.height / 3;
+    const node = range.startContainer;
+    const mes = (node.nodeType === 1 ? node : node.parentElement)?.closest('.mes[mesid]');
+    if (mes) holdAt(S, mes, mes.getBoundingClientRect().top - view.top);
     updateProgress();
 }
 
@@ -1035,7 +1087,7 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
         if (Number.isInteger(swipe)) session.swipeView.set(start, swipe);
         showState(null);
         jumpTo(start);
-        if (anchor?.index === start) restoreAnchor(anchor);
+        if (anchor?.index === start) restoreAnchor(anchor, { hold: true });
     } catch (error) {
         if (error?.name === 'AbortError' || S !== session || token !== session.token) return;
         console.error('[st-reader] 打开聊天失败：', error);
@@ -1054,6 +1106,7 @@ function releaseChat(session) {
     session.staleOff = null;
     hideStaleBanner(session);
     session.handle?.close();
+    dropPrebuilt(session);
     session.handle = null;
     session.titleOwner.textContent = '阅读器';
     session.titleFile.textContent = '';
@@ -1193,14 +1246,25 @@ function floorContext() {
 
 /** 一批楼层的节点（收起用户楼 / ST 隐藏楼时，在每段连续收起的楼前插一条"— 你 · N 条 —" / "— 已隐藏 · N 条 —"）。 */
 function pageNodes(pageIndex) {
+    const ready = takePrebuilt(pageIndex);
+    if (ready) return ready;
+    const builder = pageBuilder(pageIndex);
+    while (!builder.step());
+    return builder.nodes;
+}
+
+/** 一批楼的分步构建：step() 每次建一楼，建完返回 true。pageNodes 一口气走完；空闲预建（T82）每次走一两步。 */
+function pageBuilder(pageIndex) {
     const { messages } = S.handle.page(pageIndex);
     const ctx = floorContext();
     const { hideUser, hideStHidden } = getPrefs();
     const fold = { hideUser, hideStHidden };
     const runs = hideUser || hideStHidden ? foldRuns(messages, fold) : new Map();
     const nodes = [];
-    let run = null;
-    for (const model of messages) {
+    let run = null, at = 0;
+    const step = () => {
+        if (at >= messages.length) return true;
+        const model = messages[at++];
         if (runs.has(model.index)) {
             run = model.index;
             nodes.push(h('button', { type: 'button', class: 'stcr-btn stcr-fold', 'data-act': 'fold', 'data-run': run, 'data-page': pageIndex, 'aria-expanded': 'false',
@@ -1218,8 +1282,55 @@ function pageNodes(pageIndex) {
         el.dataset.page = String(pageIndex);
         if (isFolded(model, fold) && run !== null) { el.classList.add('stcr-user-hidden'); el.dataset.run = String(run); }
         nodes.push(el);
-    }
-    return nodes;
+        return at >= messages.length;
+    };
+    return { pageIndex, nodes, step };
+}
+
+// ───────────── 空闲预建（T82，I020） ─────────────
+// 接一批要把 30 楼长文格式化、清洗、建 DOM（4000 楼样本约 100 ms），放在滚到边上的那一帧里就是一次卡顿。
+// 所以窗口前后各一批在浏览器空闲时先建好（每次空闲只建到剩余时间不够为止），接批时直接插入。
+// 只是提前建同样的节点：渲染版本（跳楼、改设置、收藏变化都会加一）对不上就扔掉重建，结果与当场建完全一样。
+
+/** 渲染条件变了：先建好的批作废（里面的 HTML 块一并注销）。 */
+function dropPrebuilt(session = S) {
+    if (!session) return;
+    session.renderVersion++;
+    for (const entry of session.prebuilt.values()) session.html.settle(entry.builder.nodes, false);
+    session.prebuilt.clear();
+}
+
+/** ensureWindow 要接的那批若已预建（或建了一半）：补完剩下的，交出节点。 */
+function takePrebuilt(pageIndex) {
+    const session = S;
+    const entry = session.prebuilt.get(pageIndex);
+    if (!entry) return null;
+    session.prebuilt.delete(pageIndex);
+    if (entry.version !== session.renderVersion || entry.handle !== session.handle) { session.html.settle(entry.builder.nodes, false); return null; }
+    while (!entry.builder.step());
+    session.html.settle(entry.builder.nodes, true); // 马上就插进页面
+    return entry.builder.nodes;
+}
+
+function schedulePrebuild(session = S) {
+    if (!session?.handle || session.prebuildJob || session.firstPage < 0) return;
+    const idle = globalThis.requestIdleCallback ?? (run => setTimeout(() => run({ timeRemaining: () => 8 }), 50));
+    session.prebuildJob = idle(deadline => {
+        session.prebuildJob = 0;
+        if (S !== session || !session.handle) return;
+        const wanted = [session.lastPage + 1, session.firstPage - 1].filter(page => page >= 0 && page < session.handle.pageCount);
+        for (const [page, entry] of session.prebuilt) {
+            if (!wanted.includes(page) || entry.version !== session.renderVersion) { session.html.settle(entry.builder.nodes, false); session.prebuilt.delete(page); }
+        }
+        let pending = false;
+        for (const page of wanted) {
+            let entry = session.prebuilt.get(page);
+            if (!entry) { entry = { builder: pageBuilder(page), version: session.renderVersion, handle: session.handle, done: false }; session.prebuilt.set(page, entry); }
+            while (!entry.done && deadline.timeRemaining() > 6) entry.done = session.html.prebuild(() => entry.builder.step());
+            if (!entry.done) { pending = true; break; }
+        }
+        if (pending) schedulePrebuild(session);
+    }, { timeout: 2000 });
 }
 
 /** 新放进页面的楼：把它们的划线画上（异步，不挡翻页）。 */
@@ -1229,7 +1340,8 @@ function paintNodes(nodes) {
     }
 }
 
-function renderedFloors() { return S.chat.querySelectorAll(':scope > .mes[mesid]'); }
+function renderedFloors() { return renderedFloorsOf(S); }
+function renderedFloorsOf(session) { return session.chat.querySelectorAll(':scope > .mes[mesid]'); }
 function floorEl(index) { return S.chat.querySelector(`:scope > .mes[mesid="${index}"]`); }
 const isShown = el => el.offsetParent !== null || el.getClientRects().length > 0;
 
@@ -1244,19 +1356,39 @@ function captureAnchor() {
     }
     return null;
 }
-function restoreAnchor(anchor) {
+/** hold：刚整批重建过（跳楼 / 重排）时传 true，之后几帧守住位置（见 holdAt）；接批 / 释放时楼还在视口里，浏览器自己会锚定。 */
+function restoreAnchor(anchor, { hold = false } = {}) {
     if (!anchor) return;
     const el = floorEl(anchor.index);
     if (!el || !isShown(el)) return;
     const now = el.getBoundingClientRect().top - S.scroller.getBoundingClientRect().top;
     S.scroller.scrollTop += now - anchor.offset;
+    if (hold) holdAt(S, el, anchor.offset);
+}
+
+/**
+ * T82：楼层用 content-visibility 省排版，没进过视口的楼先按估计高度占位。程序跳过去时目标楼还没排版，
+ * 浏览器的滚动锚定不认它，接下来一两帧上方的楼长到真实高度，目标就被推走。这里在之后几帧把目标楼拉回原位，
+ * 连续两帧不用再拉就停；人一动滚轮 / 触摸 / 按键 / 按下鼠标就放手，不跟人抢。
+ */
+function holdAt(session, el, offset) {
+    const hold = { el, offset, frames: 0, still: 0 };
+    session.hold = hold;
+    const step = () => {
+        if (S !== session || session.hold !== hold || !el.isConnected) return;
+        const now = el.getBoundingClientRect().top - session.scroller.getBoundingClientRect().top;
+        if (Math.abs(now - offset) > 1) { session.scroller.scrollTop += now - offset; hold.still = 0; } else hold.still++;
+        if (hold.still < 2 && ++hold.frames < 12) requestAnimationFrame(step);
+        else session.hold = null;
+    };
+    requestAnimationFrame(step);
 }
 
 function rerender(anchor) {
     if (!S.handle?.total) return;
     const index = anchor?.index ?? 0;
     jumpTo(index);
-    if (anchor) restoreAnchor(anchor);
+    if (anchor) restoreAnchor(anchor, { hold: true });
 }
 
 /** 跳到某楼（零基）：只渲染它所在的一批，再按需接上前后批。swipe 给了就切到那个候选。 */
@@ -1271,6 +1403,7 @@ function jumpTo(index, { swipe = null } = {}) {
         if (swipe >= 0 && swipe < model.swipes.length) rememberSwipe(session.chatKey, index, swipe, swipe === model.swipeId);
     }
     const pageIndex = Math.floor(index / PAGE_SIZE);
+    dropPrebuilt(session); // 跳楼 / 重排：重新建，预建的按旧条件作废
     const nodes = pageNodes(pageIndex);
     session.chat.replaceChildren(...nodes);
     session.marks.sweep();
@@ -1282,6 +1415,7 @@ function jumpTo(index, { swipe = null } = {}) {
     }
     session.scroller.scrollTop = 0;
     if (target) session.scroller.scrollTop = target.getBoundingClientRect().top - session.scroller.getBoundingClientRect().top - 8;
+    if (target) holdAt(session, target, target.getBoundingClientRect().top - session.scroller.getBoundingClientRect().top);
     paintNodes(nodes);
     ensureWindow();
     updateProgress();
@@ -1309,6 +1443,7 @@ function ensureWindow() {
         paintNodes(nodes);
         trimWindow();
     }
+    schedulePrebuild(session);
 }
 
 function trimWindow() {
@@ -1347,13 +1482,16 @@ function flip(direction) {
     updateProgress();
 }
 
-/** 底部进度："第 128–131 楼 · 共 312 楼 · 41%"；顺手记住阅读位置、更新跟随条。 */
-function updateProgress() {
+/**
+ * 底部进度："第 128–131 楼 · 共 312 楼 · 41%"；顺手记住阅读位置、更新跟随条。
+ * seen：可见楼集合算好的 {first, last, top}（滚动时，T82）；不给就当场量。
+ */
+function updateProgress(seen = null) {
     const session = S;
     if (!session) return;
     const total = session.handle?.total ?? 0;
-    let first = null, last = null;
-    if (total) {
+    let first = seen?.first ?? null, last = seen?.last ?? null;
+    if (total && !seen) {
         const rect = session.scroller.getBoundingClientRect();
         for (const el of renderedFloors()) {
             if (!isShown(el)) continue;
@@ -1365,18 +1503,15 @@ function updateProgress() {
             last = index;
         }
     }
-    updateFollower();
-    if (first === null) {
-        session.progressBtn.textContent = '';
-        session.progressLine.style.width = '0';
-        session.topPercent.textContent = '';
-        return;
-    }
-    session.progressBtn.textContent = progressText(first, last, total);
-    const percent = Math.min(100, Math.round(((last + 1) / total) * 100));
-    session.progressLine.style.width = `${percent}%`;
-    session.topPercent.textContent = `${percent}%`;
-    setReadPosition(session.chatKey, first, { title: session.handle.title, owner: session.owner });
+    updateFollower(seen ? seen.top ?? null : undefined);
+    const text = first === null ? '' : progressText(first, last, total);
+    const percent = first === null ? null : Math.min(100, Math.round(((last + 1) / total) * 100));
+    const setText = (el, value) => { if (el.textContent !== value) el.textContent = value; };
+    setText(session.progressBtn, text);
+    setText(session.topPercent, percent === null ? '' : `${percent}%`);
+    const width = percent === null ? '0' : `${percent}%`;
+    if (session.progressLine.style.width !== width) session.progressLine.style.width = width;
+    if (first !== null) setReadPosition(session.chatKey, first, { title: session.handle.title, owner: session.owner });
 }
 
 /** 视口顶端正在读的那一楼（露出一条缝的不算）；没有返回 null。 */
@@ -1397,11 +1532,11 @@ function currentFloor() {
  * 正文列外侧的空白放得下就停在列旁（左 / 右在 Aa → 显示里选），绝不压字；放不下（手机、窄窗口）贴正文区边缘。
  * 展开是往下长的一列，宽度和胶囊差不多，不往字上盖。
  */
-function updateFollower() {
+function updateFollower(known = undefined) {
     const session = S;
     const follow = session?.follow;
     if (!follow) return;
-    const target = currentFloor();
+    const target = known === undefined ? currentFloor() : known;
     if (!target) { follow.hidden = true; setFollowOpen(false); return; }
     const index = Number(target.getAttribute('mesid'));
     const swipe = Number(target.dataset.swipe);
@@ -1439,10 +1574,10 @@ function updateFollower() {
             ].filter(Boolean)));
         follow.dataset.key = key;
         follow.hidden = false;
+        placeFollower(session); // 换了楼（胶囊里的字变了）才重算位置；窗口 / 列宽变化由 trackVisibleFloors 的 ResizeObserver 管
     }
     follow.classList.toggle('stcr-swipe-bookmarked', swipeMarked); // 展开后候选数字右上的小星
-    follow.hidden = false;
-    placeFollower(session);
+    if (follow.hidden) { follow.hidden = false; placeFollower(session); }
 }
 
 /** 胶囊的横向位置：列外空白够就贴着列外侧，不够就贴正文区边缘（logic.followPlacement）。 */
@@ -1495,6 +1630,7 @@ function keyTarget() {
 function scrollFloorTop(mes) {
     const view = S.scroller.getBoundingClientRect();
     S.scroller.scrollTop += mes.getBoundingClientRect().top - view.top - 8;
+    holdAt(S, mes, mes.getBoundingClientRect().top - view.top);
     ensureWindow();
     updateProgress();
 }
