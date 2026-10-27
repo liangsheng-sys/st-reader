@@ -9,12 +9,13 @@
 
 import { isDevInstance } from '../core/readonlyGuard.js';
 import { formatWithStrategy, initFormatter } from '../core/formatter.js';
-import { findHtmlBlocks } from './htmlBlocks.js';
+import { createHtmlManager, findHtmlBlocks } from './htmlBlocks.js';
 import { buildFloor, fillFloor, floorFault } from './floorToolbar.js';
 import { h } from './dom.js';
 import { RENDER_FAULT_MARK } from './logic.js';
 import { COMMUNITY_HTML } from '../../dev/fixtures/html.mjs';
 import { closeReader, injectReaderFault, isReaderOpen, openReader } from './reader.js';
+import { getPrefs, setPrefs, setReadPosition } from './prefs.js';
 
 export const BUILTIN_THEMES = Object.freeze(['Azure', 'Cappuccino', 'Celestial Macaron', 'Dark Lite', 'Dark V 1.0']);
 const DISPLAYS = Object.freeze([['0', '默认'], ['1', '气泡'], ['2', '文档']]);
@@ -161,7 +162,107 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     results.push(...await testRawFallbackBrowser({ force, quiet: true }));
     results.push(...await testHtmlAfterRegexBrowser({ force, quiet: true }));
     results.push(...await testNavBrowser({ force, quiet: true }));
+    results.push(...await testScrollPerfBrowser({ force, quiet: true }));
     console.table(results);
+    return results;
+}
+
+/**
+ * T82：滚动性能改法的正确性（速度本身在 dev/test-performance.cmd）。
+ * ①HTML 管理器：预建时接上的块，清扫时不被当成"被换掉的楼"注销；插进页面后照常登记，作废时一并注销。
+ * ②预建的下一批在改设置后作废重建，接上来的那批完整、按顺序、不重复。
+ * ③跳楼落点：后面的楼按估计高度占位，胶囊"下一楼"跳过去后仍在顶端（holdAt）。
+ * ④滚动时进度条和楼层胶囊由可见楼集合（IntersectionObserver）更新：普通滚动后不调任何刷新，也跟到视口顶端那一楼。
+ */
+export async function testScrollPerfBrowser({ force = false, quiet = false } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    if (isReaderOpen()) closeReader();
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `滚动性能：${name}`, passed: !!passed, detail: String(detail) });
+    const until = async (test, ms = 8000) => { const end = Date.now() + ms; while (!test() && Date.now() < end) await wait(50); return test(); };
+    const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    const box = h('div', { style: 'position:fixed;left:-4000px;top:0;width:600px;height:400px;overflow:auto' });
+    const chat = h('div');
+    box.append(chat); document.body.append(box);
+    const manager = createHtmlManager({ scroller: box, chat, defaults: () => ({ mode: 'source', network: false, width: 'fit' }), rememberWidth() {}, prepare: html => html, isPaged: () => false, toast() {} });
+    try {
+        const floor = () => { const text = h('div', { class: 'mes_text' }), pre = h('pre', {}, h('code', { text: '<p>预建</p>' })); text.append(pre); return { el: h('div', { class: 'mes', mesid: '1' }, text), text, pre }; };
+        const churn = async () => { const other = h('div'); chat.append(other); other.remove(); await tick(); }; // 触发清扫
+        const kept = floor();
+        manager.prebuild(() => manager.attach(kept.text, [{ kind: 'pre', pre: kept.pre, html: '<p>预建</p>' }], { index: 1, swipe: 0, model: null }));
+        await churn();
+        check('预建的 HTML 块在清扫时留着', manager.liveCount() === 1, `活着的块 ${manager.liveCount()}`);
+        manager.settle([kept.el], true); chat.append(kept.el); await churn();
+        check('插进页面后照常登记', manager.liveCount() === 1 && !!kept.el.querySelector('.stcr-html'), manager.liveCount());
+        kept.el.remove(); await churn();
+        check('楼被移走后块被注销', manager.liveCount() === 0, manager.liveCount());
+        const dropped = floor();
+        manager.prebuild(() => manager.attach(dropped.text, [{ kind: 'pre', pre: dropped.pre, html: '<p>预建</p>' }], { index: 2, swipe: 0, model: null }));
+        manager.settle([dropped.el], false);
+        check('作废的预建批里的块一并注销', manager.liveCount() === 0, manager.liveCount());
+    } catch (error) { check('HTML 管理器预建', false, error.message); }
+    finally { manager.destroy(); box.remove(); }
+
+    const large = 'STCR_T11_Mist.png/STCR-90-大文件-1600楼';
+    const before = { hideUser: getPrefs().hideUser, mode: getPrefs().mode, expandAllReasoning: getPrefs().expandAllReasoning };
+    try {
+        setReadPosition(large, 0);
+        setPrefs({ mode: 'scroll', hideUser: false });
+        await openReader({ chatKey: large });
+        const root = document.getElementById('stcr_root');
+        await until(() => root.querySelectorAll('#stcr_chat > .mes[mesid]').length >= 30 && getComputedStyle(root).position === 'fixed', 30000);
+        if (await until(() => root.querySelector('.stcr-doc'), 1000)) root.querySelector('.stcr-doc-close')?.click();
+        const scroller = root.querySelector('.stcr-scroll');
+        const ids = () => [...root.querySelectorAll('#stcr_chat > .mes[mesid]')].map(el => Number(el.getAttribute('mesid')));
+        await wait(1500); // 空闲预建下一批
+        setPrefs({ expandAllReasoning: !getPrefs().expandAllReasoning }); // 改设置：预建的作废（样本里没有用户楼 / 思维链，只能查接上的批是否完整）
+        await wait(1500);
+        const last = Math.max(...ids());
+        scroller.scrollTop = scroller.scrollHeight;
+        await until(() => Math.max(...ids()) > last, 5000);
+        const after = ids();
+        const added = after.filter(i => i > last);
+        check('改设置后接上的一批完整、按顺序、不重复', added.length === 30 && added.every((v, i) => v === last + 1 + i) && new Set(after).size === after.length,
+            `新接 ${added.length} 楼（${added[0]}–${added.at(-1)}），共 ${after.length} 楼，去重 ${new Set(after).size}`);
+        setPrefs({ expandAllReasoning: before.expandAllReasoning });
+        // 跳楼落点：存的进度在第 6 楼，重新打开（它前面的楼都还按估计高度占位，跳过去后它们长高也不能把目标推走）
+        closeReader(); setReadPosition(large, 5);
+        await openReader({ chatKey: large });
+        await until(() => document.querySelectorAll('#stcr_root #stcr_chat > .mes[mesid]').length >= 30, 30000);
+        if (await until(() => document.querySelector('#stcr_root .stcr-doc'), 1000)) document.querySelector('#stcr_root .stcr-doc-close')?.click();
+        await wait(800);
+        const root2 = document.getElementById('stcr_root'), scroller2 = root2.querySelector('.stcr-scroll');
+        const estimated = [...root2.querySelectorAll('#stcr_chat > .mes[mesid]')].slice(0, 5).filter(el => el.getBoundingClientRect().height < 1000).length;
+        const reopened = root2.querySelector('#stcr_chat > .mes[mesid="5"]');
+        const reopenedAt = reopened ? Math.round(reopened.getBoundingClientRect().top - scroller2.getBoundingClientRect().top) : null;
+        check(`按存的进度重新打开，第 6 楼在顶端（它前面还有 ${estimated} 楼按估计高度占位）`, reopenedAt !== null && Math.abs(reopenedAt - 8) <= 2, `第 6 楼离顶 ${reopenedAt}px`);
+        const follow = root2.querySelector('.stcr-follow');
+        const view = () => scroller2.getBoundingClientRect();
+        const topFloor = () => [...root2.querySelectorAll('#stcr_chat > .mes[mesid]')].find(el => el.getBoundingClientRect().bottom > view().top + 16);
+        const landed = [];
+        for (let i = 0; i < 6; i++) {
+            const next = follow.querySelector('[data-act="floor-next"]');
+            const want = Number(next?.dataset.index) + 1;
+            next?.click();
+            await wait(400);
+            const el = root2.querySelector(`#stcr_chat > .mes[mesid="${want}"]`);
+            const offset = el ? Math.round(el.getBoundingClientRect().top - view().top) : null;
+            landed.push(`${want}@${offset}`);
+            if (!el || Math.abs(offset - 8) > 2 || topFloor() !== el) break;
+        }
+        check('胶囊下一楼连跳 6 次，每次那一楼的名字行都在顶端', landed.length === 6 && landed.every(x => /@(6|7|8|9|10)$/.test(x)), landed.join(' '));
+        // 普通滚动：不调任何刷新，等观察器把胶囊和进度跟到视口顶端那一楼
+        const target = topFloor();
+        const want = Number(target.getAttribute('mesid')) + 1;
+        scroller2.scrollTop += target.getBoundingClientRect().bottom - view().top + 30;
+        const current = () => Number(follow.querySelector('[data-act="floor-next"]')?.dataset.index);
+        const progressText = () => root2.querySelector('.stcr-progress')?.textContent ?? '';
+        await until(() => current() === want && progressText().includes(`第 ${want + 1}`), 3000);
+        check('普通滚动后胶囊和进度跟到视口顶端那一楼', current() === want && progressText().includes(`第 ${want + 1}`), `应为 ${want}，胶囊 ${current()}，进度"${progressText()}"`);
+    } catch (error) { check('大聊天滚动', false, error.message); }
+    finally { closeReader(); setPrefs(before); }
+    if (!quiet) console.table(results);
     return results;
 }
 

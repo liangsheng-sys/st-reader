@@ -142,8 +142,27 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
     ro.observe(scroller);
     ro.observe(chat);
 
+    // T82：阅读器空闲时先建好的楼还没插进页面，里面的块先"挂着"，清扫时不当成被换掉的楼
+    const held = new Set();
+    let holding = false;
     function sweep() {
-        for (const [shell, entry] of live) if (!shell.isConnected) drop(shell, entry);
+        for (const [shell, entry] of live) if (!shell.isConnected && !held.has(shell)) drop(shell, entry);
+    }
+    /** 在 run 里接上的块都先挂着（预建）。 */
+    function prebuild(run) {
+        holding = true;
+        try { return run(); } finally { holding = false; }
+    }
+    /** 预建的楼：keep = 马上插进页面（不再挂着）；否则作废，块一并注销。 */
+    function settle(nodes, keep) {
+        for (const node of nodes) {
+            const shells = node.matches?.('.stcr-html') ? [node] : node.querySelectorAll?.('.stcr-html') ?? [];
+            for (const shell of shells) {
+                held.delete(shell);
+                const entry = live.get(shell);
+                if (!keep && entry) drop(shell, entry);
+            }
+        }
     }
     function drop(shell, entry) {
         io.unobserve(shell);
@@ -190,6 +209,7 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
             entry.shell = buildShell(entry);
             source.before(entry.shell);
             live.set(entry.shell, entry);
+            if (holding) held.add(entry.shell);
             paint(entry);
             io.observe(entry.shell);
         });
@@ -451,5 +471,5 @@ export function createHtmlManager({ scroller, chat, defaults, rememberWidth, pre
         state.clear();
     }
 
-    return { attach, entryFor, resetAll, destroy, liveCount: () => live.size };
+    return { attach, entryFor, resetAll, destroy, prebuild, settle, liveCount: () => live.size };
 }

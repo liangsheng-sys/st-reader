@@ -142,6 +142,9 @@
 
 /* ── 楼层 ── */
 #stcr_root #stcr_chat .stcr-mes { position: relative; }
+/* T82 滚动性能（I020）：屏幕外的楼不排版、不绘制，浏览器记住每楼排过的真实高度（auto），没排过的先按 900px 估。
+ * 新接上的一批 30 楼都在视口外 1.5 屏，所以接批时不再一口气排 30 楼长文。含 HTML 块的楼照常排版：沙箱 iframe 要量高度。 */
+#stcr_root #stcr_chat > .mes:not(:has(.stcr-html)) { content-visibility: auto; contain-intrinsic-size: auto 900px; }
 #stcr_root #stcr_chat .stcr-mes.stcr-swipe-fade > .mes_block { animation: stcr-fade .12s ease-out; }
 /* 正文默认左对齐（T50）：零优先级，只挡住从外层容器继承来的居中；主题 / 美化 CSS 里明确写的对齐照样生效。 */
 :where(#stcr_root #stcr_chat .mes_text) { text-align: start; }
