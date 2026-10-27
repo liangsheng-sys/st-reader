@@ -589,6 +589,16 @@ T41 验收返修（I027）：网址自动触发和手动调用经过同一个串
   - 行内 `style=""` 的策略不变（T73）。
 - 新模块 `cssDeclarations.js`：`cssDeclarations(style)` → `{name,value,important}[]`，分项为空（含 `var()` 的简写）时换成所属简写。卡片快照（T73）与 `cleanStyleText` 共用。
 
+**T83 增补（反馈 12，2026-10-27，Opus 按 D32 交付；只增不改）**：正文里的内联 SVG。
+- `renderMessage` / `formatWithStrategy` 的 `html` 里，内联 `<svg>` 现在完整保留常用子元素：`svg path circle ellipse rect line polyline polygon g defs linearGradient radialGradient stop text tspan clipPath mask use symbol`（DOMPurify 的 SVG 配置，另加 `use`）。
+  - Markdown 之前，整块 `<svg>…</svg>` 先换成占位符，转完再放回，所以多行、带缩进的 SVG 不会被插进 `<br>` / `<p>`。代码块和行内代码里的 SVG 照旧是文字。
+  - SVG 里的 `id` 改成 `stcr-svg-<内容哈希>-<原 id>`；属性和行内样式里的 `url(#原 id)` 跟着改。指向本块以外的 `url()`、外链 `url()` 换成 `none`。同一段 SVG 在几楼出现，改出来的 id 相同（内容一样，撞了也无妨）；不同 SVG 的同名 id 不相撞。SVG 以外的 `id` 仍然删除。
+  - `<use>` 只保留指向本块 `#id` 的（`href` 或 `xlink:href`，统一写成 `href`）；外部 use、指向不存在 id 的 use 删除。其他 `href` / `xlink:href`、`script`、事件属性、`foreignObject`、动画元素照旧去掉。`<image>` / `<feImage>` 删除（它们的地址永远被清掉，留空壳会让卡片截图库去取空地址）。
+  - `filterCssUrls` 多放行一种：`url(#stcr-svg-…)`（只指向文档内元素，不请求任何东西）。
+- 卡片快照（`createCardSnapshot`，`exportCard` 内部用）：原来遇到 SVG 命名空间节点就抛"请先把内联 SVG 作为已清洗素材导入"，现在按上面的白名单重建 SVG 元素；白名单外的元素连同内部不进卡片。属性：事件、`data-*`、`xmlns*` 不抄；`href` 只给 `<use>` 留指向本卡里 `#stcr-svg-*` 元素的；`url()` 只留指向本卡里存在元素的 `#id`，其余换成 `none`。其他非 HTML 命名空间（如 MathML）仍抛错，信息改为"卡片里有无法导出的非 HTML 内容（例如 MathML）"。
+- 卡片屏蔽词（`maskTextNodesInPlace` / `wrapMaskSpans`）落在 SVG `<text>` 里时，换成等长的实心方块字 `█`（HTML 遮盖块在 SVG 里画不出来），原词同样删除。
+- HTML 块沙箱（`detectHtmlBlocks` 命中的整页 / 围栏网页）本来就是真实浏览器渲染，SVG 原样可见，未改。
+
 **给 UI（I038）**：签名与四个字段均未改，但 raw 的“永远整楼/只有一段”假设已失效。按 start/end 切出前后及段间原文，交给原有正文格式化/脱敏与锚点管线；逐块把 block.html 交给 createSandbox。不能在改写后的 HTML 字符串上套用原文偏移，也不能继续整体隐藏 `.mes_text`。人类明确指定本次 UI 接线留给 Opus，因此 T51 未改 `src/ui/`；正式阅读器尚待接线，开发演示只证明 core 合同。
 
 交互文档的 CSP 默认包含 `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:`，并禁止 object、base、表单提交和网络连接。允许外链时只在 style/script/img/font/connect/media 指令追加 `https:`，不开放明文 HTTP，也不赋予同源、弹窗、表单或顶层导航能力。外部资源的地址来自输入 HTML，core 没有固定第三方服务，也不保存允许状态。

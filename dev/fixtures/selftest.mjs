@@ -16,7 +16,7 @@ export async function testFixtures() {
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
     await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
-        assert.equal(chats[1].messages.length, 14);
+        assert.equal(chats[1].messages.length, 15);
         assert.match(chats[1].messages[6].mes, /^<!doctype html>/);
         assert.match(chats[1].messages[6].mes, /st-reader-fixture\.invalid/);
         assert.match(chats[1].messages[7].mes, /^```html/);
@@ -50,6 +50,14 @@ export async function testFixtures() {
         const out = BEAUTY_REGEX.reduce((text, script) => { const [, body, flags] = script.findRegex.match(/^\/(.*)\/(\w*)$/s); return text.replace(new RegExp(body, flags), script.replaceString); }, floor.mes);
         assert.ok(out.includes('<style>.paper{') && out.includes('class="ttl"') && out.includes('url(data:image/svg+xml;base64,') && out.includes('url(https://example.invalid/'));
         assert.ok(!/<letter>|<char>|【/.test(out));
+    });
+    await test('T83 纸舟第 15 楼：多行内联 SVG 徽章（渐变、光晕、裁剪、symbol + use），外链 use / script / 外链 image 作反例，不含 <style>', () => {
+        const floor = chats[1].messages[14];
+        assert.equal(chats[1].messages.length, 15);
+        assert.ok(floor.mes.includes('<linearGradient id="sky"') && floor.mes.includes('<radialGradient id="glow"') && floor.mes.includes('clip-path="url(#badge)"'));
+        assert.ok(floor.mes.includes('<use href="#star"') && floor.mes.includes('xlink:href="#star"') && floor.mes.includes('<tspan'));
+        assert.ok(floor.mes.includes('example.invalid/stcr-sprite.svg') && floor.mes.includes('<script>') && !floor.mes.includes('<style'));
+        assert.ok(floor.mes.split('\n').length > 20 && floor.mes.includes('虚构'));
     });
     await test('T72 纸舟第 11 楼社区卡结构：散文、四个 details、样式盒、状态栏 style、<selection>；第 2 候选带测试注入记号', () => {
         const floor = chats[1].messages[10];

@@ -28,10 +28,15 @@ function convertMarkdown(text, names) {
         if (typeof marker === 'string' && marker.trim()) text = text.replace(marker, escapeHtml(marker));
     }
     // 保留代码、HTML 标签和 style 原文；对普通引号生成宿主主题可命中的 q。
-    text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>|```[\s\S]*?```|~~~[\s\S]*?~~~|``[\s\S]*?``|`[^`]*`|<[^>]*>|"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|「[^」\n]*」|『[^』\n]*』|＂[^＂\n]*＂/g,
-        match => /^["“«「『＂]/u.test(match) ? `<q>${match}</q>` : match);
-    return markdown.makeHtml(text.replaceAll('\\begin{align*}', '$$').replaceAll('\\end{align*}', '$$')).trim();
+    // T83：内联 <svg> 整块先换成占位符，Markdown 转完再放回——否则多行 SVG 里会被插进 <br>/<p>，HTML 解析器遇到它们会跳出 SVG，子元素全丢。
+    const svgs = [];
+    text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>|```[\s\S]*?```|~~~[\s\S]*?~~~|``[\s\S]*?``|`[^`]*`|<svg\b[\s\S]*?<\/svg\s*>|<[^>]*>|"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|「[^」\n]*」|『[^』\n]*』|＂[^＂\n]*＂/gi,
+        match => /^<svg\b/i.test(match) ? `${SVG_HOLE}${svgs.push(match) - 1}${SVG_HOLE}` : /^["“«「『＂]/u.test(match) ? `<q>${match}</q>` : match);
+    const html = markdown.makeHtml(text.replaceAll('\\begin{align*}', '$$').replaceAll('\\end{align*}', '$$')).trim();
+    return svgs.length ? html.replace(SVG_HOLES, (hole, index) => svgs[Number(index)] ?? hole) : html;
 }
+const SVG_HOLE = '\uE01F'; // 私用区字符：正文里几乎不会出现，Markdown 也不会动它
+const SVG_HOLES = /\uE01F(\d+)\uE01F/g;
 
 const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]*))\s*\)/gi;
 /**
@@ -41,9 +46,11 @@ const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]*))\s*\)/gi;
 export function filterCssUrls(text, allowExternal) {
     return text.replace(CSS_URL, (match, double, single, bare) => {
         const value = (double ?? single ?? bare ?? '').trim();
-        return /^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(value) || (allowExternal && /^https:\/\//i.test(value)) ? match : 'none';
+        // #stcr-svg-*：同楼内联 SVG 里的渐变 / 裁剪 / 蒙版引用（T83，由 scopeInlineSvg 改名），只指向文档内元素，不请求任何东西
+        return /^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(value) || (allowExternal && /^https:\/\//i.test(value)) || SVG_REF.test(value) ? match : 'none';
     });
 }
+const SVG_REF = /^#stcr-svg-[\w.-]+$/;
 const KEYFRAMES_PREFIX = 'stcr-kf-';
 /** 浏览器规范化后的选择器列表按顶层逗号拆开（括号、方括号、引号里的逗号不算）。 */
 function splitSelectors(text) {
@@ -114,17 +121,56 @@ function externalMediaAllowed(names) {
     return !power.forbid_external_media;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** 内容的短哈希（FNV-1a）：同一段 SVG 在几楼里出现，改出来的 id 也相同；内容一样，撞了也无妨。 */
+function shortHash(text) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+    return (hash >>> 0).toString(36);
+}
+/**
+ * T83：楼内联 SVG 的 id 与引用。id 一律改成 stcr-svg-<内容哈希>-<原 id>（不撞宿主 / 别楼的 id，也拦住按 id 绑定的宿主交互），
+ * 属性和行内样式里的 url(#原 id) 跟着改；指向本块以外或外链的 url() 换成 none。<use> 只认本块里的 #id（清洗前已暂存为 data-stcr-use），
+ * 其余 <use> 删掉——外部 use、其他 href / xlink:href 仍然不放行。<image> 的 href 永远被清掉、显示不出来，也删掉
+ * （留着空壳，卡片截图库会拿空地址去取图，导出被离线闸门拦下）。
+ */
+function scopeInlineSvg(root) {
+    for (const svg of root.querySelectorAll('svg')) {
+        if (svg.namespaceURI !== SVG_NS || svg.parentElement?.closest('svg')) continue;
+        for (const image of svg.querySelectorAll('image, feImage')) image.remove();
+        const prefix = `stcr-svg-${shortHash(svg.outerHTML)}-`, ids = new Map(), all = [svg, ...svg.querySelectorAll('*')];
+        for (const el of all) {
+            const id = el.getAttribute('id');
+            if (id === null) continue;
+            if (/^[A-Za-z_][\w.-]*$/.test(id) && !ids.has(id)) { ids.set(id, prefix + id); el.setAttribute('id', prefix + id); } else el.removeAttribute('id');
+        }
+        const point = value => value.replace(CSS_URL, (match, double, single, bare) => {
+            const target = (double ?? single ?? bare ?? '').trim();
+            return target.startsWith('#') && ids.has(target.slice(1)) ? `url(#${ids.get(target.slice(1))})` : 'none';
+        });
+        for (const el of all) {
+            for (const attribute of [...el.attributes]) if (/url\(/i.test(attribute.value)) el.setAttribute(attribute.name, point(attribute.value));
+            if (el.localName !== 'use') continue;
+            const ref = el.getAttribute('data-stcr-use');
+            if (ref && ids.has(ref)) { el.setAttribute('href', `#${ids.get(ref)}`); el.removeAttribute('data-stcr-use'); } else el.remove();
+        }
+    }
+}
+
 const STYLE_SCOPE = '#stcr_chat .mes_text ';
 /** 清洗并隔离文本内样式；只保留 data:image 与（ST 允许时的）https 图片，不请求同源路径。 */
 function safeHtml(html, alreadySanitized = false, allowExternal = false) {
     const { DOMPurify, hljs } = runtime.libs;
     html = runtime.chats.encodeStyleTags(html);
-    html = DOMPurify.sanitize(html, { MESSAGE_SANITIZE: !alreadySanitized, ADD_TAGS: ['custom-style'],
+    // T83：<use> 指向本块 #id 的 href 先暂存成 data-stcr-use（DOMPurify 按 FORBID_ATTR 会删掉 href），清洗后由 scopeInlineSvg 核对再放回
+    html = html.replace(/<use\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi, tag => tag.replace(/\s(?:xlink:)?href\s*=\s*(["'])#([A-Za-z_][\w.-]*)\1/gi, ' data-stcr-use="$2"'));
+    html = DOMPurify.sanitize(html, { MESSAGE_SANITIZE: !alreadySanitized, ADD_TAGS: ['custom-style', 'use'],
         FORBID_TAGS: ['iframe', 'object', 'embed', 'script', 'link', 'base', 'meta', 'form', 'input', 'button', 'audio', 'video', 'source'],
         FORBID_ATTR: ['src', 'srcset', 'href', 'poster', 'background', 'action', 'formaction', 'xlink:href'], RETURN_TRUSTED_TYPE: false });
     html = runtime.chats.decodeStyleTags(html, { prefix: STYLE_SCOPE });
     const template = document.createElement('template');
     template.innerHTML = html;
+    scopeInlineSvg(template.content);
     for (const el of template.content.querySelectorAll('*')) {
         // image-set()/转义可能绕过 url 判断，@import 等会加载样式表：仍整段删除。url() 逐个判断（T73）。
         if (el.hasAttribute('style')) {
@@ -140,7 +186,9 @@ function safeHtml(html, alreadySanitized = false, allowExternal = false) {
             if (href && !href.startsWith('#')) el.removeAttribute('href');
         }
         // 拦住宿主按 id/mesid/data-* 绑定的交互；原始 HTML 只负责展示。
-        el.removeAttribute('id'); el.removeAttribute('mesid'); el.removeAttribute('contenteditable');
+        // 内联 SVG 里的 id 已由 scopeInlineSvg 改成 stcr-svg-* 前缀（渐变等靠它），其余一律删
+        if (el.namespaceURI !== SVG_NS) el.removeAttribute('id');
+        el.removeAttribute('mesid'); el.removeAttribute('contenteditable');
         for (const attribute of [...el.attributes]) if (attribute.name.startsWith('data-')) el.removeAttribute(attribute.name);
     }
     for (const block of template.content.querySelectorAll('pre code')) {

@@ -96,6 +96,32 @@ export async function testCoreBrowser() {
             assert(!html.includes('example.invalid'), '残留资源 URL');
             assert(fragment.querySelector('style')?.textContent.includes('#stcr_chat .mes_text .custom-badge'), '自定义 CSS 未限定阅读器');
         });
+        await test('T83 内联 SVG：多行不被 Markdown 拆开；id 加 stcr-svg- 前缀、引用跟着改、两块同名 id 不相撞；本块 use 保留，外部 use / href / 脚本 / 外链 url 去掉', () => {
+            const icon = color => `<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">\n  <defs>\n    <linearGradient id="g"><stop offset="0" stop-color="${color}"/></linearGradient>\n    <symbol id="dot"><circle cx="5" cy="5" r="2"/></symbol>\n  </defs>\n\n  <rect width="10" height="10" fill="url(#g)" style="stroke:url(#g)"/>\n  <use href="#dot"/><use xlink:href="#dot"/><use href="https://example.invalid/s.svg#dot"/><use href="#nowhere"/>\n  <rect fill="url(#missing)" mask="url(https://example.invalid/m.svg#m)"/>\n  <image href="https://example.invalid/p.png"/><a href="https://example.invalid/"><text>链</text></a><script>alert(1)</script><foreignObject><div>fo</div></foreignObject>\n</svg>`;
+            const html = formatWithStrategy(`前文\n\n${icon('#f00')}\n\n中间\n\n${icon('#00f')}\n\n后文`, aster.getMessage(1), aster.getRegexContext(1));
+            const fragment = asElement(html), svgs = fragment.querySelectorAll('svg');
+            assert(svgs.length === 2 && [...svgs].every(svg => svg.querySelector('defs linearGradient stop') && !svg.querySelector('br,p')), 'SVG 被 Markdown 拆开或丢了子元素');
+            const ids = [...fragment.querySelectorAll('[id]')].map(el => el.id);
+            assert(ids.length === 4 && new Set(ids).size === 4 && ids.every(id => /^stcr-svg-[0-9a-z]+-(g|dot)$/.test(id)), `id 前缀不对或两块相撞：${ids}`);
+            for (const svg of svgs) {
+                const gradient = svg.querySelector('linearGradient').id, rect = svg.querySelector('rect');
+                assert(rect.getAttribute('fill') === `url(#${gradient})` && rect.getAttribute('style').includes(`url(#${gradient})`), '渐变引用没跟着改名');
+                const uses = [...svg.querySelectorAll('use')].map(use => use.getAttribute('href'));
+                assert(uses.length === 2 && uses.every(href => href === `#${svg.querySelector('symbol').id}`), `use 不对：${uses}`);
+                const odd = svg.querySelectorAll('rect')[1];
+                assert(odd.getAttribute('fill') === 'none' && odd.getAttribute('mask') === 'none', '指向不存在 / 外链的 url() 没换成 none');
+            }
+            assert(!fragment.querySelector('script,foreignObject,image,a[href],[xlink\\:href]') && !html.includes('example.invalid'), '残留脚本或外链');
+            assert(fragment.textContent.includes('前文') && fragment.textContent.includes('后文'), '散文丢失');
+            assert(formatWithStrategy('`<svg><rect/></svg>`', aster.getMessage(1), aster.getRegexContext(1)).includes('&lt;svg&gt;'), '行内代码里的 SVG 被当成图形');
+        });
+        await test('T83 纸舟第 15 楼徽章：渐变 / 光晕 / 裁剪 / 星星都在，id 引用对得上', () => {
+            const svg = asElement(renderMessage(paper, 14).html).querySelector('svg');
+            assert(svg && svg.querySelectorAll('linearGradient,radialGradient,clipPath,symbol').length === 4 && svg.querySelectorAll('use').length === 3, '徽章元素不全');
+            const refs = [...svg.querySelectorAll('*')].flatMap(el => [...el.attributes].map(a => a.value.match(/^url\(#(.+)\)$/)?.[1] ?? (a.name === 'href' ? a.value.slice(1) : null))).filter(Boolean);
+            assert(refs.length >= 6 && refs.every(id => svg.querySelector(`#${CSS.escape(id)}`)), `有引用找不到目标：${refs}`);
+            assert(!svg.querySelector('script,image') && svg.querySelectorAll('use').length === 3, '反例没去掉');
+        });
         await test('T75 楼内 <style> 逐条清洗：保留并改名 @keyframes 与图标字符，去掉 @font-face/@import/image-set/带转义的变量与外链', () => {
             const css = '@import url(https://example.invalid/a.css);'
                 + '@keyframes glow{from{opacity:.2}to{opacity:1}}'

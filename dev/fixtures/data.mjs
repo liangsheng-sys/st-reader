@@ -52,6 +52,45 @@ export const DISPLAY_TEXTS = [
     '雾散了一点。纸舟把船桨靠在栏杆上，说今天的观测记录写在下面。（这一段是散文，应在框外）\n\n<style>.harbor-log{padding:10px 14px;border-radius:10px;background:#20343a;color:#d8efe6;border:1px solid #4f7f86}</style>\n<div class="harbor-log">观测记录：东风二级，潮位偏低，灯塔一切正常。（虚构）</div>\n\n后来他们就回去睡了。（这一段也是散文，应在框外）\n\n【观测站页面】',
     '灯塔今晚的状态如下。\n\n【灯塔状态】\n\n（状态条上的小圆点应该一明一暗地闪，右边有一颗星星图标。完全虚构。）',
 ];
+// T83（反馈 12）：纸舟第 15 楼，散文中间一个多行内联 SVG 徽章（线性渐变天空、径向光晕、裁剪圆、symbol + use 星星、tspan 文字）。
+// 外链 use、script、外链 image 是反例，阅读器和卡片里都必须没有。没有 <style>，不会被当成 HTML 块，走正文格式化。
+export const SVG_TEXT = `纸舟从口袋里摸出一枚小小的灯塔徽章，放在桌上：
+
+<svg width="168" height="168" viewBox="0 0 168 168" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-label="灯塔徽章">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2b64"/>
+      <stop offset="1" stop-color="#f8a978"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff6c8"/>
+      <stop offset="1" stop-color="#fff6c8" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="badge"><circle cx="84" cy="84" r="76"/></clipPath>
+    <symbol id="star" viewBox="0 0 10 10"><polygon points="5,0 6.2,3.8 10,3.8 6.9,6.1 8.1,10 5,7.6 1.9,10 3.1,6.1 0,3.8 3.8,3.8" fill="#fff6c8"/></symbol>
+  </defs>
+  <g clip-path="url(#badge)">
+    <rect width="168" height="168" fill="url(#sky)"/>
+    <circle cx="84" cy="52" r="40" fill="url(#glow)"/>
+    <path d="M0 132 Q42 118 84 132 T168 132 V168 H0 Z" fill="#24546b"/>
+    <polygon points="74,130 78,60 90,60 94,130" fill="#f4efe3"/>
+    <rect x="76" y="78" width="16" height="8" fill="#c8553d"/>
+    <rect x="75" y="102" width="18" height="8" fill="#c8553d"/>
+    <rect x="76" y="46" width="16" height="14" rx="2" fill="#ffd36e"/>
+    <line x1="84" y1="40" x2="84" y2="46" stroke="#f4efe3" stroke-width="2"/>
+    <polyline points="20,150 40,146 60,150" fill="none" stroke="#9fd3e0" stroke-width="2"/>
+    <use href="#star" x="26" y="24" width="10" height="10"/>
+    <use xlink:href="#star" x="128" y="34" width="8" height="8"/>
+    <use href="#star" x="140" y="70" width="6" height="6"/>
+    <use href="https://example.invalid/stcr-sprite.svg#star" x="10" y="10" width="40" height="40"/>
+    <image href="https://example.invalid/stcr-photo.png" width="168" height="168"/>
+  </g>
+  <circle cx="84" cy="84" r="76" fill="none" stroke="#ffd36e" stroke-width="4"/>
+  <text x="84" y="150" text-anchor="middle" font-size="10" fill="#fff6c8">纸港灯塔 · <tspan fill="#ffd36e">虚构</tspan></text>
+  <script>document.title = 'SVG 脚本不该运行'</script>
+</svg>
+
+徽章上的天空从深蓝渐变到橘色，灯塔顶上有一团光晕，天上三颗星星。（完全虚构；分享卡片里也应该看得到这枚徽章。）`;
 export const SCOPED_REGEX =[regex('scope', '星灯专属', '/【星灯暗号】/g', '<span class="stcr-fixture-scope">星灯作用域命中</span>')];
 
 export const THEME = {
@@ -129,6 +168,8 @@ export function makeSmallChats() {
         makeMessage(paper.name, BEAUTY_TEXT, 11),
         // T75：正则改写 / 产出 HTML（DISPLAY_REGEX）
         ...DISPLAY_TEXTS.map((text, index) => makeMessage(paper.name, text, index + 12)),
+        // T83：内联 SVG 徽章
+        makeMessage(paper.name, SVG_TEXT, 14),
     ];
     second[10].swipes[1] = `${RENDER_FAULT_MARK}\n\n${second[10].swipes[1]}`;
     delete second[5].swipe_info[0].extra.reasoning;

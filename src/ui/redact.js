@@ -51,13 +51,17 @@ function redactTextNode(node, opts) {
     const pieces = replacePieces(text, opts); // [{text, orig?, to?}]
     const out = [];
     let changed = 0;
+    // T83：内联 SVG 的 <text> 里画不出 HTML 的 span，改用 <tspan>：屏蔽词 = 等长实心方块字，替换规则 = 替换文字（图标 / 图片也用方块字）
+    const svg = !!node.parentElement?.closest('svg');
+    const both = svg ? svgPair : pair, mask = svg ? orig => svgSpan(blocksOf(orig)) : maskEl;
+    const replacement = svg ? (to, orig) => svgSpan(to.kind === 'text' ? to.value : blocksOf(orig)) : to => replacementEl(to, opts.assets);
     for (const piece of pieces) {
-        if (piece.to) { out.push(...pair(piece.orig, replacementEl(piece.to, opts.assets))); changed++; continue; }
+        if (piece.to) { out.push(...both(piece.orig, replacement(piece.to, piece.orig))); changed++; continue; }
         const segments = opts.words.length ? maskText(piece.text, opts.words, 'bar') : [{ kind: 'text', text: piece.text }];
         for (const segment of segments) {
             if (segment.kind === 'text') { if (segment.text) out.push(document.createTextNode(segment.text)); continue; }
             const orig = piece.text.slice(segment.start, segment.end);
-            out.push(...pair(orig, maskEl(orig)));
+            out.push(...both(orig, mask(orig)));
             changed++;
         }
     }
@@ -69,6 +73,19 @@ function redactTextNode(node, opts) {
 function pair(orig, display) {
     const hidden = h('span', { class: 'stcr-rd-orig', hidden: true, 'aria-hidden': 'true', style: 'display:none !important' }, orig);
     return [hidden, display];
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const blocksOf = orig => '█'.repeat(Math.max(1, [...orig].length));
+function svgSpan(text, attrs = { class: 'stcr-rd', 'data-stcr-ignore-anchor': '' }) {
+    const span = document.createElementNS(SVG_NS, 'tspan');
+    for (const [name, value] of Object.entries(attrs)) span.setAttribute(name, value);
+    span.textContent = text;
+    return span;
+}
+/** SVG 版的 pair：原词放进不显示的 tspan（锚点照常算它），显示段被锚点忽略。 */
+function svgPair(orig, display) {
+    return [svgSpan(orig, { class: 'stcr-rd-orig', 'aria-hidden': 'true', style: 'display:none !important' }), display];
 }
 
 function maskEl(orig) {

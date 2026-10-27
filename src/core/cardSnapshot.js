@@ -39,6 +39,29 @@ function loadedImage(source) {
     try { return canvas.toDataURL('image/png'); } catch { throw new Error('卡片图片不允许本地读取；请先导入阅读器素材库'); }
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** T83：卡片里放行的内联 SVG 元素（与正文格式化器放行的一致；滤镜、foreignObject、image、a、动画等不进卡片）。 */
+const SVG_TAGS = new Set(['svg', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'g', 'defs', 'lineargradient', 'radialgradient', 'stop', 'text', 'tspan', 'clippath', 'mask', 'use', 'symbol']);
+/**
+ * 内联 SVG 的属性：事件、data-*、xmlns 声明不抄；href / xlink:href 只给 <use> 留指向本卡里 stcr-svg-* 元素的 #id（格式化器改过名）；
+ * url() 只留指向本卡里存在元素的 #id，其余换成 none（不联网，也不让指空的 filter / mask 把整块藏掉）。
+ */
+function copySvgAttributes(source, target, exists) {
+    for (const attribute of source.attributes) {
+        const name = attribute.name, value = attribute.value;
+        if (/^(on|data-|xmlns)/i.test(name)) continue;
+        if (/^(xlink:)?href$/i.test(name)) {
+            if (source.localName === 'use' && /^#stcr-svg-[\w.-]+$/.test(value) && exists(value.slice(1))) target.setAttribute('href', value);
+            continue;
+        }
+        if (name === 'style') { target.style.cssText = safeDeclaration(source.style); continue; }
+        target.setAttribute(name, value.replace(CSS_URL, (match, double, single, bare) => {
+            const ref = (double ?? single ?? bare ?? '').trim();
+            return ref.startsWith('#') && exists(ref.slice(1)) ? match : 'none';
+        }));
+    }
+}
+
 function copyAttributes(source, target) {
     for (const attribute of source.attributes) {
         const name = attribute.name;
@@ -100,7 +123,18 @@ export async function createCardSnapshot(root, fontCss, { width } = {}) {
                 if (!resourceValue.test(source.textContent)) target.textContent = source.textContent;
                 return target;
             }
-            if (source.namespaceURI !== 'http://www.w3.org/1999/xhtml') throw new Error('请先把内联 SVG 作为已清洗素材导入，再放入卡片');
+            if (source.namespaceURI === SVG_NS) {
+                // T83：内联 SVG 按白名单逐个重建；白名单外的元素（连同里面的东西）不进卡片
+                if (!SVG_TAGS.has(source.localName.toLowerCase())) return null;
+                const owner = source.closest('svg:not(svg svg)') ?? source;
+                const target = doc.createElementNS(SVG_NS, source.localName);
+                const exists = id => { const found = owner.querySelector(`#${CSS.escape(id)}`); return !!found && SVG_TAGS.has(found.localName.toLowerCase()); };
+                copySvgAttributes(source, target, exists);
+                nodeMap.set(source, target);
+                for (const child of source.childNodes) { const copy = clone(child); if (copy) target.append(copy); }
+                return target;
+            }
+            if (source.namespaceURI !== 'http://www.w3.org/1999/xhtml') throw new Error('卡片里有无法导出的非 HTML 内容（例如 MathML）');
             const target = doc.createElement(source.tagName === 'CANVAS' ? 'img' : source.localName);
             copyAttributes(source, target); nodeMap.set(source, target);
             if (source.tagName === 'IMG' || source.tagName === 'CANVAS') { target.src = loadedImage(source); target.alt = ''; }

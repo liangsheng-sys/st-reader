@@ -127,6 +127,25 @@ export async function testCardExportBrowser() {
                 assert(png.type === 'image/png' && png.size > 100, 'SVG 图案未进入 PNG');
             } finally { svgCopy.remove(); }
         });
+        await test('T83 内联 SVG 进卡片 PNG：纸舟第 15 楼徽章的金边与渐变天空可见，外链与脚本不进副本', async () => {
+            const paper = await openChat(makeChatKey({ avatarUrl: 'STCR_T11_Paper.png', fileName: 'STCR-02-代码与长文' })); handles.push(paper);
+            const { element } = await createCardMessage(paper, 14, cleanOptions); chat.append(element);
+            try {
+                assert(element.querySelector('svg linearGradient'), '卡片片段里没有 SVG');
+                const image = await pixels(await exportCard(element, { ...cleanOptions, replaceNames: false }));
+                let gold = 0, dusk = 0;
+                const near = (i, [r, g, b], d) => Math.abs(image.data[i] - r) < d && Math.abs(image.data[i + 1] - g) < d && Math.abs(image.data[i + 2] - b) < d;
+                for (let i = 0; i < image.data.length; i += 4) {
+                    if (near(i, [0xff, 0xd3, 0x6e], 24)) gold++; // 金边、灯室
+                    if (image.data[i] > 150 && image.data[i] - image.data[i + 2] > 40 && image.data[i + 1] < 170) dusk++; // 渐变下半的橘色天空
+                }
+                assert(gold > 400 && dusk > 400, `PNG 里徽章像素不足：金 ${gold}，橘 ${dusk}`);
+                // 屏蔽词落在 SVG <text> 里：换成等长实心方块字（HTML 遮盖块在 SVG 里画不出来）；正文里照旧是遮盖块
+                const masked = wrapMaskSpans(element, ['纸港', '口袋'], 'bar'), badge = masked.querySelector('svg text');
+                assert(badge.textContent.startsWith('██灯塔') && !masked.querySelector('svg span') && !masked.textContent.includes('纸港'), `SVG 里的屏蔽词没遮好：${badge.textContent}`);
+                assert(!masked.textContent.includes('口袋') && masked.querySelector('.mes_text > :not(svg) span, .mes_text span'), '正文屏蔽词没变成遮盖块');
+            } finally { element.remove(); }
+        });
         await test('Ny 字体从只读 IndexedDB 嵌入，PNG 可解码且含主题边线', async () => {
             assert(floor, '前置楼层渲染失败');
             const font = await buildCardFontCss(floor);

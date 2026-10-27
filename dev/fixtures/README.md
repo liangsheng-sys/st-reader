@@ -31,6 +31,8 @@ T75 第 13、14 楼是 `DISPLAY_TEXTS`，配三条 `stcr-t75-` 全局显示正�
 
 `append-html.mjs` 接受 6/8/10/11/12/13/14 楼版本，只替换 `stcr-t73-` / `stcr-t75-` 开头的正则。
 
+T83 第 15 楼是 `SVG_TEXT`：散文 + 多行内联 SVG 灯塔徽章（线性渐变天空、径向光晕、裁剪圆、`symbol` + `use` 星星、`tspan` 文字），外链 `use`、`script`、外链 `image` 是反例；没有 `<style>`，不会被当成 HTML 块。`append-html.mjs` 现在接受 6/8/10/11/12/13/14/15 楼版本。
+
 T73 第 12 楼是 `BEAUTY_TEXT`：`<letter><char>…</char>…</letter>` 加 `【邮戳】【花边】【外链】` 三个记号，靠五条 `stcr-t73-` 全局显示正则（`BEAUTY_REGEX`）变成带 `<style>` 的信纸、渐变邮戳、data: 花边和一格 https 外链背景（`example.invalid`，永远取不到）。`append-html.mjs` 同时只替换 settings.json 里 `stcr-t73-` 开头的正则，不动 `stcr-t11-` 那五条。**停服改 settings.json 之前，先关掉或刷新所有打开着 8100 的页面**：旧页面会在窗口缩放时把它内存里的旧设置存回去（ST 自己的 `/api/settings/save`，只读保护不拦）。
 
 T44a 与 T51 的四楼在 `html.mjs`，全部从零编造；手机样本含 `.invalid` 域名的外链 CSS/字体，用于断网验证。游戏有两件物品和不同文字结局，不调用宿主或任何服务。T51 的观测站不设 body 底色，蓝邮局显式设 body 底色；两个混排样本没有外链。新生成的 fixture 自动包含四楼；既有实例应停服后执行 `node dev/fixtures/append-html.mjs`，只追加纸舟末尾并更新该条 SHA-256，不动已存在楼层、其他聊天、角色或设置。脚本只接受已知的 6/8/10 楼版本，不相等时拒绝覆盖；重复运行不会重复追加。本次工程师已完成追加，人类无需重建样本。T51 core 的可视验收入口为开发控制台 `await stcrHtmlBoundaryDemo()`；正式阅读器混排接线由 Opus 完成（I038）。

@@ -247,7 +247,9 @@ export function maskTextNodesInPlace(root, words, style, assets, measureRoot = r
     });
     for (const { offsets, segment, pixelWidth } of changes.reverse()) {
         const range = textRange(doc, offsets, segment);
-        range.deleteContents(); range.insertNode(maskElement(doc, segment, assets, pixelWidth));
+        // T83：内联 SVG 的 <text> 里放不了 HTML 遮盖块（画不出来），换成等长的实心方块字，原词照样删掉
+        const inSvg = range.startContainer.parentElement?.closest('svg'), length = [...range.toString()].length;
+        range.deleteContents(); range.insertNode(inSvg ? doc.createTextNode('█'.repeat(length)) : maskElement(doc, segment, assets, pixelWidth));
     }
 }
 
