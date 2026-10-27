@@ -23,6 +23,9 @@ export const DEFAULT_PREFS = Object.freeze({
     htmlMode: 'render',    // T44b：楼里的 HTML 默认"渲染"还是"原文"
     htmlNetwork: true,     // T44b：HTML 默认允许加载外链（人类 2026-09-30 定，修订 D16）；可在 Aa 关掉
     htmlWidth: 390,        // T44b：HTML 渲染宽度，390 / 768 / 1200 / 'fit'；最近一次选的记成默认
+    htmlBarHidden: false,  // T80：HTML 块上方的工具条平时藏起来，悬停块时淡入（触屏点块右上角）
+    followSide: 'right',   // T80：楼层胶囊（跟随条）在正文列的哪一侧，'right' / 'left'
+    followOpen: false,     // T80 验收后：楼层胶囊一直展开（上一楼 / 下一楼常驻），不用先悬停
     drawerPinned: false,
     panelPinned: false,
     updateNotice: true,    // T54b：更新后第一次打开弹"本次更新了什么"；面板里勾"不再提醒"就关
@@ -45,10 +48,11 @@ export function normalizePrefs(raw) {
     if (input.aaLayout === 'bar' || input.aaLayout === 'panel') out.aaLayout = input.aaLayout;
     if (input.htmlMode === 'render' || input.htmlMode === 'source') out.htmlMode = input.htmlMode;
     if ([390, 768, 1200, 'fit'].includes(input.htmlWidth)) out.htmlWidth = input.htmlWidth;
+    if (input.followSide === 'right' || input.followSide === 'left') out.followSide = input.followSide;
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'drawerPinned', 'panelPinned', 'updateNotice']) {
+    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
@@ -208,6 +212,21 @@ export function progressText(first, last, total) {
     const percent = Math.min(100, Math.round(((last + 1) / total) * 100));
     const range = first === last ? `第 ${first + 1} 楼` : `第 ${first + 1}–${last + 1} 楼`;
     return `${range} · 共 ${total} 楼 · ${percent}%`;
+}
+
+/**
+ * 楼层胶囊放哪（T80）：正文列旁边的空白够宽（胶囊 + 两边留空），就停在列外侧不压字（'margin'）；
+ * 不够就贴着正文区的边缘（'edge'）。坐标都相对正文区左边，单位 px。
+ * @param {{areaLeft:number, areaRight:number, columnLeft:number, columnRight:number, side:'left'|'right', width:number, gap?:number, edge?:number}} box
+ * @returns {{mode:'margin'|'edge', left:number}} left = 胶囊左边相对正文区左边
+ */
+export function followPlacement({ areaLeft, areaRight, columnLeft, columnRight, side, width, gap = 16, edge = 6 }) {
+    if (side === 'left') {
+        const left = columnLeft - gap - width;
+        return left >= areaLeft + edge ? { mode: 'margin', left: left - areaLeft } : { mode: 'edge', left: edge };
+    }
+    const left = columnRight + gap;
+    return left + width <= areaRight - edge ? { mode: 'margin', left: left - areaLeft } : { mode: 'edge', left: areaRight - areaLeft - edge - width };
 }
 
 /** "跳到第 N 楼"输入 → 零基楼号；无效返回 null。 */
