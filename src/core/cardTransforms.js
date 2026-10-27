@@ -23,8 +23,15 @@ export function automaticNameRules({ userName = '', characterName = '', isGroup 
     return result;
 }
 
+/** 一条规则的全部原词：from 在前，再接 aliases（T81/D36，可选；去重、去空）。 */
+export function ruleWords(rule) {
+    const words = [rule?.from, ...(Array.isArray(rule?.aliases) ? rule.aliases : [])];
+    return [...new Set(words.filter(word => typeof word === 'string' && word))];
+}
+
 function validateRule(rule) {
     if (typeof rule?.from !== 'string' || !rule.from) throw new TypeError('替换原词不能为空');
+    if (rule.aliases !== undefined && (!Array.isArray(rule.aliases) || rule.aliases.some(word => typeof word !== 'string' || !word))) throw new TypeError('更多原词需为非空字符串数组');
     if (!['text', 'icon', 'asset'].includes(rule.to?.kind) || typeof rule.to.value !== 'string') throw new TypeError('替换目标无效');
     if (!validReplacementBackground(rule.to)) throw new TypeError('仅文字替换可设置 #RRGGBB 背景色');
     if (rule.to.kind === 'icon' && !Object.hasOwn(CARD_ICONS, rule.to.value)) throw new TypeError('不支持的内置图标');
@@ -71,11 +78,13 @@ export function replaceNamesInRaw(text, options = {}) {
     const mine = options.applyReplaceRules === false ? []
         : (options.rules ?? []).filter(rule => !rule.scope || rule.scope === 'all' || rule.scope === options.avatarUrl);
     mine.forEach(validateRule);
+    // 每个原词展开成一条，映射里的 from 就是实际命中的那个词；长词优先照旧。
+    const expanded = mine.flatMap(rule => ruleWords(rule).map(from => ({ ...rule, from, source: 'mine' })));
     const automatic = options.autoReplaceNames === false ? [] : automaticNameRules(options);
     // 保护所有自动名字范围，包括嵌套短名字，不能让长的用户规则跨边界吞掉名字。
     const protectedMatches = automatic.flatMap(rule => occurrences(text, rule));
     const skipped = [];
-    const matches = selectMatches(text, [mine.map(rule => ({ ...rule, source: 'mine' })), automatic], candidate => {
+    const matches = selectMatches(text, [expanded, automatic], candidate => {
         if (candidate.rule.source !== 'mine') return true;
         const completeName = protectedMatches.some(item => candidate.start === item.start && candidate.end === item.end && candidate.rule.from === item.rule.from);
         const blocked = protectedMatches.some(item => overlaps(candidate, item)

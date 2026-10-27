@@ -83,6 +83,11 @@ function validateRecord(category, record) {
         string(record.title, '聊天标题', 2000); string(record.preview, '摘要', 1000);
     } else if (category === 'replaceRules') {
         if (!string(record.from, '原词', 1000)) fail('INVALID_DATA', '原词不能为空');
+        if (record.aliases !== undefined) {
+            if (!Array.isArray(record.aliases)) fail('INVALID_DATA', '更多原词需为数组');
+            for (const word of record.aliases) if (!string(word, '更多原词', 1000)) fail('INVALID_DATA', '更多原词不能为空');
+            if (new Set(record.aliases).size !== record.aliases.length || record.aliases.includes(record.from)) fail('INVALID_DATA', '更多原词不能重复，也不能和原词相同');
+        }
         object(record.to); string(record.to.value, '替换内容');
         if (!['text', 'icon', 'asset'].includes(record.to.kind)) fail('INVALID_DATA', '替换类型无效');
         if (!validReplacementBackground(record.to)) fail('INVALID_DATA', '仅文字替换可设置 #RRGGBB 背景色');
@@ -220,6 +225,7 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
                     record.createdAt = previous?.createdAt ?? time; record.updatedAt = time;
                     if (category === 'annotations') Object.assign(record, { note: record.note ?? '', color: record.color ?? 'yellow', orphan: record.orphan ?? false, orphanReason: record.orphanReason ?? null });
                     if (category === 'replaceRules') Object.assign(record, { scope: record.scope ?? 'all', caseSensitive: record.caseSensitive ?? false, wholeWord: record.wholeWord ?? false });
+                    if (category === 'replaceRules' && Array.isArray(record.aliases)) { record.aliases = [...new Set(record.aliases)].filter(word => word !== record.from); if (!record.aliases.length) delete record.aliases; }
                     validateRecord(category, record); state.data[category][record.id] = record; return record;
                 });
             },

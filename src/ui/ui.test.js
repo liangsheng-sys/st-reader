@@ -5,6 +5,7 @@
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport } from './logic.js';
+import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
 
 const results = [];
 function check(name, fn) {
@@ -249,6 +250,33 @@ export async function testUiLogic() {
     });
     check('屏蔽词输入：去空白、压换行、空与超长拒绝', () => {
         equal([cleanMaskWord('  伦敦 '), cleanMaskWord('第一行\n第二行'), cleanMaskWord('   '), cleanMaskWord('字'.repeat(41))], ['伦敦', '第一行 第二行', null, null]);
+    });
+    check('T81 自动名字是全局设置：默认开，坏值回默认', () => {
+        equal(DEFAULT_PREFS.autoNames, true);
+        equal([normalizePrefs({ autoNames: false }).autoNames, normalizePrefs({ autoNames: 'no' }).autoNames, normalizePrefs({}).autoNames], [false, true, true]);
+    });
+    check('T81 脱敏显示：自动名字换成 char / user，原词长度找得回（锚点不错位）', () => {
+        const names = { userName: '小舟', characterName: '星灯', isGroup: false };
+        const pieces = replacePieces('小舟对星灯说：灯台亮了', { rules: [], avatarUrl: null, names });
+        equal(pieces.map(p => p.to ? `[${p.orig}→${p.to.value}]` : p.text), ['', '[小舟→user]', '对', '[星灯→char]', '说：灯台亮了'].filter(Boolean));
+        equal(replacePieces('小舟对星灯说', { rules: [], avatarUrl: null, names: null }), [{ text: '小舟对星灯说' }]);
+        equal(hasRedaction({ words: [], rules: [], names }), true);
+        equal(hasRedaction({ words: [], rules: [], names: null }), false);
+    });
+    check('T81 更多原词：两个原词都换，列表里每处原词长度对得上', () => {
+        const rule = { from: '灯塔', aliases: ['灯台', '海边灯台'], to: { kind: 'text', value: '某地' }, scope: 'all' };
+        const pieces = replacePieces('灯塔、灯台、海边灯台', { rules: [rule], avatarUrl: null });
+        equal(pieces.filter(p => p.to).map(p => p.orig), ['灯塔', '灯台', '海边灯台']);
+        equal(pieces.map(p => p.to ? p.to.value : p.text).join(''), '某地、某地、某地');
+    });
+    check('T81 小字：当前聊天的名字跟着换，别的聊天不猜名字', () => {
+        const rule = { from: '灯塔', aliases: ['灯台'], to: { kind: 'text', value: '某地' }, scope: 'all' };
+        setRedactState({ words: [], rules: [rule], names: { userName: '小舟', characterName: '星灯', isGroup: false }, chatKey: 'Star.png/聊天一', avatarUrl: 'Star.png' });
+        try {
+            equal(redactString('星灯在灯台等小舟', 'Star.png/聊天一'), 'char在某地等user');
+            equal(redactString('星灯在灯台', 'Star.png/聊天二'), 'char在某地', '同一个角色的别的聊天：');
+            equal(redactString('星灯在灯台', 'Other.png/聊天'), '星灯在某地', '别的角色：');
+        } finally { setRedactState(null); }
     });
     return [...results];
 }

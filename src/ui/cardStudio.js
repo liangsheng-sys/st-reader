@@ -6,11 +6,12 @@
 // T23b：我的替换规则（右侧"管理替换规则…"子页、预览里"总是替换为…"、映射列表每行可改）与我导入的图片
 // （小图案遮盖、替换图案、书摘封面）。规则与图片走 store.replaceRules / store.assets，随备份导出。
 
-import { exportCard, wrapMaskSpans } from '../core/cardExport.js';
+import { exportCard, ruleWords, wrapMaskSpans } from '../core/cardExport.js';
 import { store } from '../core/store.js';
 import { getVersion } from '../core/updateService.js';
 import { buildPieces, createPieceCache, findThoughts, scrubNote } from './cardPieces.js';
 import { colorPicker, readableOn } from './colorPicker.js';
+import { getPrefs } from './prefs.js';
 import { copyText, h, iconButton } from './dom.js';
 import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
@@ -67,8 +68,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         if (st) close();
         const els = buildDom();
         const mine = {
-            // 名字替换两个开关（I021）：自动名字 / 我的规则，各自独立；每次打开都从"开"开始，不记住关掉的状态
-            source, els, prefs: normalizeCardPrefs(null), autoNames: true, myRules: true, includeReasoning: !!source.includeReasoning,
+            // 名字替换两个开关（I021）：自动名字 / 我的规则，各自独立；自动名字从 Aa 的全局开关起步（T81/D38），这里关掉只管这一次
+            source, els, prefs: normalizeCardPrefs(null), autoNames: getPrefs().autoNames, myRules: true, includeReasoning: !!source.includeReasoning,
             permanent: [], temp: [], cache: createPieceCache(), pieces: [], mappings: [], thoughts: [], card: null,
             token: 0, exporting: false, urls: [], words: [], suppressClick: false, saveTimer: 0, resize: null,
             wordStyles: {}, tempStyles: {}, menu: null, rules: [], assets: [], scopes: null, rulesPage: null,
@@ -811,7 +812,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     function editMapping(mine, index, anchor) {
         const row = mine.mapRows?.[index];
         if (!row) return;
-        const same = r => r.from === row.from && r.to.kind === row.to.kind && r.to.value === row.to.value;
+        const same = r => ruleWords(r).includes(row.from) && r.to.kind === row.to.kind && r.to.value === row.to.value;
         const rule = row.source === 'mine' ? mine.rules.find(same) ?? { from: row.from } : { from: row.from };
         openRuleMenu(mine, rule, anchor);
     }

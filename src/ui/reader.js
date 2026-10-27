@@ -24,6 +24,7 @@ import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChang
 import { createSelectionUi } from './selectionPopover.js';
 import { hasRedaction, redactString, setRedactState, visibleText } from './redact.js';
 import { createSettingsBar } from './settingsBar.js';
+import { createRulesManager } from './rulesUi.js';
 import { createDocPanel } from './docPanel.js';
 import { createVersionRow, maybeShowWhatsNew } from './updateUi.js';
 
@@ -129,7 +130,7 @@ export async function openReader({ tab, chatKey } = {}) {
         confirm: (message, ok) => confirmDialog(message, ok),
     });
     session.docPanel = createDocPanel({ root });
-    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(),
+    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(), onManageRules: () => openRulesSheet(session),
         versionRow: createVersionRow({ docPanel: session.docPanel }) });
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
@@ -159,8 +160,8 @@ export async function openReader({ tab, chatKey } = {}) {
             // 脱敏开着却没读到屏蔽词 / 规则：不能当成"没有要换的"去渲染原文（I033）
             if (!session.redact) throw new Error('屏蔽词或替换规则没读出来');
             const data = session.redact;
-            if (!hasRedaction(data)) return html;
-            return maskHtmlString(html, { ...htmlMaskBase(session, where.model), maskWords: data.words, rules: data.rules, autoReplaceNames: false, applyReplaceRules: true });
+            if (!hasRedaction({ ...data, names: redactNames(session, where.model) })) return html;
+            return maskHtmlString(html, { ...htmlMaskBase(session, where.model), maskWords: data.words, rules: data.rules, autoReplaceNames: getPrefs().autoNames, applyReplaceRules: true });
         },
     });
     session.htmlShot = createHtmlShot({
@@ -655,7 +656,7 @@ function applyPrefs(prefs) {
     root.classList.toggle('stcr-hide-user', prefs.hideUser);
     root.classList.toggle('stcr-hide-reasoning', prefs.hideReasoning);
     root.classList.toggle('stcr-redacted', prefs.redact);
-    setRedactState(prefs.redact ? S.redact : null);
+    setRedactState(prefs.redact ? sideRedaction(S) : null);
     setTitles(S);
     S.redactBadge.hidden = !prefs.redact;
     root.classList.toggle('stcr-drawer-pinned', prefs.drawerPinned);
@@ -681,10 +682,12 @@ function onPrefs(next, previous) {
             if (S !== session) return;
             refreshSideTexts(session);
             rerender(anchor);
-            if (next.redact && !hasRedaction(session.redact)) say('还没有屏蔽词或替换规则：在分享卡片里添加后，这里就会按它们显示');
+            if (next.redact && !hasRedaction(sideRedaction(session))) say('还没有屏蔽词或替换规则：在分享卡片里添加后，这里就会按它们显示');
         });
         return;
     }
+    // 自动名字（T81）：脱敏显示开着时正文、小字、HTML 块都要换一遍
+    if (next.autoNames !== previous.autoNames && next.redact) { refreshSideTexts(S); rerender(anchor); return; }
     // HTML 默认改了：清掉逐块的这一项，全部按新默认（T44b）
     const htmlReset = [next.htmlMode !== previous.htmlMode ? 'mode' : null, next.htmlNetwork !== previous.htmlNetwork ? 'network' : null].filter(Boolean);
     if (htmlReset.length) S.html.resetAll(htmlReset);
@@ -707,12 +710,41 @@ function setTitles(session) {
 
 /** 脱敏开关或词表变了：正文以外的小字也跟着换（面板、抽屉、跟随条）。 */
 function refreshSideTexts(session) {
-    setRedactState(getPrefs().redact ? session.redact : null);
+    setRedactState(getPrefs().redact ? sideRedaction(session) : null);
     setTitles(session);
     session.panel.refresh();
     session.drawer.refreshList?.();
     session.follow.dataset.key = '';
     updateFollower();
+}
+
+/** 自动名字开着时这一楼（或整个聊天，model 为空）要换的名字；关着为 null（T81/D38）。 */
+function redactNames(session, model = null) {
+    if (!getPrefs().autoNames || !session.handle) return null;
+    const { userName, characterName, isGroup } = htmlMaskBase(session, model);
+    // 小字（标题、面板）不属于某一楼：群聊时按聊天的主角色名
+    return { userName, characterName: model || !isGroup ? characterName : session.handle.header.characterName ?? '', isGroup };
+}
+
+/** 小字用的脱敏状态：词表 + 名字 + 这是哪个聊天（别的聊天的小字不换名字）。读不到词表时为 null。 */
+function sideRedaction(session) {
+    if (!session.redact) return null;
+    const key = session.chatKey ? parseChatKey(session.chatKey) : null;
+    return { ...session.redact, names: redactNames(session), chatKey: session.chatKey ?? null, avatarUrl: key?.avatarUrl ?? null };
+}
+
+/** Aa → 管理屏蔽词与替换规则（T81）：用文档面板装现成的规则管理页；有改动且脱敏显示开着就重读重排。 */
+function openRulesSheet(session) {
+    let changed = false;
+    const manager = createRulesManager({ host: session.root, chatKey: session.chatKey ?? null, toast: say, words: true, backLabel: null,
+        confirm: (message, ok) => confirmDialog(message, ok), onChange: () => { changed = true; }, onBack: () => session.docPanel.close(),
+        autoNames: () => (getPrefs().autoNames && session.handle ? [session.handle.header.userName, session.handle.header.characterName].filter(Boolean) : []) });
+    session.settings.close();
+    session.docPanel.open({ title: '屏蔽词与替换规则', body: manager.el, onClose: () => {
+        if (S !== session || !changed || !getPrefs().redact) return;
+        loadRedaction(session).then(() => { if (S === session) { refreshSideTexts(session); rerender(captureAnchor()); } });
+    } });
+    manager.load().catch(error => say(`规则没读出来：${describeStoreError(error)}`));
 }
 
 /** 读屏蔽词、替换规则、图片（规则可能换成图片）。读不到就当没有，正文照常显示原文。 */
@@ -973,6 +1005,7 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
         session.handle = handle;
         watchStale(session, handle);
         session.owner = handle.header.characterName || (handle.isGroup ? '群聊' : '');
+        setRedactState(getPrefs().redact ? sideRedaction(session) : null); // 自动名字要等聊天读出来才知道名字（T81）
         setTitles(session);
         session.root.setAttribute('aria-label', `阅读器：${session.owner} · ${handle.title}`);
         syncChatFav(session);
@@ -1140,7 +1173,7 @@ function floorContext() {
         isBookmarked: (index, swipe) => session.marks.isBookmarked(index, swipe),
         attachHtml: (text, blocks, where) => session.html.attach(text, blocks, where),
         redactFor: model => {
-            const data = getPrefs().redact ? session.redact : null;
+            const data = getPrefs().redact && session.redact ? { ...session.redact, names: redactNames(session, model) } : null;
             if (!hasRedaction(data)) return null;
             // 规则作用范围：单聊 = 这个角色；群聊 = 这一楼的发言成员（用户楼只有"全部聊天"的规则）
             const avatarUrl = session.handle.isGroup ? (model.isUser ? null : model.originalAvatar ?? null) : key?.avatarUrl ?? null;
@@ -1485,7 +1518,7 @@ function htmlMaskBase(session, model) {
 }
 
 /** 截图 / 复制脱敏版用：每次现读屏蔽词、规则、图片（工作台里可能刚改过）。遮盖按字数（和阅读器里的涂黑一样）。 */
-async function htmlMaskOptions(session, model, { autoNames = true, myRules = true } = {}) {
+async function htmlMaskOptions(session, model, { autoNames = getPrefs().autoNames, myRules = true } = {}) {
     const [words, rules, assets] = await Promise.all([store.maskWords.list(), store.replaceRules.list(), store.assets.list()]);
     return { ...htmlMaskBase(session, model), maskWords: words, rules, assets,
         autoReplaceNames: autoNames, applyReplaceRules: myRules, maskStyle: { kind: 'bar', uniform: false } };
@@ -1524,7 +1557,7 @@ async function copyMasked(text, mes, button) {
         const masked = await maskedCodeText(text, model);
         if (S !== session) return;
         const ok = await copyText(masked);
-        say(ok ? '已复制脱敏版：屏蔽词遮住了，名字和替换规则都换好了' : '复制失败，请手动选中复制');
+        say(ok ? (getPrefs().autoNames ? '已复制脱敏版：屏蔽词遮住了，名字和替换规则都换好了' : '已复制脱敏版：屏蔽词遮住了，替换规则换好了（自动名字已在 Aa 里关掉）') : '复制失败，请手动选中复制');
         const icon = button?.querySelector('i');
         if (ok && icon) { icon.className = 'fa-solid fa-check'; setTimeout(() => { icon.className = 'fa-solid fa-user-secret'; }, 1500); }
     } catch (error) {

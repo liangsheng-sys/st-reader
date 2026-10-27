@@ -5,10 +5,11 @@
 // 文字一律 textContent；图片只用 store 校验过的本地 data URL，不联网（NF3）。
 
 import { listCharacters, listGroups, parseChatKey } from '../core/chatSource.js';
+import { ruleWords } from '../core/cardExport.js';
 import { store } from '../core/store.js';
 import { colorPicker } from './colorPicker.js';
 import { h, iconButton } from './dom.js';
-import { CARD_ICON_CHOICES } from './logic.js';
+import { CARD_ICON_CHOICES, cleanMaskWord } from './logic.js';
 
 export const ICON_NAMES = Object.freeze({ 'fa-star': '星星', 'fa-heart': '爱心', 'fa-cat': '小猫', 'fa-cloud': '云朵', 'fa-moon': '月亮', 'fa-shield': '盾牌' });
 const MAX_BYTES = 200 * 1024;
@@ -142,6 +143,7 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
     const editing = !!rule.id;
     const state = {
         from: rule.from ?? '',
+        aliases: Array.isArray(rule.aliases) ? [...rule.aliases] : [], // T81/D36：更多原词，一行一个
         kind: rule.to?.kind === 'icon' || rule.to?.kind === 'asset' ? 'pattern' : 'text',
         text: rule.to?.kind === 'text' ? rule.to.value : '',
         // 文字的背景色（T42、F14①）；null = 没有背景。换成图案时不带，改回文字时还在
@@ -157,6 +159,8 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
 
     const fromInput = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '200', placeholder: '比如：鲍勃', 'aria-label': '原词' });
     fromInput.value = state.from;
+    const aliasInput = h('textarea', { class: 'text_pole stcr-studio-input stcr-rule-aliases', rows: '2', placeholder: '同一个人 / 地方的别的叫法，一行一个（可不填）', 'aria-label': '更多原词' });
+    aliasInput.value = state.aliases.join('\n');
     const textInput = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '60', placeholder: '比如：路人甲（留空 = 直接删掉这个词）', 'aria-label': '替换成的文字' });
     textInput.value = state.text;
     textInput.addEventListener('input', () => { const sample = backgroundBox.querySelector('.stcr-rule-bg-sample'); if (sample) sample.textContent = textInput.value.trim() || '示例'; });
@@ -178,6 +182,7 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
     const saveBtn = h('button', { type: 'submit', class: 'stcr-btn stcr-text-btn stcr-primary', text: editing ? '保存' : '添加规则' });
     const form = h('form', { class: `stcr-rule-editor${compact ? ' stcr-rule-editor--compact' : ''}` },
         h('label', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '原词' }), fromInput),
+        h('label', { class: 'stcr-studio-field stcr-rule-row', title: '这些词也换成同样的东西，比如"灯塔"再加一行"灯台"' }, h('span', { text: '更多原词' }), aliasInput),
         h('div', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '换成' }), kindSeg),
         h('div', { class: 'stcr-rule-target' }, textInput, backgroundBox, pickerBox),
         h('label', { class: 'stcr-studio-field stcr-rule-row' }, h('span', { text: '范围' }), scopeSelect),
@@ -194,7 +199,7 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
         backgroundBox.hidden = state.kind !== 'text';
         backgroundBox.replaceChildren(h('span', { class: 'stcr-rule-bg-label', text: '文字底色' }),
             colorPicker({ value: state.background, noneLabel: '不加底色', label: '文字底色', onPick: color => { state.background = color; sync(); } }),
-            state.background ? h('span', { class: 'stcr-rule-bg-sample', style: `background-color:${state.background}`, text: textInput.value.trim() || '示例' }) : null);
+            state.background ? h('span', { class: 'stcr-rule-bg-sample', style: `background-color:${state.background}`, text: textInput.value.trim() || '示例' }) : '');  // replaceChildren 会把 null 写成文字"null"
         pickerBox.hidden = state.kind !== 'pattern';
         pickerBox.replaceChildren(patternPicker({ value: state.pattern, assets, onPick: v => { state.pattern = v; sync(); }, onImport: () => doImport() }));
     }
@@ -216,26 +221,36 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
         event.preventDefault();
         const from = fromInput.value.trim();
         if (!from) { error.textContent = '请填原词'; fromInput.focus(); return; }
+        const aliases = [...new Set(aliasInput.value.split('\n').map(word => word.trim()).filter(word => word && word !== from))];
+        const tooLong = aliases.find(word => word.length > 200);
+        if (tooLong) { error.textContent = `"${tooLong.slice(0, 20)}…"太长了，一个原词最多 200 字`; aliasInput.focus(); return; }
+        const words = [from, ...aliases];
         // 背景色只在文字上有；不要背景就不带这个字段（03 §5.12：空值不合法）
         const to = state.kind === 'text' ? { kind: 'text', value: textInput.value.trim(), ...(state.background ? { background: state.background } : {}) } : { ...state.pattern };
         if (to.kind === 'asset' && !assets.some(a => a.id === to.value)) { error.textContent = '这张图片已经不在了，请换一个图案'; return; }
         // 我的规则优先于自动名字：原词若只是某个名字的一部分，那个名字会只换掉这一段，其余真名露在卡片上
         const norm = text => (state.caseSensitive ? text : text.toLowerCase());
-        const host_ = autoNames.find(name => name && name !== from && norm(name).includes(norm(from)));
-        if (host_ && warnedFor !== from) {
-            warnedFor = from;
-            error.textContent = `注意："${from}"是名字"${host_}"的一部分。为了不把名字拆开露出一半，卡片上"${host_}"会整体按自动规则替换，这条规则只在名字以外的地方生效。确定就再点一次保存。`;
+        const part = words.find(word => autoNames.some(name => name && name !== word && norm(name).includes(norm(word))));
+        const host_ = part && autoNames.find(name => name && name !== part && norm(name).includes(norm(part)));
+        if (host_ && warnedFor !== part) {
+            warnedFor = part;
+            error.textContent = `注意："${part}"是名字"${host_}"的一部分。为了不把名字拆开露出一半，卡片上"${host_}"会整体按自动规则替换，这条规则只在名字以外的地方生效。确定就再点一次保存。`;
             return;
         }
         saveBtn.disabled = true;
         error.textContent = '';
         try {
             const all = await store.replaceRules.list();
-            const twin = all.find(r => r.id !== rule.id && r.from === from && r.scope === state.scope);
-            if (twin) { error.textContent = `已经有"${from}"的规则（${scopeLabel(twin.scope, scopes.names)}），请直接改那一条。`; return; }
+            const twin = all.find(r => r.id !== rule.id && r.scope === state.scope && ruleWords(r).some(word => words.includes(word)));
+            if (twin) {
+                const word = ruleWords(twin).find(w => words.includes(w));
+                error.textContent = `已经有"${word}"的规则（${scopeLabel(twin.scope, scopes.names)}），请直接改那一条。`; return;
+            }
             const latest = editing ? await store.replaceRules.get(rule.id) : null;
-            const saved = await store.replaceRules.put({ ...(latest ?? {}), ...(editing ? { id: rule.id } : {}), from, to, scope: state.scope,
-                caseSensitive: state.caseSensitive, wholeWord: state.wholeWord });
+            const record = { ...(latest ?? {}), ...(editing ? { id: rule.id } : {}), from, aliases, to, scope: state.scope,
+                caseSensitive: state.caseSensitive, wholeWord: state.wholeWord };
+            if (!aliases.length) delete record.aliases;
+            const saved = await store.replaceRules.put(record);
             onSaved(saved);
         } catch (err) {
             console.warn('[st-reader] 替换规则保存失败：', err);
@@ -251,20 +266,31 @@ export function createRuleEditor({ rule, scopes, assets: initialAssets, host, to
 /**
  * 管理替换规则 + 我的图片。规则是全局的（不分聊天），作用范围写在每条上。
  * @param {{host:HTMLElement, chatKey:string|null, toast:(m:string)=>void, confirm:(msg:string, ok:string)=>Promise<boolean>,
- *   onChange:()=>void, onBack:()=>void}} deps  onChange：规则或图片有变（工作台据此重建预览）
+ *   onChange:()=>void, onBack:()=>void, words?:boolean, backLabel?:string}} deps  onChange：规则、屏蔽词或图片有变（工作台据此重建预览）
+ *   words：顶上多一节"屏蔽词"（从 Aa 打开时，T81；工作台和截图窗口有自己的屏蔽词区）；backLabel 为 null 时不要返回按钮（外面的面板自己有关闭）
  */
-export function createRulesManager({ host, chatKey, toast, confirm, onChange, onBack, autoNames = () => [] }) {
-    let rules = [], assets = [], scopes = { options: [{ value: 'all', label: '全部聊天' }], defaultScope: 'all', names: new Map() };
+export function createRulesManager({ host, chatKey, toast, confirm, onChange, onBack, autoNames = () => [], words: withWords = false, backLabel = '返回卡片设置' }) {
+    let rules = [], assets = [], maskWords = [], scopes = { options: [{ value: 'all', label: '全部聊天' }], defaultScope: 'all', names: new Map() };
     let editingId = null; // 正在编辑的规则 id；'new' = 新建
     let renaming = null;
     const list = h('div', { class: 'stcr-rules-list', role: 'list' });
     const gallery = h('div', { class: 'stcr-assets' });
+    const wordChips = h('div', { class: 'stcr-studio-chips' });
+    const wordsSec = withWords ? h('section', { class: 'stcr-studio-sec stcr-rules-words' },
+        h('h3', { class: 'stcr-studio-sec-title', text: '屏蔽词' }),
+        h('p', { class: 'stcr-studio-hint', text: '遮住的词在脱敏显示里是涂黑条，在卡片和截图上变成 █。和分享卡片、HTML 截图是同一张表。' }),
+        wordChips,
+        h('form', { class: 'stcr-studio-add', 'data-words-add': '' },
+            h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', placeholder: '输入要遮住的词，回车添加', 'aria-label': '添加屏蔽词' }),
+            h('button', { type: 'submit', class: 'stcr-btn stcr-text-btn', text: '添加' }))) : null;
     const el = h('div', { class: 'stcr-rules-page' },
-        h('div', { class: 'stcr-rules-head' },
+        backLabel ? h('div', { class: 'stcr-rules-head' },
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-rules-back', 'data-rules-back': '' },
-                h('i', { class: 'fa-solid fa-arrow-left', 'aria-hidden': 'true' }), ' 返回卡片设置'),
+                h('i', { class: 'fa-solid fa-arrow-left', 'aria-hidden': 'true' }), ` ${backLabel}`)) : null,
+        wordsSec,
+        h('div', { class: 'stcr-rules-head' },
             h('h3', { class: 'stcr-studio-sec-title', text: '我的替换规则' }),
-            h('p', { class: 'stcr-studio-hint', text: '这个词在分享卡片上总是换成你定的文字或小图案。永久保存，随备份导出。只作用于卡片，不改阅读器正文，更不改聊天。' }),
+            h('p', { class: 'stcr-studio-hint', text: '这个词在分享卡片、HTML 截图和脱敏显示里总是换成你定的文字或小图案；一条规则可以有好几个原词。永久保存，随备份导出。不改聊天。' }),
             h('p', { class: 'stcr-studio-hint', text: '优先级：我的规则 > 自动（char / user） > 屏蔽词；长词先换（"爱丽丝小姐"先于"爱丽丝"）。' })),
         list,
         h('section', { class: 'stcr-studio-sec' },
@@ -272,10 +298,30 @@ export function createRulesManager({ host, chatKey, toast, confirm, onChange, on
             h('p', { class: 'stcr-studio-hint', text: 'PNG / JPG / WebP / SVG，每张不超过 200 KB，最多 30 张；建议方形、透明底。可以当替换图案、遮盖小图案、书摘封面。' }),
             gallery));
     el.addEventListener('click', onClick);
+    wordsSec?.querySelector('form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const input = event.target.querySelector('input');
+        const word = cleanMaskWord(input.value);
+        if (!word) { if (input.value.trim()) toast('一个词最多 40 个字'); return; }
+        if (maskWords.includes(word)) { toast(`"${word}"已经遮住了`); input.value = ''; return; }
+        try { maskWords = await store.maskWords.add(word); }
+        catch (error) { toast(`屏蔽词没保存上：${describeRuleError(error)}`); return; }
+        input.value = '';
+        toast(`已加入屏蔽词：${word}`);
+        renderWords(); onChange();
+    });
 
     async function load() {
-        [rules, assets, scopes] = await Promise.all([store.replaceRules.list(), store.assets.list(), ruleScopes(chatKey)]);
+        [rules, assets, scopes, maskWords] = await Promise.all([store.replaceRules.list(), store.assets.list(), ruleScopes(chatKey),
+            withWords ? store.maskWords.list() : []]);
         render();
+    }
+
+    function renderWords() {
+        if (!withWords) return;
+        wordChips.replaceChildren(...(maskWords.length ? maskWords.map(word => h('span', { class: 'stcr-word-chip' }, h('span', { text: word }),
+            iconButton('fa-xmark', `从屏蔽词里移除：${word}`, { class: 'stcr-word-x', 'data-word-drop': word })))
+            : [h('span', { class: 'stcr-studio-hint', text: '还没有屏蔽词。' })]));
     }
 
     function targetLabel(rule) {
@@ -285,9 +331,10 @@ export function createRulesManager({ host, chatKey, toast, confirm, onChange, on
     }
 
     function render() {
+        renderWords();
         const rows = rules.map(rule => (editingId === rule.id ? editorRow(rule) : h('div', { class: 'stcr-rule-item', role: 'listitem' },
             h('div', { class: 'stcr-rule-main' },
-                h('div', { class: 'stcr-studio-map' }, h('span', { class: 'stcr-map-from', text: rule.from, title: rule.from }),
+                h('div', { class: 'stcr-studio-map' }, h('span', { class: 'stcr-map-from', text: ruleWords(rule).join('、'), title: ruleWords(rule).join('、') }),
                     h('i', { class: 'fa-solid fa-arrow-right', 'aria-hidden': 'true' }), targetLabel(rule)),
                 h('div', { class: 'stcr-item-meta', text: [scopeLabel(rule.scope, scopes.names), rule.caseSensitive ? '区分大小写' : '', rule.wholeWord ? '整词' : ''].filter(Boolean).join(' · ') })),
             iconButton('fa-pen', `改这条：${rule.from}`, { class: 'stcr-rule-btn', 'data-rule-edit': rule.id }),
@@ -323,7 +370,7 @@ export function createRulesManager({ host, chatKey, toast, confirm, onChange, on
             onCancel: () => { editingId = null; render(); },
             onSaved: saved => {
                 editingId = null;
-                toast(rule.id ? `已保存：${saved.from}` : `已添加规则：${saved.from}（只作用于分享卡片）`);
+                toast(rule.id ? `已保存：${saved.from}` : `已添加规则：${saved.from}`);
                 load().then(onChange);
             } });
         queueMicrotask(() => editor.focus());
@@ -347,6 +394,13 @@ export function createRulesManager({ host, chatKey, toast, confirm, onChange, on
     async function onClick(event) {
         const t = event.target;
         if (t.closest('[data-rules-back]')) { onBack(); return; }
+        const wordDrop = t.closest('[data-word-drop]');
+        if (wordDrop) {
+            const word = wordDrop.dataset.wordDrop;
+            try { maskWords = await store.maskWords.remove(word); toast(`已移除屏蔽词：${word}`); renderWords(); onChange(); }
+            catch (error) { toast(`没移除成：${describeRuleError(error)}`); }
+            return;
+        }
         if (t.closest('[data-rule-add]')) { editingId = 'new'; render(); return; }
         const edit = t.closest('[data-rule-edit]');
         if (edit) { editingId = edit.dataset.ruleEdit; render(); return; }

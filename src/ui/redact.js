@@ -8,10 +8,10 @@
 // 这样锚点文字与未脱敏时逐字相同：已有划线照常定位、新划线按原文生成；开关切换不需要任何偏移换算。
 // 代价：划线跨过脱敏处时，那一小段落在隐藏的原词上，不上色。
 //
-// 替换规则走 core 的 replaceNamesInRaw（只开"我的规则"，不做 char/user 自动名字）；屏蔽词走 core 的 maskText。
+// 替换规则走 core 的 replaceNamesInRaw（我的规则 + 全局"自动名字"开着时的 char/user，T81/D38）；屏蔽词走 core 的 maskText。
 // 替换出来的字不再被屏蔽（与卡片相同：替换优先于屏蔽，03 §5.10）。匹配限于单个文本节点内，不跨标签。
 
-import { maskCodeText, maskText, replaceNamesInRaw } from '../core/cardExport.js';
+import { automaticNameRules, maskCodeText, maskText, replaceNamesInRaw, ruleWords } from '../core/cardExport.js';
 import { parseChatKey } from '../core/chatSource.js';
 import { readableOn } from './colorPicker.js';
 import { h } from './dom.js';
@@ -25,10 +25,13 @@ const MACRO = /{{\s*(user|char)\s*}}/i; // replaceNamesInRaw 会展开这两个�
  * @property {object[]} rules 我的替换规则（store.replaceRules）
  * @property {Map<string,{dataUrl:string}>} assets 图片规则用
  * @property {string|null} avatarUrl 这一楼对应的角色（规则作用范围）
+ * @property {{userName:string,characterName:string,isGroup:boolean,groupNames?:string[]}|null} [names] 自动名字开着时的名字（T81）；null = 不换名字
  */
 
-/** 这一楼要不要做（没有词也没有规则就什么都不改）。 */
-export const hasRedaction = opts => !!opts && (opts.words.length > 0 || opts.rules.length > 0);
+const hasNames = names => !!names && !!(names.userName || names.characterName || names.groupNames?.length);
+
+/** 这一楼要不要做（没有词、没有规则、也不换名字就什么都不改）。 */
+export const hasRedaction = opts => !!opts && (opts.words.length > 0 || opts.rules.length > 0 || hasNames(opts.names));
 
 /** 把 root 里的文本节点按屏蔽词 / 规则换成显示段。可重复调用：已处理过的段会被跳过。 */
 export function redactElement(root, opts) {
@@ -97,13 +100,15 @@ function replacementEl(to, assets) {
 
 /**
  * 我的规则 → 片段。core 的 segments 不带原词（不外泄），这里按顺序在原文里找回每处替换对应的原文长度：
- * 该处必须有一条"原词在此处匹配、替换目标相同"的规则，取最长的（与 core 的长词优先一致）。
+ * 该处必须有一个"原词（from、更多原词或自动名字）在此处匹配、替换目标相同"的词，取最长的（与 core 的长词优先一致）。
  */
-function replacePieces(text, { rules, avatarUrl }) {
-    if (!rules.length || MACRO.test(text)) return [{ text }];
+export function replacePieces(text, { rules, avatarUrl, names = null }) {
+    const auto = hasNames(names);
+    if ((!rules.length && !auto) || MACRO.test(text)) return [{ text }];
     let result;
-    try { result = replaceNamesInRaw(text, { autoReplaceNames: false, applyReplaceRules: true, rules, avatarUrl: avatarUrl ?? undefined }); }
+    try { result = replaceNamesInRaw(text, { ...(auto ? names : {}), autoReplaceNames: auto, applyReplaceRules: true, rules, avatarUrl: avatarUrl ?? undefined }); }
     catch (error) { console.warn('[st-reader] 脱敏显示：规则无效，跳过', error); return [{ text }]; }
+    const words = [...rules.flatMap(rule => ruleWords(rule).map(from => ({ ...rule, from }))), ...(auto ? automaticNameRules(names) : [])];
     const pieces = [];
     let at = 0;
     const same = (a, b) => a.kind === b.kind && a.value === b.value && (a.background ?? null) === (b.background ?? null);
@@ -113,11 +118,11 @@ function replacePieces(text, { rules, avatarUrl }) {
             return [{ text }]; // 对不上就不改这一段（宁可不脱敏也不错位）
         }
         const next = result.segments[i + 1];
-        const length = rules.filter(rule => same(rule.to, segment.to))
+        const length = words.filter(rule => same(rule.to, segment.to))
             .map(rule => rule.from.length)
             .filter(len => {
                 const piece = text.slice(at, at + len);
-                const rule = rules.find(r => same(r.to, segment.to) && r.from.length === len && (r.caseSensitive ? r.from === piece : r.from.toLowerCase() === piece.toLowerCase()));
+                const rule = words.find(r => same(r.to, segment.to) && r.from.length === len && (r.caseSensitive ? r.from === piece : r.from.toLowerCase() === piece.toLowerCase()));
                 return rule && (!next || next.kind !== 'text' || text.startsWith(next.text, at + len));
             })
             .sort((a, b) => b - a)[0];
@@ -141,7 +146,7 @@ export function visibleText(el) {
 // ───────────── 旁边的小字（面板摘录、批注气泡、候选列表、抽屉预览、标题） ─────────────
 // 这些是一行字符串，不参与锚点，直接用 core 的 maskCodeText 换成脱敏后的字符串：规则替换成文字（图标用 ★ 这类字符），屏蔽词逐字变 █。
 
-let active = null; // 脱敏显示开着时 = {words, rules}；关着为 null
+let active = null; // 脱敏显示开着时 = {words, rules, names?, chatKey?, avatarUrl?}；关着为 null
 
 /** 阅读器在开关变化、词表或规则变化时调用。 */
 export function setRedactState(data) { active = hasRedaction(data) ? data : null; }
@@ -158,8 +163,11 @@ export function redactString(text, where = null) {
         if (where.includes('/')) { try { avatarUrl = parseChatKey(where).avatarUrl ?? undefined; } catch { avatarUrl = undefined; } }
         else avatarUrl = where;
     }
+    // 自动名字只认得当前聊天的名字：小字属于当前聊天（或同一个角色）时才换名字，别的聊天的名字不猜（T81）
+    const own = !where || where === active.chatKey || (!!avatarUrl && avatarUrl === active.avatarUrl);
+    const names = own && hasNames(active.names) ? active.names : null;
     try {
-        return maskCodeText(String(text), { rules: active.rules, maskWords: active.words, autoReplaceNames: false, applyReplaceRules: true,
+        return maskCodeText(String(text), { ...(names ?? {}), rules: active.rules, maskWords: active.words, autoReplaceNames: !!names, applyReplaceRules: true,
             avatarUrl, maskStyle: { kind: 'bar', uniform: false } });
     } catch (error) {
         console.warn('[st-reader] 脱敏显示：小字处理失败，整行遮住', error);

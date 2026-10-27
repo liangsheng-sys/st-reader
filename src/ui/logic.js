@@ -19,6 +19,7 @@ export const DEFAULT_PREFS = Object.freeze({
     expandAllReasoning: false,
     hideReasoning: false,  // T42：整行不显示"思考了 x 秒"，工具条的 🧠 也藏起来
     redact: false,         // T45：脱敏显示（屏蔽词与我的替换规则套到正文显示上）
+    autoNames: true,       // T81/D38：自动名字（角色名、你的名字换成 char / user）；脱敏显示、复制脱敏版、卡片、HTML 截图都从它起步
     aaLayout: 'bar',       // T45 验收后：Aa 设置的样子，'bar' 底部长条（一行横排）/ 'panel' 两列面板
     htmlMode: 'render',    // T44b：楼里的 HTML 默认"渲染"还是"原文"
     htmlNetwork: true,     // T44b：HTML 默认允许加载外链（人类 2026-09-30 定，修订 D16）；可在 Aa 关掉
@@ -48,7 +49,7 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
-    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'htmlNetwork', 'drawerPinned', 'panelPinned', 'updateNotice']) {
+    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'autoNames', 'htmlNetwork', 'drawerPinned', 'panelPinned', 'updateNotice']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;

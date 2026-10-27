@@ -17,10 +17,10 @@ export function themeFontSize() {
 }
 
 /**
- * @param {{onExport:()=>void, onImport:()=>void, onMirror:()=>void, onRestore:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions
- * versionRow：⋯ 顶部的版本与更新（T54b）；onMirror / onRestore：立即备份 / 从服务器恢复（T70）
+ * @param {{onExport:()=>void, onImport:()=>void, onMirror:()=>void, onRestore:()=>void, onManageRules?:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions
+ * versionRow：⋯ 顶部的版本与更新（T54b）；onMirror / onRestore：立即备份 / 从服务器恢复（T70）；onManageRules：打开屏蔽词与替换规则（T81）
  */
-export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, versionRow = null }) {
+export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, onManageRules = () => {}, versionRow = null }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -38,6 +38,13 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     hideStHidden.el.title = '在 ST 里点过小眼睛（不发给模型）的楼，用户楼和角色楼都收成一行，点开能看';
     const redact = switchInput('脱敏显示');
     redact.el.title = '正文按屏蔽词与替换规则显示（只改阅读器里看到的，不改聊天）；划线照常可用';
+    // T81/D38：全局的自动名字。脱敏显示、复制脱敏版代码跟它走；分享卡片和 HTML 截图打开时从它起步，窗口里还能临时关
+    const autoNames = switchInput('自动名字');
+    autoNames.el.title = '自动名字（角色名、你的名字换成 char / user）：脱敏显示、复制脱敏版代码、分享卡片、HTML 截图都按这个起步';
+    autoNames.el.append(h('span', { class: 'stcr-set-hint stcr-set-switch-hint', text: '角色名、你的名字换成 char / user' }));
+    const rulesBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-rules', onclick: () => onManageRules(),
+        title: '屏蔽词和"某个词总是换成什么"的规则；脱敏显示、分享卡片、HTML 截图共用这一张表' },
+        h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理屏蔽词与替换规则…');
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
     const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
@@ -80,6 +87,8 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
     const layoutBtn = iconButton('fa-table-cells-large', '换成面板样式', { class: 'stcr-set-layout-btn' });
     const row = (label, ...controls) => h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: label }), h('div', { class: 'stcr-set-ctl' }, ...controls));
+    const redactRow = row('脱敏', redact.el, autoNames.el, rulesBtn);
+    redactRow.classList.add('stcr-set-redact');
     const panel = h('div', { class: 'stcr-settings', role: 'dialog', 'aria-label': '阅读设置', hidden: true },
         h('div', { class: 'stcr-settings-grid' },
             row('翻页', modeSeg),
@@ -87,7 +96,8 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
             row('行距', lineRange, lineValue),
             row('宽度', widthRange, widthValue),
             row('思维链', reasoningSeg),
-            row('显示', hideUser.el, hideStHidden.el, redact.el)),
+            row('显示', hideUser.el, hideStHidden.el),
+            redactRow),
         more,
         h('div', { class: 'stcr-set-foot' }, layoutBtn, moreBtn,
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-done', text: '完成' })));
@@ -117,6 +127,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     });
     htmlNet.input.addEventListener('change', () => setPrefs({ htmlNetwork: htmlNet.input.checked }));
     redact.input.addEventListener('change', () => setPrefs({ redact: redact.input.checked }));
+    autoNames.input.addEventListener('change', () => setPrefs({ autoNames: autoNames.input.checked }));
     reasoningSeg.addEventListener('click', event => {
         const mode = event.target.closest('[data-reasoning]')?.dataset.reasoning;
         if (mode === 'hide') setPrefs({ hideReasoning: true });
@@ -151,6 +162,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         for (const button of htmlSeg.children) button.classList.toggle('stcr-on', button.dataset.htmlMode === prefs.htmlMode);
         htmlNet.input.checked = prefs.htmlNetwork;
         redact.input.checked = prefs.redact;
+        autoNames.input.checked = prefs.autoNames;
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
         versionRow?.sync();
