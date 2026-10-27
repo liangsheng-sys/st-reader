@@ -8,7 +8,7 @@ import { createCardSnapshot, embedCardImages, finishCardSnapshot, waitForCardFon
 import { offlineCaptureGuard } from './offlineCapture.js';
 
 export { createCardMessage, bindCardSource, wrapMaskSpans } from './cardContent.js';
-export { replaceNamesInRaw, maskText, automaticNameRules } from './cardTransforms.js';
+export { replaceNamesInRaw, maskText, automaticNameRules, ruleWords } from './cardTransforms.js';
 export { maskCodeText, maskHtmlString } from './codeTransforms.js';
 
 /**

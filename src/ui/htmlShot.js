@@ -14,6 +14,7 @@ import { store } from '../core/store.js';
 import { h, iconButton } from './dom.js';
 import { HTML_WIDTHS } from './htmlBlocks.js';
 import { cardFileName, cleanMaskWord } from './logic.js';
+import { getPrefs } from './prefs.js';
 import { createRulesManager } from './rulesUi.js';
 
 const SCALES = [{ id: 1, label: '1 倍' }, { id: 2, label: '2 倍' }, { id: 3, label: '3 倍' }];
@@ -74,7 +75,7 @@ export function createHtmlShot({ root, toast, confirm, maskOptions, getChatKey, 
         const mine = { html, where, fitWidth: fit, width: widthChoice === 'fit' ? 'fit' : widthChoice ?? 390, scale: 2,
             // 长图：截初始画面时默认开（展开滚动区）；截当前画面时默认关（保留你滚到的位置）。点过就按你选的
             unfold: null, network, masked, source: snapshot ? 'current' : 'initial', current: null, currentError: null,
-            autoNames: true, myRules: true, permanent: [], temp: [], run: 0, busy: false, blob: null, url: null, preview: null, cssHeight: 0,
+            autoNames: getPrefs().autoNames, myRules: true, permanent: [], temp: [], run: 0, busy: false, blob: null, url: null, preview: null, cssHeight: 0,
             exportHtml: html, unfolded: 0, changed: false, rulesPage: null, abort: null, warnings: [] };
         st = mine;
         mine.els = buildDom(mine);

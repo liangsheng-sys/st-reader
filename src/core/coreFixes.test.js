@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 import { replaceNamesInRaw, maskText } from './cardTransforms.js';
 import { maskCodeText, maskHtmlString } from './codeTransforms.js';
+import { replaceLiteralNames } from './textTransforms.js';
 import { createStore, bookmarkId } from './store.js';
 import { memoryStorage } from './persistence.test.js';
 import { createSelfTestRunner } from './selfTestRunner.js';
@@ -150,6 +151,37 @@ export async function testCoreFixesLogic() {
         backup.data.bookmarks[valid.id].mesIndex = 4;
         await rejects(() => store.importAll(JSON.stringify(backup)));
         equal(await store.bookmarks.get(valid.id), valid);
+    });
+    await test('T81 规则的更多原词：都当原词替换，长词优先，映射记实际命中的词', async () => {
+        const alias = { ...rule, aliases: ['灯台', '灯塔下'] };
+        const text = result => result.segments.map(item => item.kind === 'text' ? item.text : item.to.value).join('');
+        const result = replaceNamesInRaw('灯塔 灯台 灯塔下', { autoReplaceNames: false, rules: [alias, { from: '灯塔下', to: { kind: 'text', value: '别处' } }] });
+        equal(text(result), '某地 某地 某地');
+        equal(result.mappings.map(item => [item.from, item.count]), [['灯塔', 1], ['灯台', 1], ['灯塔下', 1]]);
+        equal(text(replaceNamesInRaw('灯塔下的灯塔', { autoReplaceNames: false, rules: [rule, { from: '灯塔下', to: { kind: 'text', value: '别处' } }] })), '别处的某地');
+        equal(maskCodeText('<b>灯台</b>', { autoReplaceNames: false, rules: [alias] }), '<b>某地</b>');
+        // 批注走 textTransforms 的字面替换：映射里的每个实际原词都是一对，长词优先照旧
+        equal(replaceLiteralNames('灯塔下的灯台', result.mappings.map(item => ({ from: item.from, to: item.to.value }))), '某地的某地');
+        let failed = false; try { replaceNamesInRaw('x', { rules: [{ ...rule, aliases: [''] }] }); } catch { failed = true; }
+        assert(failed, '空的更多原词应被拒绝');
+    });
+    await test('T81 store 校验 aliases，导出仍是版本 1，旧备份照常导入', async () => {
+        const store = createStore({ storage: memoryStorage() });
+        const saved = await store.replaceRules.put({ ...rule, aliases: ['灯台', '灯台', '灯塔'] });
+        equal(saved.aliases, ['灯台']);
+        equal((await store.replaceRules.put({ ...rule, from: '海', aliases: ['海'] })).aliases, undefined);
+        for (const aliases of ['灯台', [''], [3], ['x'.repeat(1001)]]) await rejects(() => store.replaceRules.put({ ...rule, from: '山', aliases }));
+        const backup = JSON.parse(await store.exportAll());
+        equal(backup.version, 1);
+        const other = createStore({ storage: memoryStorage() });
+        await other.importAll(JSON.stringify(backup));
+        equal((await other.replaceRules.get(saved.id)).aliases, ['灯台']);
+        const forged = structuredClone(backup); forged.data.replaceRules[saved.id].aliases = ['灯台', '灯台'];
+        await rejects(() => createStore({ storage: memoryStorage() }).importAll(JSON.stringify(forged)));
+        const old = structuredClone(backup); for (const item of Object.values(old.data.replaceRules)) delete item.aliases;
+        const third = createStore({ storage: memoryStorage() });
+        await third.importAll(JSON.stringify(old));
+        equal((await third.replaceRules.list()).length, 2);
     });
     return results;
 }

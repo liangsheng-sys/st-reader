@@ -322,6 +322,8 @@ Bookmark 创建时 id、时间由 core 生成，title/preview 必填；kind=chat
 
 ReplaceRule：from 为非空字面量（≤1000 码元）；scope 默认为 all，或角色 avatar 文件名；caseSensitive/wholeWord 默认 false。`to.kind:'icon'` 的 value 为单个 `fa-star` 形式名称；asset 的 value 为已存在的 Asset.id；text 可为空串，且可选 to.background（严格 #RRGGBB，不能用于 icon/asset）。T41 的文字背景在预览、映射与 PNG 中保留；纯文本/HTML 字符串接口只替换 Text.data，不产生背景样式。
 
+**T81 / D36 增补（只增）**：ReplaceRule 可选 `aliases: string[]`——同一条规则的"更多原词"，每个都是非空字面量（≤1000 码元），不得重复、不得与 from 相同；`put` 时自动去重并去掉与 from 相同的项，去完为空就不存这个字段；导入（含 preview）按上述规则严格校验。备份 version 仍为 1，没有 aliases 的旧备份照常导入。`replaceNamesInRaw` / `maskCodeText` / `maskHtmlString` 把 from 与每个 alias 都当原词：每个词展开成一条同目标、同选项的规则，同级仍长词优先、同长按规则顺序；mappings 的 `from` 是实际命中的那个词（因此 `textTransforms.replaceLiteralNames` 用 mappings 组成的字面对照同样覆盖 aliases）。新增纯函数 `ruleWords(rule)` → `[from, ...aliases]`（去重去空），从 `cardTransforms.js` 导出，`cardExport.js` 重导出。
+
 Asset.put 输入 `{id?,name,blob}` 或 `{id?,name,dataUrl}`；PNG/JPEG/WebP/SVG，单张≤200 KiB、最多30张，返回统一 base64 dataUrl。校验 MIME/文件头，浏览器实际解码位图；SVG 用宿主 DOMPurify 清洗并移除事件、脚本、外部资源、动画、样式和外链，备份导入也重洗。SVG 必须在 ST 浏览器调用，Node 测试使用位图。导出不含 Ny 字体；其字体数据库归 Ny 管理。
 
 ### 5.6 T13 锚点合同
