@@ -95,4 +95,4 @@
 | T81 | **脱敏统一**（D36、D38；反馈 3、5、10）：①Aa 脱敏区"自动名字"全局开关，四处跟随；②Aa 脱敏区"管理屏蔽词与替换规则…"按钮打开 `createRulesManager`；③规则编辑支持"更多原词"（`aliases`），列表一行显示 `灯塔、灯台 → 某地`；store 校验、导出 / 导入、`textTransforms` 长词优先含 aliases；旧 JSON 导入不受影响 | Opus | 已验收 | 开脱敏显示后角色名显示为 char；复制脱敏版代码里名字已换；一条规则两个原词都被替换；Aa 里一键到规则管理 |
 | T82 | **滚动性能**（I020；反馈 1）：Performance 录 10 秒连续滚轮，定位 `ensureWindow` / `isShown` / `getBoundingClientRect` 的布局抖动；改 IntersectionObserver 哨兵 + 缓存楼高 + `content-visibility:auto` + passive 监听 + 进度条节流；`dev/test-performance.cmd` 新增"连续滚动 10 秒长帧（>50 ms）≤ 2、翻屏 P95 < 60 ms"并全绿 | Opus | 已验收（人类 2026-10-27；交接见 `docs/handoff/2026-10-27_opus_to_human_T82.md`） | 4000 楼样本滚轮阅读不卡顿；性能脚本通过且 I020 可关 |
 | T83 | **内联 SVG**（反馈 12）：正文格式化器放行 `<svg>` 及常用子标签（仍禁 `href / xlink:href`、脚本、外部 `use`）；沙箱与卡片导出中 SVG 可见；fixture 加一楼含内联 SVG 图标与渐变 | Opus | 待验收（2026-10-27，交接见 `docs/handoff/2026-10-27_opus_to_human_T83.md`） | 样本楼 SVG 在正文、卡片 PNG 里都可见 |
-| T84 | 复查 + 0.3.1 | Fable / 人类 | 待开始 | 同 T61 流程 |
+| T84 | 复查 + 0.3.1 | Fable / 人类 | Fable 复查通过（`handoff/2026-10-28_fable_to_human_T84.md`）；T83 人类验收与推送待做 | 同 T61 流程 |

@@ -7,7 +7,7 @@
     "js": "index.js",
     "css": "style.css",
     "author": "st-reader team",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "homePage": "https://github.com/liangsheng-sys/st-reader",
     "auto_update": true,
     "minimum_client_version": "1.13.0",
