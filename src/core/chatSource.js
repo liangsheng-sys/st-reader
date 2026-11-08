@@ -68,18 +68,21 @@ export function matchesHostChat(messages, hostChat) {
 }
 /** D34 ②：命中即作废对应聊天缓存的 ST 事件。 */
 export const INVALIDATING_EVENTS = Object.freeze(['MESSAGE_SENT', 'MESSAGE_RECEIVED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'MESSAGE_UPDATED', 'CHAT_CHANGED', 'CHAT_DELETED', 'GROUP_CHAT_DELETED']);
+/** T91 / D41：只影响列表（不作废聊天缓存）的宿主事件。名字以 ST public/scripts/events.js 为准；宿主没有的跳过。 */
+export const LIST_EVENTS = Object.freeze(['CHAT_CREATED', 'GROUP_CHAT_CREATED', 'CHARACTER_EDITED', 'CHARACTER_DELETED', 'CHARACTER_DUPLICATED', 'CHARACTER_RENAMED', 'GROUP_UPDATED']);
 const HOST_SAVE_RETRIES = [250, 500, 1000];
 // T90（I061）：抽屉列表刚拿到的那一行摘要，多久之内打开聊天可以直接当版本指纹用（不再让 ST 把这个角色的全部聊天扫一遍）
 const LISTED_FRESH_MS = 60_000;
 
 /** 注入读取器仅供纯逻辑测试；默认实例只使用上述同源白名单。 */
-export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now,
+export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now, listRefreshDelayMs = 1500,
     wait = (ms, signal) => new Promise((resolve, reject) => {
         const timer = setTimeout(resolve, ms);
         signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason ?? new DOMException('已取消', 'AbortError')); }, { once: true });
     }) } = {}) {
     const cache = createMemoryChatCache({ maxEntries: cacheEntries, maxBytes: cacheBytes }), pending = new Map();
-    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0, liveChecks: 0, liveReloads: 0, eventInvalidations: 0, hostSaveWaits: 0 };
+    const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0, liveChecks: 0, liveReloads: 0, eventInvalidations: 0, hostSaveWaits: 0,
+        listHits: 0, listMisses: 0, listRefetches: 0, listUpdates: 0 };
     let generation = 0, automaticPrefetch = null;
     /** chatKey → {at, row}：列表接口刚返回的摘要行（与 readSummary 同一来源、同一格式），只在内存。 */
     const listed = new Map();
@@ -94,6 +97,93 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         if (!item) return null;
         if (now() - item.at > LISTED_FRESH_MS) { listed.delete(chatKey); return null; }
         return item.row;
+    }
+    /**
+     * T91 / D41：列表的内存缓存（本页会话，刷新即空）。listKey（'characters' / 'groups' / 'recent:50' / 'character:<头像>' / 'group:<id>'）
+     * → {rows, json, job}。命中立刻给缓存，同时后台重拉；重拉结果按 JSON 比，不同才通知 watchLists 的订阅者。
+     */
+    const lists = new Map(), listWatchers = new Set(), dirtyLists = new Set();
+    let listTimer = null;
+    const copyRows = rows => [...rows];
+    function fetchList(listKey, fetcher, signal) {
+        const epoch = generation;
+        let item = lists.get(listKey);
+        if (item?.job) return item.job;
+        const job = Promise.resolve().then(() => { abortCheck(signal); return fetcher(signal); }).then(rows => {
+            if (epoch !== generation) return rows; // 清缓存之后的迟到结果不填回
+            const json = JSON.stringify(rows), held = lists.get(listKey);
+            const changed = held?.rows !== undefined && held.json !== json;
+            lists.set(listKey, { rows, json, job: null });
+            if (changed) {
+                counts.listUpdates++;
+                const [kind, ...rest] = listKey.split(':');
+                const event = Object.freeze({ listKey, kind, id: rest.length ? rest.join(':') : null, rows: Object.freeze(copyRows(rows)) });
+                for (const listener of [...listWatchers]) { try { listener(event); } catch (error) { console.warn('[st-reader] 列表更新回调出错：', error); } }
+            }
+            return rows;
+        }).finally(() => { const held = lists.get(listKey); if (held?.job === job) held.job = null; });
+        if (item) item.job = job; else lists.set(listKey, item = { rows: undefined, json: null, job });
+        return job;
+    }
+    /** 有缓存：立刻返回、后台重拉（失败不打扰）；没有或 refresh：等这次请求。调用方的 signal 只管它自己等不等。 */
+    async function cachedList(listKey, fetcher, options) {
+        abortCheck(options.signal);
+        const held = lists.get(listKey);
+        if (held?.rows !== undefined && options.refresh !== true) {
+            counts.listHits++; counts.listRefetches++;
+            fetchList(listKey, fetcher).catch(() => {});
+            return copyRows(held.rows);
+        }
+        counts.listMisses++;
+        if (options.refresh === true && held?.job) await held.job.catch(() => {}); // 正在拉的可能是旧请求，等它完再强制重拉
+        // 没缓存时这次请求带调用方的 signal（取消就真取消、不填缓存，与 T91 之前一样）；别人取消了共用的请求就自己再来一次
+        const joined = Boolean(lists.get(listKey)?.job);
+        const job = fetchList(listKey, fetcher, options.signal);
+        if (held?.rows === undefined) job.catch(() => { const failed = lists.get(listKey); if (failed && failed.rows === undefined && !failed.job) lists.delete(listKey); });
+        const rows = await new Promise((resolve, reject) => {
+            const cancel = () => reject(options.signal.reason ?? new DOMException('已取消', 'AbortError'));
+            options.signal?.addEventListener('abort', cancel, { once: true });
+            job.then(resolve, reject).finally(() => options.signal?.removeEventListener('abort', cancel));
+        }).catch(error => {
+            if (joined && error?.name === 'AbortError' && !options.signal?.aborted) return cachedList(listKey, fetcher, options);
+            throw error;
+        });
+        return copyRows(rows);
+    }
+    /** 事件命中：把这些列表记为"脏"，有人在看（抽屉开着）时攒一会儿（等 ST 把聊天存盘）再统一后台重拉。 */
+    function markListsDirty(match) {
+        for (const listKey of lists.keys()) if (match(listKey)) dirtyLists.add(listKey);
+        if (!dirtyLists.size || !listWatchers.size) return;
+        clearTimeout(listTimer);
+        listTimer = setTimeout(refetchDirty, listRefreshDelayMs);
+    }
+    function refetchDirty() {
+        listTimer = null;
+        for (const listKey of [...dirtyLists]) {
+            dirtyLists.delete(listKey);
+            const fetcher = listFetchers.get(listKey), held = lists.get(listKey);
+            if (!fetcher || held?.rows === undefined) continue;
+            // 在途的请求是事件之前发的，可能没看到这次变化：等它完再拉一次
+            const run = () => { counts.listRefetches++; return fetchList(listKey, fetcher).catch(() => {}); };
+            if (held.job) held.job.then(run, run); else run();
+        }
+    }
+    /** listKey → 拉取函数（第一次调用时记下，事件重拉用）。 */
+    const listFetchers = new Map();
+    function useList(listKey, fetcher, options) {
+        if (!listFetchers.has(listKey)) listFetchers.set(listKey, fetcher);
+        return cachedList(listKey, listFetchers.get(listKey), options);
+    }
+    /**
+     * 订阅列表变化：后台重拉（命中后的或事件触发的）结果与缓存不同时回调 {listKey, kind, id, rows}；
+     * kind 为 characters / groups / recent / character / group，id 为最近列表的条数、头像文件名或群组 ID。返回退订函数。
+     * 有订阅者时，宿主事件才会触发列表重拉；没人订阅只记脏，下次调用照样先给缓存再重拉。
+     */
+    function watchLists(listener) {
+        if (typeof listener !== 'function') throw new TypeError('listener 必须是函数');
+        listWatchers.add(listener);
+        if (dirtyLists.size && !listTimer) listTimer = setTimeout(refetchDirty, listRefreshDelayMs);
+        return () => { listWatchers.delete(listener); if (!listWatchers.size) { clearTimeout(listTimer); listTimer = null; } };
     }
     const isHostCurrent = chatKey => { try { return getCurrentChatKey() === chatKey && Array.isArray(getContext().chat); } catch { return false; } };
     const clock = () => globalThis.performance?.now?.() ?? Date.now();
@@ -269,43 +359,52 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             if (automaticPrefetch === task) automaticPrefetch = null;
         });
     }
-    /** @param {{signal?:AbortSignal}} [options] @returns {Promise<Array<{avatarUrl:string,name:string,thumbnailUrl:string}>>} */
+    // T91：五个列表都走 cachedList（命中立刻给、后台重拉、变了才通知 watchLists）；options.refresh:true 跳过缓存等这次请求。
+    // 没缓存时带调用方的 signal；后台重拉不带（抽屉关了也让缓存更新完）。
+    /** @param {{signal?:AbortSignal,refresh?:boolean}} [options] @returns {Promise<Array<{avatarUrl:string,name:string,thumbnailUrl:string}>>} */
     async function listCharacters(options = {}) {
         schedulePrefetch(options);
-        return listResult(await read('/api/characters/all', {}, options)).map(card => Object.freeze({ avatarUrl: card.avatar, name: card.name, thumbnailUrl: thumbnail(card.avatar) }));
+        return useList('characters', async signal => listResult(await read('/api/characters/all', {}, { signal })).map(card => Object.freeze({ avatarUrl: card.avatar, name: card.name, thumbnailUrl: thumbnail(card.avatar) })), options);
     }
-    /** @param {{signal?:AbortSignal}} [options] @returns {Promise<Array<{id:string,name:string,members:readonly string[],thumbnailUrl:string|null}>>} */
+    /** @param {{signal?:AbortSignal,refresh?:boolean}} [options] @returns {Promise<Array<{id:string,name:string,members:readonly string[],thumbnailUrl:string|null}>>} */
     async function listGroups(options = {}) {
         schedulePrefetch(options);
-        return listResult(await read('/api/groups/all', {}, options)).map(group => Object.freeze({ id: String(group.id), name: String(group.name),
-            members: Object.freeze([...(group.members ?? [])]), thumbnailUrl: group.members?.[0] ? thumbnail(group.members[0]) : null }));
+        return useList('groups', async signal => listResult(await read('/api/groups/all', {}, { signal })).map(group => Object.freeze({ id: String(group.id), name: String(group.name),
+            members: Object.freeze([...(group.members ?? [])]), thumbnailUrl: group.members?.[0] ? thumbnail(group.members[0]) : null })), options);
     }
-    /** @param {number} [max=30] 1–200 @param {{signal?:AbortSignal}} [options] @returns {Promise<ChatSummary[]>} */
+    /** @param {number} [max=30] 1–200 @param {{signal?:AbortSignal,refresh?:boolean}} [options] @returns {Promise<ChatSummary[]>} */
     async function listRecent(max = 30, options = {}) {
         if (!Number.isInteger(max) || max < 1 || max > 200) throw new RangeError('最近列表数量需为 1–200');
         schedulePrefetch(options);
-        const rows = listResult(await read('/api/chats/recent', { pinned: [], max, metadata: false }, options)).filter(row => row.avatar || row.group != null);
-        // 群聊的摘要来源是 search，格式不同，只记单聊行
-        rememberListed(rows, row => row.group == null && row.avatar ? { avatarUrl: row.avatar } : null);
-        return rows.map(row => summary(row, row.group != null ? { groupId: String(row.group) } : { avatarUrl: row.avatar }));
+        return useList(`recent:${max}`, async signal => {
+            const rows = listResult(await read('/api/chats/recent', { pinned: [], max, metadata: false }, { signal })).filter(row => row.avatar || row.group != null);
+            // 群聊的摘要来源是 search，格式不同，只记单聊行
+            rememberListed(rows, row => row.group == null && row.avatar ? { avatarUrl: row.avatar } : null);
+            return rows.map(row => summary(row, row.group != null ? { groupId: String(row.group) } : { avatarUrl: row.avatar }));
+        }, options);
     }
-    /** @param {string} avatarUrl 角色头像文件名 @param {{signal?:AbortSignal}} [options] @returns {Promise<ChatSummary[]>} */
+    /** @param {string} avatarUrl 角色头像文件名 @param {{signal?:AbortSignal,refresh?:boolean}} [options] @returns {Promise<ChatSummary[]>} */
     async function listByCharacter(avatarUrl, options = {}) {
         component(avatarUrl);
         schedulePrefetch(options);
-        const rows = await read('/api/characters/chats', { avatar_url: avatarUrl, simple: false, metadata: false }, options);
-        // 宿主用 {error:true} 表示该角色尚无聊天目录。
-        const list = rows?.error === true ? [] : listResult(rows);
-        rememberListed(list, () => ({ avatarUrl }));
-        return list.map(row => summary(row, { avatarUrl }));
+        return useList(`character:${avatarUrl}`, async signal => {
+            const rows = await read('/api/characters/chats', { avatar_url: avatarUrl, simple: false, metadata: false }, { signal });
+            // 宿主用 {error:true} 表示该角色尚无聊天目录。
+            const list = rows?.error === true ? [] : listResult(rows);
+            rememberListed(list, () => ({ avatarUrl }));
+            return list.map(row => summary(row, { avatarUrl }));
+        }, options);
     }
-    /** @param {string} groupId 群组 ID，与聊天文件 ID 不同 @param {{signal?:AbortSignal}} [options] @returns {Promise<ChatSummary[]>} */
+    /** @param {string} groupId 群组 ID，与聊天文件 ID 不同 @param {{signal?:AbortSignal,refresh?:boolean}} [options] @returns {Promise<ChatSummary[]>} */
     async function listByGroup(groupId, options = {}) {
         component(String(groupId));
         schedulePrefetch(options);
-        const rows = listResult(await read('/api/chats/search', { query: '', group_id: String(groupId) }, options));
-        rememberListed(rows, () => ({ groupId: String(groupId) }));
-        return rows.map(row => summary(row, { groupId: String(groupId) }));
+        const id = String(groupId);
+        return useList(`group:${id}`, async signal => {
+            const rows = listResult(await read('/api/chats/search', { query: '', group_id: id }, { signal }));
+            rememberListed(rows, () => ({ groupId: id }));
+            return rows.map(row => summary(row, { groupId: id }));
+        }, options);
     }
     /** 只读取宿主当前选择；欢迎页/临时聊天返回 null。@returns {string|null} */
     function getCurrentChatKey() {
@@ -419,11 +518,11 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         const key = getCurrentChatKey(); return key ? prefetchChat(key, options) : false;
     }
     function clearChatCache() {
-        generation++; cache.clear(); listed.clear();
+        generation++; cache.clear(); listed.clear(); lists.clear(); dirtyLists.clear(); clearTimeout(listTimer); listTimer = null;
         // 已有等待者仍可完成，但清空后的打开不能加入旧请求；旧响应也不能淘汰新缓存。
         pending.clear(); automaticPrefetch = null;
     }
-    function getChatCacheStats() { return Object.freeze({ ...cache.info(), ...counts, pending: pending.size }); }
+    function getChatCacheStats() { return Object.freeze({ ...cache.info(), ...counts, pending: pending.size, lists: lists.size }); }
     /** D34 ②：作废一个聊天的缓存项与在途冷读（不预取、不读文件）。返回是否有东西被作废。 */
     function invalidateChat(chatKey) {
         if (typeof chatKey !== 'string' || !chatKey) return false;
@@ -440,16 +539,36 @@ export function createChatSource({ read = request, getContext = context, cacheEn
      * 只读订阅 INVALIDATING_EVENTS：回调里只作废缓存，不碰 chat / chatMetadata，不调任何保存方法。
      * 删除事件另按文件名作废（删的可能不是当前聊天）。返回退订函数。
      */
+    /** D41：一个宿主事件影响哪些列表（listKey 判断函数）。 */
+    function listsHitBy(name, payload) {
+        const current = (() => { try { const key = getCurrentChatKey(); return key ? parseChatKey(key) : null; } catch { return null; } })();
+        const ownerList = current ? (current.isGroup ? `group:${current.groupId}` : `character:${current.avatarUrl}`) : null;
+        const target = payload !== undefined && payload !== null && typeof payload !== 'object' ? String(payload).replace(/\.jsonl$/i, '') : null;
+        const holds = listKey => target !== null && (lists.get(listKey)?.rows ?? []).some(row => row.fileName === target);
+        switch (name) {
+            case 'CHAT_DELETED': case 'GROUP_CHAT_DELETED':
+                return listKey => listKey.startsWith('recent:') || listKey === ownerList || ((listKey.startsWith('character:') || listKey.startsWith('group:')) && holds(listKey));
+            case 'CHARACTER_EDITED': case 'CHARACTER_DUPLICATED':
+                return listKey => listKey === 'characters';
+            case 'CHARACTER_DELETED': case 'CHARACTER_RENAMED':
+                return listKey => listKey === 'characters' || listKey === 'groups' || listKey.startsWith('recent:') || listKey.startsWith('character:');
+            case 'GROUP_UPDATED':
+                return listKey => listKey === 'groups' || listKey === ownerList;
+            default: // 消息事件、CHAT_CHANGED、CHAT_CREATED、GROUP_CHAT_CREATED
+                return listKey => listKey.startsWith('recent:') || listKey === ownerList;
+        }
+    }
     function watchHostChatEvents() {
         const { eventSource, event_types: types } = getContext();
         if (!eventSource?.on || !types) return () => {};
         const handlers = [];
-        for (const name of INVALIDATING_EVENTS) {
+        for (const name of [...INVALIDATING_EVENTS, ...LIST_EVENTS]) {
             const type = types[name];
             if (!type) continue;
+            const chatEvent = INVALIDATING_EVENTS.includes(name);
             const handler = payload => {
                 try {
-                    invalidateChat(getCurrentChatKey());
+                    if (chatEvent) invalidateChat(getCurrentChatKey());
                     if ((name === 'CHAT_DELETED' || name === 'GROUP_CHAT_DELETED') && payload !== undefined && payload !== null) {
                         const target = String(payload).replace(/\.jsonl$/i, '');
                         for (const key of cache.info().keys) {
@@ -458,6 +577,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
                         }
                     }
                 } catch (error) { console.warn('[st-reader] 聊天缓存作废失败：', error); }
+                try { markListsDirty(listsHitBy(name, payload)); } catch (error) { console.warn('[st-reader] 列表缓存作废失败：', error); }
             };
             eventSource.on(type, handler);
             handlers.push([type, handler]);
@@ -466,11 +586,11 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             for (const [type, handler] of handlers.splice(0)) (eventSource.removeListener ?? eventSource.off)?.call(eventSource, type, handler);
         };
     }
-    return { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents };
+    return { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents, watchLists };
 }
 
 /** 默认公开接口；options 支持 AbortSignal。具体类型与示例见 03 §5。 */
-export const { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents } = createChatSource();
+export const { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, openChat, prefetchCurrentChat, clearChatCache, getChatCacheStats, invalidateChat, watchHostChatEvents, watchLists } = createChatSource();
 
 /**
  * @typedef {object} ChatSummary

@@ -503,6 +503,7 @@
 #stcr_root .stcr-drawer-tab[aria-selected="true"] { opacity: 1; color: var(--stcr-accent); box-shadow: inset 0 -2px 0 var(--stcr-accent); border-radius: 8px 8px 0 0; }
 #stcr_root .stcr-drawer-tab-label { display: none; }
 #stcr_root .stcr-drawer-pin.stcr-on { opacity: 1; }
+#stcr_root .stcr-drawer-refresh:disabled { opacity: .45; cursor: default; }
 #stcr_root .stcr-drawer-close { display: none; }
 #stcr_root .stcr-drawer-filter-row { padding: 8px 10px 6px; }
 #stcr_root .stcr-drawer-filter { width: 100%; margin: 0; }
