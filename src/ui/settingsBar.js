@@ -9,6 +9,7 @@
 import { h, iconButton } from './dom.js';
 import { effectivePrefs, PREF_LIMITS } from './logic.js';
 import { getPrefs, setPrefs } from './prefs.js';
+import { setTopbarIcon, topbarIconOn } from './topbarIcon.js';
 
 /** 主题当前正文字号（px），用于显示"18"这样的绝对数。 */
 export function themeFontSize() {
@@ -83,8 +84,14 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const diagBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-diag-copy', onclick: () => onDiagnostics(),
         title: '把最近一次打开聊天各步花了多久复制下来（只有数字，没有聊天内容、名字和文件名）' },
         h('i', { class: 'fa-solid fa-stethoscope', 'aria-hidden': 'true' }), ' 复制诊断信息');
+    // T92 / D44：ST 顶栏的书本图标（存 ST 设置；ST "扩展"面板里也有同一个开关）
+    const topbarIcon = switchInput('在 ST 顶栏显示阅读器图标');
+    topbarIcon.el.title = '关掉后顶栏不再有书本图标；仍可从魔杖菜单「阅读器」或输入 /reader 打开';
+    topbarIcon.input.addEventListener('change', () => setTopbarIcon(topbarIcon.input.checked));
     const more = h('div', { class: 'stcr-set-more', hidden: true },
         versionRow?.el ?? null,
+        h('div', { class: 'stcr-set-item stcr-set-topbar' }, h('span', { class: 'stcr-set-label', text: '显示' }),
+            h('div', { class: 'stcr-set-ctl' }, topbarIcon.el, h('span', { class: 'stcr-set-hint', text: '隐藏后可从魔杖菜单「阅读器」或 /reader 打开' }))),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
             h('div', { class: 'stcr-set-ctl' }, htmlSeg, htmlNet.el)),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
@@ -214,6 +221,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     }
     function open() {
         sync();
+        topbarIcon.input.checked = topbarIconOn(); // ST 扩展面板那边可能改过
         panel.hidden = false;
         fab.setAttribute('aria-expanded', 'true');
     }

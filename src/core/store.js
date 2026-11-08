@@ -60,8 +60,12 @@ function bookmarkKind(record) {
 function normalizeBookmark(record) {
     record.kind = bookmarkKind(record);
     if (record.kind !== 'chat') record.swipeIndex ??= null;
+    // D44：聊天收藏的备注去首尾空白，空串等于没有
+    if (record.kind === 'chat' && typeof record.note === 'string') { record.note = record.note.trim(); if (!record.note) delete record.note; }
     return record;
 }
+/** D44：聊天收藏备注上限（字）。 */
+export const FAVORITE_NOTE_MAX = 500;
 /** 聊天、整楼与候选使用不同的稳定键；旧楼层/候选 ID 保持不变。 */
 export function bookmarkId(record) {
     const { chatKey: key, mesIndex, swipeIndex = null } = record;
@@ -81,6 +85,8 @@ function validateRecord(category, record) {
     } else if (category === 'bookmarks') {
         if (record.id !== bookmarkId(record)) fail('INVALID_DATA', '收藏键与目标不一致');
         string(record.title, '聊天标题', 2000); string(record.preview, '摘要', 1000);
+        if (record.note !== undefined && bookmarkKind(record) === 'chat'
+            && (!string(record.note, '收藏备注', FAVORITE_NOTE_MAX) || record.note !== record.note.trim())) fail('INVALID_DATA', '收藏备注需去掉首尾空白且不能为空串（空即删除）');
     } else if (category === 'replaceRules') {
         if (!string(record.from, '原词', 1000)) fail('INVALID_DATA', '原词不能为空');
         if (record.aliases !== undefined) {

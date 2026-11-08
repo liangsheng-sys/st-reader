@@ -1,8 +1,12 @@
 // ST Reader — AGPL-3.0
 // 三个入口（F1、02 §1.1）：魔杖菜单「阅读器」、顶栏书本按钮、斜杠命令 /reader。
 // 按钮不用 .drawer-toggle / .mes_button 等 ST 绑了点击逻辑的类名，只借 .drawer / .drawer-icon 的外观。
+// T92 / D44：顶栏图标可关（topbarIcon.js），运行时挂 / 摘；ST "扩展"面板里放一个阅读器小块，只有这一个开关。
 
 import { closeReader, isReaderOpen, openReader } from './reader.js';
+import { onTopbarIconChange, setTopbarIcon, topbarIconOn } from './topbarIcon.js';
+
+const EXTENSION_ID = new URL('../..', import.meta.url).pathname.replace(/^\/scripts\/extensions\//, '').replace(/\/$/, '');
 
 const TABS = { recent: 'recent', owners: 'owners', characters: 'owners', favorites: 'favorites', current: 'current' };
 
@@ -25,7 +29,8 @@ function mountWandItem() {
     menu.append(item);
 }
 
-function mountTopbarButton() {
+/** 挂顶栏书本图标（已挂则不动）。 */
+export function mountTopbarButton() {
     const holder = document.getElementById('top-settings-holder');
     if (!holder || document.getElementById('stcr_topbar_button')) return;
     const wrap = document.createElement('div');
@@ -39,6 +44,26 @@ function mountTopbarButton() {
     icon.addEventListener('click', () => (isReaderOpen() ? closeReader() : open()));
     wrap.append(icon);
     holder.append(wrap);
+    if (isReaderOpen()) { icon.classList.add('openIcon'); icon.classList.remove('closedIcon'); }
+}
+
+/** 摘掉顶栏书本图标。 */
+export function unmountTopbarButton() {
+    document.getElementById('stcr_topbar_button')?.remove();
+}
+
+/** ST "扩展"面板里的阅读器小块（模板 src/ui/templates/settings.html）：一个开关 + 一句提示，和 Aa 里那个同步。 */
+async function mountSettingsBlock() {
+    const host = document.getElementById('extensions_settings2') ?? document.getElementById('extensions_settings');
+    if (!host || document.getElementById('stcr_settings_block')) return;
+    const html = await SillyTavern.getContext().renderExtensionTemplateAsync(`${EXTENSION_ID}/src/ui/templates`, 'settings');
+    if (document.getElementById('stcr_settings_block')) return;
+    host.insertAdjacentHTML('beforeend', html);
+    const toggle = document.getElementById('stcr_topbar_icon_toggle');
+    if (!toggle) return;
+    toggle.checked = topbarIconOn();
+    toggle.addEventListener('change', () => setTopbarIcon(toggle.checked));
+    onTopbarIconChange(on => { toggle.checked = on; });
 }
 
 function registerSlashCommand() {
@@ -61,6 +86,8 @@ function registerSlashCommand() {
 
 export function mountEntries() {
     mountWandItem();
-    mountTopbarButton();
+    if (topbarIconOn()) mountTopbarButton();
+    onTopbarIconChange(on => (on ? mountTopbarButton() : unmountTopbarButton()));
+    mountSettingsBlock().catch(error => console.error('[st-reader] 扩展面板设置块挂载失败：', error));
     try { registerSlashCommand(); } catch (error) { console.error('[st-reader] /reader 命令注册失败：', error); }
 }

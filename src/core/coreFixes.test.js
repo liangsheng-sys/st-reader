@@ -113,6 +113,36 @@ export async function testCoreFixesLogic() {
         equal((await store.bookmarks.list({ kind: 'swipe' })).length, 1);
         await store.bookmarks.remove(chat.id); equal((await store.bookmarks.list()).length, 2);
     });
+    await test('D44 聊天收藏备注：去空白、空串即删、≤ 500 字；导出 version 仍为 1；旧备份照常导入；合并 updatedAt 新者胜', async () => {
+        const storage = memoryStorage(), store = createStore({ storage });
+        const plain = await store.bookmarks.put({ ...target, kind: 'chat' });
+        assert(!Object.hasOwn(plain, 'note'));
+        const oldBackup = await store.exportAll(); // 没有备注字段的旧格式
+        const noted = await store.bookmarks.put({ ...plain, note: '  结局是灯塔亮了 \n' });
+        equal(noted.note, '结局是灯塔亮了'); equal(noted.createdAt, plain.createdAt);
+        const cleared = await store.bookmarks.put({ ...noted, note: '   ' }); assert(!Object.hasOwn(cleared, 'note'));
+        await store.bookmarks.put({ ...noted, note: '字'.repeat(500) });
+        await rejects(() => store.bookmarks.put({ ...noted, note: '字'.repeat(501) }));
+        await rejects(() => store.bookmarks.put({ ...noted, note: 42 }));
+        await store.bookmarks.put({ ...noted, note: '结局是灯塔亮了' });
+        const exported = JSON.parse(await store.exportAll());
+        equal(exported.version, 1); equal(Object.values(exported.data.bookmarks)[0].note, '结局是灯塔亮了');
+        const fresh = createStore({ storage: memoryStorage() });
+        await fresh.importAll(oldBackup); assert(!Object.hasOwn((await fresh.bookmarks.list({ kind: 'chat' }))[0], 'note'));
+        const withNote = createStore({ storage: memoryStorage() });
+        await withNote.importAll(JSON.stringify(exported)); equal((await withNote.bookmarks.list({ kind: 'chat' }))[0].note, '结局是灯塔亮了');
+        // 导入里带首尾空白 / 空串的备注是坏数据，整份拒收（不部分写入）
+        const bad = structuredClone(exported); Object.values(bad.data.bookmarks)[0].note = ' 有空白 ';
+        await rejects(() => createStore({ storage: memoryStorage() }).importAll(JSON.stringify(bad)));
+        // D33 合并：服务器那份更新 → 用它的备注；本地更新 → 保留本地
+        const other = createStore({ storage: memoryStorage() });
+        await other.importAll(oldBackup);
+        const newer = structuredClone(exported); const row = Object.values(newer.data.bookmarks)[0];
+        row.updatedAt = new Date(Date.now() + 60_000).toISOString(); row.note = '服务器上改过的备注';
+        await other.mergeBackup(JSON.stringify(newer)); equal((await other.bookmarks.list({ kind: 'chat' }))[0].note, '服务器上改过的备注');
+        const older = structuredClone(exported); Object.values(older.data.bookmarks)[0].updatedAt = '2000-01-01T00:00:00.000Z'; Object.values(older.data.bookmarks)[0].note = '旧的';
+        await other.mergeBackup(JSON.stringify(older)); equal((await other.bookmarks.list({ kind: 'chat' }))[0].note, '服务器上改过的备注');
+    });
     await test('旧版无 kind 记录读取与备份迁移保持 ID，读取不写库', async () => {
         const storage = memoryStorage(), first = createStore({ storage });
         const old = await first.bookmarks.put({ ...target, mesIndex: 3, swipeIndex: 0 });
