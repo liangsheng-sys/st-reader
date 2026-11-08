@@ -68,7 +68,8 @@ function saveSoon(key, getValue, delay) {
 }
 function save(key, value) {
     if (!useStore) { writeLocal(key, value); return Promise.resolve(); }
-    return store.settings.set(key, value).catch(error => {
+    // D39：阅读进度是瞬时状态，不触发自动备份（关阅读器时最多补写一次）；设置开关照旧
+    return store.settings.set(key, value, { transient: key === PROGRESS_KEY }).catch(error => {
         console.warn('[st-reader] 阅读设置保存失败，已暂存到浏览器本地：', error);
         writeLocal(key, value); // 下次 loadPrefs 会再迁回 store
     });

@@ -173,9 +173,9 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
         copy.syncedRev = Number.isInteger(copy.syncedRev) && copy.syncedRev >= 0 ? copy.syncedRev : 0;
         return copy;
     }
-    const listeners = new Set();
-    function notify(rev) {
-        for (const listener of listeners) {
+    const listeners = new Set(), transientListeners = new Set();
+    function notify(rev, targets = listeners) {
+        for (const listener of targets) {
             try { listener({ rev }); } catch (error) { console.error('[st-reader] 存储变更回调出错：', error); }
         }
     }
@@ -291,7 +291,16 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
         settings: {
             async all() { return (await read()).data.settings; },
             async get(key, fallback = null) { safeKey(key); const data = (await read()).data.settings; return Object.hasOwn(data, key) ? data[key] : clone(fallback); },
-            async set(key, value) { safeKey(key); jsonValue(value); const copy = clone(value); return mutate(state => state.data.settings[key] = copy); },
+            /**
+             * transient（T90 / D39）：阅读进度这类瞬时状态——照样落 IndexedDB、照样在备份 JSON 里，但不递增 rev、不触发 onChange（不排自动备份），
+             * 只通知 onTransientChange；随下一次别的变更一起上传，关阅读器 / pagehide 时由备份服务最多补写一次。
+             */
+            async set(key, value, { transient = false } = {}) {
+                safeKey(key); jsonValue(value); const copy = clone(value);
+                if (!transient) return mutate(state => state.data.settings[key] = copy);
+                const result = await mutate(state => state.data.settings[key] = copy, { bump: false });
+                notify(null, transientListeners); return result;
+            },
             async remove(key) { safeKey(key); return mutate(state => { const existed = Object.hasOwn(state.data.settings, key); delete state.data.settings[key]; return existed; }); },
         },
         async ready() { await adapter(); await read(); },
@@ -314,6 +323,11 @@ export function createStore({ storage, lock, cleanSvg, now = () => new Date().to
         onChange(listener) {
             if (typeof listener !== 'function') throw new TypeError('onChange 需要函数');
             listeners.add(listener); return () => listeners.delete(listener);
+        },
+        /** T90 / D39：订阅瞬时状态写入（settings.set 带 transient）；回调 {rev:null}。返回退订函数。 */
+        onTransientChange(listener) {
+            if (typeof listener !== 'function') throw new TypeError('onTransientChange 需要函数');
+            transientListeners.add(listener); return () => transientListeners.delete(listener);
         },
         /** {rev, syncedId, syncedRev, empty}：本地修订号、上次与服务器同步的标记、是否完全没有数据。 */
         async revision() {

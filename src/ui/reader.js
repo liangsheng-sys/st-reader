@@ -27,6 +27,7 @@ import { createSettingsBar } from './settingsBar.js';
 import { createRulesManager } from './rulesUi.js';
 import { createDocPanel } from './docPanel.js';
 import { createVersionRow, maybeShowWhatsNew } from './updateUi.js';
+import { diagnosticsLine, diagnosticsText, lastOpen, patchOpen, recordOpen } from './diagnostics.js';
 
 const PAGE_SIZE = 30;      // 每批楼数，与 core 默认一致（03 §4.5）
 const MAX_PAGES = 4;       // DOM 里同时最多保留几批，其余释放（NF2）
@@ -67,6 +68,7 @@ const say = message => { if (S) toast(S.root, message); };
  * @param {{tab?:'recent'|'owners'|'favorites'|'current', chatKey?:string}} [options]
  */
 export async function openReader({ tab, chatKey } = {}) {
+    const clickAt = performance.now(); // T90 诊断：从这里算"点击到能滚动"
     if (S) {
         if (chatKey) loadChat(chatKey);
         if (tab) S.drawer.open(tab);
@@ -97,7 +99,7 @@ export async function openReader({ tab, chatKey } = {}) {
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], hold: null, popover: null, popoverDismiss: null,
         chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
-        prebuilt: new Map(), renderVersion: 0, prebuildJob: 0, // T82：空闲时先建好的前后批
+        prebuilt: new Map(), renderVersion: 0, prebuildJob: 0, firstScreen: true, // T82：空闲时先建好的前后批；T90：首屏前不预建
         banner: null, staleOff: null, reloading: false, restoring: false,
     };
     S = session;
@@ -132,6 +134,7 @@ export async function openReader({ tab, chatKey } = {}) {
     });
     session.docPanel = createDocPanel({ root });
     session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(), onManageRules: () => openRulesSheet(session),
+        onDiagnostics: () => copyDiagnostics(session),
         versionRow: createVersionRow({ docPanel: session.docPanel }) });
     session.selUi = createSelectionUi({
         root, marks: session.marks, toast: say,
@@ -206,6 +209,8 @@ export async function openReader({ tab, chatKey } = {}) {
         if (!highlightSupported()) setTimeout(() => say('这个浏览器太旧，划线能保存但看不到颜色；请升级浏览器。'), 800);
 
         const current = getCurrentChatKey();
+        session.settings.setDiagnostics(diagnosticsLine());
+        session.pendingClickAt = clickAt;
         if (chatKey) loadChat(chatKey);
         else if (current && tab !== 'recent') loadChat(current, { index: stVisibleIndex() });
         else showEmpty();
@@ -988,6 +993,19 @@ function doImport() {
     pickAndImport({ root: session.root, toast: say, confirm: (content, ok) => confirmDialog(content, ok), onImported: () => afterDataMerged(session) });
 }
 
+/** Aa → ⋯ → 诊断 → 复制：只有数字（diagnostics.js），不含正文、名字、文件名。 */
+async function copyDiagnostics(session) {
+    const timing = session.diagHandle && session.diagHandle === session.handle ? session.handle.timing : null;
+    if (timing) patchOpen({ summaryMs: timing.summaryMs, fileSize: timing.fileSize }); // 当前聊天的摘要是首屏后补查的
+    let version = null;
+    try { version = await getVersion(); } catch { /* 拿不到就写"未知" */ }
+    const mirror = getMirrorStatus();
+    const text = diagnosticsText(lastOpen(), { version, ua: navigator.userAgent, width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
+        backupBytes: mirror.bytes ?? undefined, mirrorMs: mirror.durationMs ?? undefined, mirrorState: { ok: '正常', error: '出错', unavailable: '不可用', never: '还没备份', pending: '排队中', saving: '正在写' }[mirror.state] });
+    if (S !== session) return;
+    say(await copyText(text) ? '已复制诊断信息（只有数字，没有聊天内容）' : '复制失败，请再试一次');
+}
+
 async function refreshBackupStatus() {
     const session = S;
     if (!session) return;
@@ -1051,6 +1069,9 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
     const session = S;
     if (!session) return;
     const token = ++session.token;
+    // T90 诊断：从打开阅读器（或在抽屉里点聊天）算起
+    const clickAt = session.pendingClickAt ?? performance.now(), loadAt = performance.now();
+    session.pendingClickAt = null;
     session.controller?.abort();
     const controller = new AbortController();
     session.controller = controller;
@@ -1063,6 +1084,7 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
     try {
         const handle = ready ?? await openChat(chatKey, { pageSize: PAGE_SIZE, signal: controller.signal });
         if (S !== session || token !== session.token) { handle.close(); return; }
+        const fileAt = performance.now();
         session.handle = handle;
         watchStale(session, handle);
         session.owner = handle.header.characterName || (handle.isGroup ? '群聊' : '');
@@ -1078,6 +1100,7 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
             say(`划线与收藏读取失败：${describeStoreError(error)}`);
         }
         if (S !== session || token !== session.token) return;
+        const marksAt = performance.now();
         const saved = getProgress(chatKey);
         session.swipeView = new Map(Object.entries(saved?.sw ?? {}).map(([key, value]) => [Number(key), value]));
         session.reasoning = new Map();
@@ -1086,8 +1109,25 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
         start = Math.min(handle.total - 1, Math.max(0, Number.isInteger(start) ? start : 0));
         if (Number.isInteger(swipe)) session.swipeView.set(start, swipe);
         showState(null);
+        session.firstScreen = false;
         jumpTo(start);
         if (anchor?.index === start) restoreAnchor(anchor, { hold: true });
+        const builtAt = performance.now();
+        // 首屏画完、能滚动的时刻：rAF 之后的第一个任务
+        requestAnimationFrame(() => setTimeout(() => {
+            if (S !== session || token !== session.token) return;
+            const readyAt = performance.now(), timing = handle.timing ?? {}, prebuiltBeforeReady = session.prebuilt.size;
+            session.firstScreen = true;
+            schedulePrebuild(session);
+            recordOpen({ ...timing, totalMs: readyAt - clickAt, shellMs: loadAt - clickAt, marksMs: marksAt - fileAt,
+                buildMs: builtAt - marksAt, layoutMs: readyAt - builtAt, builtFloors: renderedFloors().length, prebuiltBeforeReady,
+                sandboxes: session.chat.querySelectorAll('iframe').length, floors: handle.total });
+            session.diagHandle = handle;
+            session.settings.setDiagnostics(diagnosticsLine());
+            const open = lastOpen();
+            console.info(`[st-reader] 打开聊天 ${open.totalMs} ms（缓存 ${open.cacheHit ? '是' : '否'}，摘要 ${open.summary ?? '—'} ${open.summaryMs ?? '—'} ms，读文件 ${open.fileMs ?? '—'} ms，解析 ${open.parseMs ?? '—'} ms，`
+                + `建楼 ${open.buildMs} ms / ${open.builtFloors} 楼，排版 ${open.layoutMs} ms，沙箱 ${open.sandboxes} 个，共 ${open.floors} 楼）`);
+        }, 0));
     } catch (error) {
         if (error?.name === 'AbortError' || S !== session || token !== session.token) return;
         console.error('[st-reader] 打开聊天失败：', error);
@@ -1313,7 +1353,8 @@ function takePrebuilt(pageIndex) {
 }
 
 function schedulePrebuild(session = S) {
-    if (!session?.handle || session.prebuildJob || session.firstPage < 0) return;
+    // T90：首屏能滚动之前不预建（loadChat 画完首屏再叫一次），不跟首屏抢主线程
+    if (!session?.handle || session.prebuildJob || session.firstPage < 0 || !session.firstScreen) return;
     const idle = globalThis.requestIdleCallback ?? (run => setTimeout(() => run({ timeRemaining: () => 8 }), 50));
     session.prebuildJob = idle(deadline => {
         session.prebuildJob = 0;

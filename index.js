@@ -8,7 +8,7 @@ if (isDevInstance(window.location)) {
     installReadonlyGuard(window);
     console.log('[st-reader] 开发实例只读保护已开启。');
     window.stcrSelfTest = createSelfTestRunner(async (options = {}) => {
-        const runCore = options.core ?? (!options.fixtures && !options.performance && !options.cachePerformance);
+        const runCore = options.core ?? (!options.fixtures && !options.performance && !options.cachePerformance && !options.heavy);
         if (!isReadonlyGuardInstalled(window)) throw new Error('开发实例的 fetch 只读保护已失效。');
         const { testReadonlyGuard } = await import('./src/core/readonlyGuard.test.js');
         const results = await testReadonlyGuard();
@@ -64,8 +64,12 @@ if (isDevInstance(window.location)) {
             const { testPerformanceBrowser } = await import('./src/core/performanceBrowser.test.js');
             results.push(...await testPerformanceBrowser());
         }
+        if (options.heavy) {
+            const { testHeavyOpenBrowser } = await import('./src/core/performanceBrowser.test.js');
+            results.push(...await testHeavyOpenBrowser());
+        }
         console.table(results);
-        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore || options.updateService || options.chatCache || options.cachePerformance || options.performance ? '检查仅读取同源资源与只读 API；更新接口使用替身。' : '未发送任何测试请求。'}`);
+        console.log(`[st-reader] 全部通过（${results.length} 项）。${options.fixtures || runCore || options.updateService || options.chatCache || options.cachePerformance || options.performance || options.heavy ? '检查仅读取同源资源与只读 API；更新接口使用替身。' : '未发送任何测试请求。'}`);
         return results;
     });
     window.stcrStorageProbe = async phase => {

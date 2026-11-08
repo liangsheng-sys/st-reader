@@ -70,6 +70,8 @@ export function createBackupService({ store = defaultStore, host = defaultHost, 
     getContext = () => globalThis.SillyTavern?.getContext?.(), now = () => new Date(), uuid = () => crypto.randomUUID(),
     delay = 3000, timers = globalThis } = {}) {
     let timer = null, running = null, again = false, againForce = false, synced = false, syncing = null, suppress = false, started = null;
+    // T90 / D39：瞬时状态（阅读进度）写过几次、已随哪一次上传；只在内存，刷新后从 0 开始
+    let transientSeq = 0, transientMirrored = 0;
     const listeners = new Set();
     const saved = host.read();
     let status = Object.freeze({ state: saved.mirroredAt ? 'ok' : 'never', mirroredAt: saved.mirroredAt ?? null, bytes: saved.bytes ?? null,
@@ -159,8 +161,11 @@ export function createBackupService({ store = defaultStore, host = defaultHost, 
             return;
         }
         setStatus({ state: 'saving' });
+        const seq = transientSeq, began = Date.now();
         const snap = await store.snapshot(), base64 = toBase64(snap.json);
         await upload(MAIN_FILE, base64, { keepalive });
+        transientMirrored = seq; // 快照里已含这之前的瞬时状态
+        const durationMs = Date.now() - began;
         const today = now(), daily = dailyName(today);
         let dailies = Array.isArray(pointer.dailies) ? pointer.dailies : [], lastDaily = pointer.lastDaily ?? null;
         if (lastDaily !== daily && !keepalive) {
@@ -172,7 +177,7 @@ export function createBackupService({ store = defaultStore, host = defaultHost, 
         const id = uuid(), mirroredAt = today.toISOString();
         host.patch({ rev: snap.rev, mirrorId: id, mirroredAt, bytes: snap.bytes, lastDaily, dailies });
         await store.markSynced({ id, rev: snap.rev });
-        setStatus({ state: 'ok', mirroredAt, bytes: snap.bytes, rev: snap.rev, code: null, message: '' });
+        setStatus({ state: 'ok', mirroredAt, bytes: snap.bytes, rev: snap.rev, code: null, message: '', durationMs });
     }
 
     /** 立即备份。永不抛错，返回最新状态（state:'ok'|'error'|'unavailable'）。 */
@@ -203,9 +208,13 @@ export function createBackupService({ store = defaultStore, host = defaultHost, 
         if (status.state !== 'saving') setStatus({ state: 'pending' });
         timer = timers.setTimeout(() => { timer = null; mirrorNow(); }, delay);
     }
-    /** 有排队的就立刻写（关阅读器 / pagehide）。 */
+    /** 有排队的就立刻写（关阅读器 / pagehide）。D39：只有瞬时状态变过时也补写这一次（换浏览器能接着读）。 */
     function flushMirror(options = {}) {
-        if (timer === null) return running ?? Promise.resolve(status);
+        if (timer === null) {
+            if (running) return running;
+            if (transientSeq === transientMirrored || !synced) return Promise.resolve(status);
+            return mirrorNow({ ...options, force: true });
+        }
         return mirrorNow(options);
     }
 
@@ -225,6 +234,7 @@ export function createBackupService({ store = defaultStore, host = defaultHost, 
     function start({ target = globalThis } = {}) {
         if (started) return started;
         store.onChange(() => scheduleMirror());
+        store.onTransientChange?.(() => { transientSeq++; }); // D39：不排 3 秒镜像，等 flushMirror
         target.addEventListener?.('pagehide', () => { flushMirror({ keepalive: true }); });
         started = (async () => {
             if (!host.available()) { setStatus({ state: 'unavailable', code: 'HOST_UNAVAILABLE', message: 'ST 设置接口不可用' }); return { restored: null }; }

@@ -6,6 +6,7 @@ import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortO
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport } from './logic.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
+import { diagnosticsLine, diagnosticsText, lastOpen, recordOpen } from './diagnostics.js';
 
 const results = [];
 function check(name, fn) {
@@ -30,6 +31,18 @@ export async function testUiLogic() {
         equal(reasoningTitle(120), '思考了 2 分钟');
         equal(reasoningTitle(null), '思考过程');
         equal(reasoningTitle(-1), '思考过程');
+    });
+    check('诊断信息（T90）：只有数字；正文、名字、文件名一律进不去', () => {
+        equal(diagnosticsLine(null), '还没打开过聊天');
+        recordOpen({ totalMs: 1234.4, fileMs: 98.6, cacheHit: false, summary: 'deferred', floors: 240, fileSize: '1412.75kb',
+            title: 'STCR-96-重楼-240楼', owner: '雾岚（虚构）', preview: '虚构正文', summaryWeird: '<b>x</b>', chatKey: 'a.png/秘密' });
+        const open = lastOpen();
+        equal(Object.keys(open).filter(key => key !== 'at').sort(), ['cacheHit', 'fileMs', 'fileSize', 'floors', 'summary', 'totalMs']);
+        equal(open.totalMs, 1234); equal(diagnosticsLine(), '上次打开 1.23 秒 · 240 楼');
+        const text = diagnosticsText(open, { version: '0.3.2', ua: 'TestBrowser/1', width: 1440, height: 1000, dpr: 1, backupBytes: 2048, mirrorMs: 35, mirrorState: '正常' });
+        for (const secret of ['重楼', '雾岚', '虚构正文', '秘密', '<b>']) equal(text.includes(secret), false, `诊断里出现了 ${secret}：`);
+        for (const piece of ['从点击到能滚动：1234 ms', '等 ST 返回聊天文件：99 ms', '首屏后补查', '240 楼 · 1412.75kb', '0.3.2', 'TestBrowser/1', '1440×1000', 'JSON 2.0 KB · 上次镜像 35 ms']) equal(text.includes(piece), true, `诊断里缺 ${piece}：`);
+        recordOpen({ fileSize: '雾岚 1 KB' }); equal('fileSize' in lastOpen(), false, '文件大小只收数字加单位：');
     });
     check('自动备份状态行（T70）：时间 · 大小；没备份过、出错、不可用各有说法', () => {
         const now = new Date(2026, 9, 21, 12);

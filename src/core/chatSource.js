@@ -69,6 +69,8 @@ export function matchesHostChat(messages, hostChat) {
 /** D34 ②：命中即作废对应聊天缓存的 ST 事件。 */
 export const INVALIDATING_EVENTS = Object.freeze(['MESSAGE_SENT', 'MESSAGE_RECEIVED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'MESSAGE_SWIPED', 'MESSAGE_UPDATED', 'CHAT_CHANGED', 'CHAT_DELETED', 'GROUP_CHAT_DELETED']);
 const HOST_SAVE_RETRIES = [250, 500, 1000];
+// T90（I061）：抽屉列表刚拿到的那一行摘要，多久之内打开聊天可以直接当版本指纹用（不再让 ST 把这个角色的全部聊天扫一遍）
+const LISTED_FRESH_MS = 60_000;
 
 /** 注入读取器仅供纯逻辑测试；默认实例只使用上述同源白名单。 */
 export function createChatSource({ read = request, getContext = context, cacheEntries = 3, cacheBytes = 150_000_000, prefetchOnList = true, now = Date.now,
@@ -79,6 +81,22 @@ export function createChatSource({ read = request, getContext = context, cacheEn
     const cache = createMemoryChatCache({ maxEntries: cacheEntries, maxBytes: cacheBytes }), pending = new Map();
     const counts = { hits: 0, misses: 0, invalidations: 0, prefetches: 0, validations: 0, liveChecks: 0, liveReloads: 0, eventInvalidations: 0, hostSaveWaits: 0 };
     let generation = 0, automaticPrefetch = null;
+    /** chatKey → {at, row}：列表接口刚返回的摘要行（与 readSummary 同一来源、同一格式），只在内存。 */
+    const listed = new Map();
+    function rememberListed(rows, ownerOf) {
+        const at = now();
+        for (const row of rows) {
+            try { const owner = ownerOf(row); if (owner) listed.set(summary(row, owner).chatKey, { at, row }); } catch { /* 坏行不记 */ }
+        }
+    }
+    function freshListed(chatKey) {
+        const item = listed.get(chatKey);
+        if (!item) return null;
+        if (now() - item.at > LISTED_FRESH_MS) { listed.delete(chatKey); return null; }
+        return item.row;
+    }
+    const isHostCurrent = chatKey => { try { return getCurrentChatKey() === chatKey && Array.isArray(getContext().chat); } catch { return false; } };
+    const clock = () => globalThis.performance?.now?.() ?? Date.now();
     const abortCheck = signal => { if (signal?.aborted) throw signal.reason ?? new DOMException('已取消', 'AbortError'); };
     function fingerprint(row) {
         const size = row.file_size, date = row.last_mes;
@@ -86,13 +104,20 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             || !['string', 'number'].includes(typeof date) || date === '') return null;
         return JSON.stringify([size, normalizeDate(date) ?? String(date), row.message_count ?? row.chat_items ?? null]);
     }
+    /**
+     * 这个聊天的摘要行（大小 / 末楼时间 / 楼数），用作版本指纹。ST 没有"只看一个文件"的接口，两种读法都会扫该角色 / 群组的全部聊天：
+     * 单聊用 /api/characters/chats（异步逐行流读，只解析末行；与抽屉列表同源）；群聊用 /api/chats/search（只扫这个群的聊天，与 listByGroup 同源）。
+     * T90 之前单聊也用 search：ST 会同步读入并逐行 JSON 解析该角色的每一个聊天文件，聊天多时要很久，期间 ST 也卡住。
+     */
     async function readSummary(key, signal) {
-        const rows = listResult(await read('/api/chats/search', key.isGroup ? { query: '', group_id: key.groupId } : { query: '', avatar_url: key.avatarUrl }, { signal }));
+        const result = key.isGroup ? await read('/api/chats/search', { query: '', group_id: key.groupId }, { signal })
+            : await read('/api/characters/chats', { avatar_url: key.avatarUrl, simple: false, metadata: false }, { signal });
         abortCheck(signal);
+        const rows = !key.isGroup && result?.error === true ? [] : listResult(result); // 宿主用 {error:true} 表示该角色尚无聊天目录
         return rows.find(row => String(row.file_id ?? (key.isGroup ? row.file_name : String(row.file_name).replace(/\.jsonl$/i, ''))) === key.fileName);
     }
     async function readEntry(chatKey, signal, isCurrent) {
-        const key = parseChatKey(chatKey);
+        const key = parseChatKey(chatKey), started = clock();
         let group = null;
         let cards;
         if (key.isGroup) {
@@ -105,22 +130,68 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         } else cards = [await read('/api/characters/get', { avatar_url: key.avatarUrl }, { signal })];
         abortCheck(signal);
         cards = cards.map(card => freezeJson(structuredClone(card)));
-        const info = await readSummary(key, signal), version = info ? fingerprint(info) : null;
-        if (!info) throw new StcrDataError('NOT_FOUND', '聊天文件不存在或已被移除');
+        // T90（I061）：打开前不再等"扫这个角色全部聊天"的摘要。版本指纹：抽屉刚列过就用那一行（零请求）；否则先读正文，首屏后空闲时补查。
+        // 先确认文件在：群聊看 group.chats（上面已查）；单聊用 characters/chats 的 simple 读法（ST 只列目录、不读文件），宿主当前聊天不用查。
+        // 不确认就读正文的话，ST 的 chats/get 在角色没有聊天目录时会顺手建一个空目录（D02 不允许阅读器引起任何写入）。
+        const timing = { cacheHit: false, summary: 'deferred', summaryMs: null, existsMs: null, cardsMs: Math.round(clock() - started), fileMs: null, parseMs: null, fileSize: null, floors: null };
+        const info = freshListed(chatKey), deferred = !info;
+        if (info) timing.summary = 'listed';
+        else if (!key.isGroup && !isHostCurrent(chatKey)) {
+            const at = clock();
+            const names = await read('/api/characters/chats', { avatar_url: key.avatarUrl, simple: true }, { signal });
+            timing.existsMs = Math.round(clock() - at);
+            abortCheck(signal);
+            if (!Array.isArray(names) || !names.some(row => String(row?.file_id ?? String(row?.file_name).replace(/\.jsonl$/i, '')) === key.fileName)) {
+                throw new StcrDataError('NOT_FOUND', '聊天文件不存在或已被移除');
+            }
+        }
+        const version = info ? fingerprint(info) : null;
         counts.misses++;
+        let at = clock();
         const raw = await read(key.isGroup ? '/api/chats/group/get' : '/api/chats/get', key.isGroup ? { id: key.fileName } : { avatar_url: key.avatarUrl, file_name: key.fileName }, { signal });
+        timing.fileMs = Math.round(clock() - at);
         abortCheck(signal);
         if (!Array.isArray(raw)) throw new StcrDataError('INVALID_RESPONSE', '聊天 API 返回格式错误');
+        at = clock();
         const { messages, header } = parseChatRows(raw, { isGroup: key.isGroup,
             userName: key.isGroup ? raw.find(message => message?.is_user)?.name ?? getContext().name1 : getContext().name1,
             characterName: key.isGroup ? group.name : cards[0]?.name, metadata: group?.chat_metadata });
         const depths = calculateDepths(messages);
-        const entry = { key: chatKey, version, rows: raw, messages, depths, cards, header, models: new Map(), pages: new Map(),
-            listeners: new Set(), staleEvent: null, validation: null, validationJob: null, validationController: null,
+        const entry = { key: chatKey, version: deferred ? undefined : version, rows: raw, messages, depths, cards, header, models: new Map(), pages: new Map(),
+            listeners: new Set(), staleEvent: null, validation: null, validationJob: null, validationController: null, versionJob: null, timing,
             bytes: estimateJsonBytes(raw) + estimateJsonBytes(cards) + estimateJsonBytes(header) + depths.byteLength + messages.length * 8 + 512 };
-        // 先取摘要再取正文；期间发生变化会在下次后台校验发现，不用新摘要替旧正文背书。
-        if (version !== null && isCurrent()) cache.put(entry);
+        timing.parseMs = Math.round(clock() - at);
+        timing.floors = messages.length;
+        timing.fileSize = info?.file_size ?? null;
+        // 列表行早于正文：期间发生变化会在下次后台校验发现。补查的摘要晚于正文，见 fillVersion。
+        if (deferred) { if (isCurrent() && cache.put(entry)) entry.versionJob = fillVersion(entry, key); }
+        else if (version !== null && isCurrent()) cache.put(entry);
         return entry;
+    }
+    /**
+     * 先读正文、后补摘要（T90）：等浏览器空闲（首屏画完）再查。摘要晚于正文，可能已经算进了正文之后的新楼，
+     * 所以楼数对不上、找不到、或拿不到指纹时，这份缓存直接作废（下次打开冷读），不拿新摘要替旧正文背书。
+     * 剩下的空档是"读完正文到补查之间（通常不到 2 秒）有人只改字不加楼"：当前聊天有 D34 ①② 的宿主比对与事件作废兜底，
+     * 别的聊天这时一般没人在写。
+     */
+    function fillVersion(entry, key) {
+        const epoch = generation;
+        const idle = new Promise(resolve => globalThis.requestIdleCallback ? requestIdleCallback(() => resolve(), { timeout: 2000 }) : setTimeout(resolve, 0));
+        return idle.then(async () => {
+            if (epoch !== generation || !cache.has(entry)) return;
+            const at = clock();
+            let info = null;
+            try { info = await readSummary(key); } catch { info = null; }
+            entry.timing.summaryMs = Math.round(clock() - at);
+            entry.timing.fileSize = info?.file_size ?? null;
+            const version = info ? fingerprint(info) : null, count = Number(info?.message_count ?? info?.chat_items);
+            if (version === null || Number.isFinite(count) && count !== entry.messages.length) {
+                entry.version = null;
+                if (cache.has(entry)) cache.remove(entry.key);
+                return;
+            }
+            entry.version = version;
+        }).finally(() => { entry.versionJob = null; });
     }
     function validateEntry(entry) {
         // D34 ③：每次命中都后台校验一次，不再复用 60 秒内的结果；同时在途的校验共享
@@ -136,6 +207,8 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         const idle = new Promise(resolve => globalThis.requestIdleCallback ? requestIdleCallback(() => resolve(), { timeout: 500 }) : setTimeout(resolve, 0));
         const job = idle.then(async () => {
             try {
+                if (entry.versionJob) await entry.versionJob; // 冷读的补查摘要还没回来：先等它（T90）
+                if (!current()) return result('discarded');
                 const info = await readSummary(parseChatKey(entry.key), controller.signal);
                 if (!current()) return result('discarded');
                 const version = info ? fingerprint(info) : null;
@@ -211,9 +284,10 @@ export function createChatSource({ read = request, getContext = context, cacheEn
     async function listRecent(max = 30, options = {}) {
         if (!Number.isInteger(max) || max < 1 || max > 200) throw new RangeError('最近列表数量需为 1–200');
         schedulePrefetch(options);
-        return listResult(await read('/api/chats/recent', { pinned: [], max, metadata: false }, options))
-            .filter(row => row.avatar || row.group != null)
-            .map(row => summary(row, row.group != null ? { groupId: String(row.group) } : { avatarUrl: row.avatar }));
+        const rows = listResult(await read('/api/chats/recent', { pinned: [], max, metadata: false }, options)).filter(row => row.avatar || row.group != null);
+        // 群聊的摘要来源是 search，格式不同，只记单聊行
+        rememberListed(rows, row => row.group == null && row.avatar ? { avatarUrl: row.avatar } : null);
+        return rows.map(row => summary(row, row.group != null ? { groupId: String(row.group) } : { avatarUrl: row.avatar }));
     }
     /** @param {string} avatarUrl 角色头像文件名 @param {{signal?:AbortSignal}} [options] @returns {Promise<ChatSummary[]>} */
     async function listByCharacter(avatarUrl, options = {}) {
@@ -221,13 +295,17 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         schedulePrefetch(options);
         const rows = await read('/api/characters/chats', { avatar_url: avatarUrl, simple: false, metadata: false }, options);
         // 宿主用 {error:true} 表示该角色尚无聊天目录。
-        return (rows?.error === true ? [] : listResult(rows)).map(row => summary(row, { avatarUrl }));
+        const list = rows?.error === true ? [] : listResult(rows);
+        rememberListed(list, () => ({ avatarUrl }));
+        return list.map(row => summary(row, { avatarUrl }));
     }
     /** @param {string} groupId 群组 ID，与聊天文件 ID 不同 @param {{signal?:AbortSignal}} [options] @returns {Promise<ChatSummary[]>} */
     async function listByGroup(groupId, options = {}) {
         component(String(groupId));
         schedulePrefetch(options);
-        return listResult(await read('/api/chats/search', { query: '', group_id: String(groupId) }, options)).map(row => summary(row, { groupId: String(groupId) }));
+        const rows = listResult(await read('/api/chats/search', { query: '', group_id: String(groupId) }, options));
+        rememberListed(rows, () => ({ groupId: String(groupId) }));
+        return rows.map(row => summary(row, { groupId: String(groupId) }));
     }
     /** 只读取宿主当前选择；欢迎页/临时聊天返回 null。@returns {string|null} */
     function getCurrentChatKey() {
@@ -269,8 +347,10 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             }
         }
         abortCheck(signal);
-        const total = entry.messages.length, header = entry.header;
-        const validation = !cacheHit ? Promise.resolve(Object.freeze({ state: 'loaded', checkedAt: null, durationMs: 0 }))
+        const total = entry.messages.length, header = entry.header, loadTiming = entry.timing;
+        // 冷读：补查摘要（若有）回来后才算 loaded（T90）
+        const loaded = Object.freeze({ state: 'loaded', checkedAt: null, durationMs: 0 });
+        const validation = !cacheHit ? (entry.versionJob ? entry.versionJob.then(() => loaded, () => loaded) : Promise.resolve(loaded))
             : live ? Promise.resolve(Object.freeze({ state: 'fresh', checkedAt: now(), durationMs: 0, source: 'host' }))
                 : validateEntry(entry);
         const subscriptions = new Set();
@@ -281,6 +361,8 @@ export function createChatSource({ read = request, getContext = context, cacheEn
             chatKey: makeChatKey(key.isGroup ? { groupId: key.groupId, fileName: key.fileName } : { avatarUrl: key.avatarUrl, fileName: key.fileName }),
             title: key.fileName, isGroup: key.isGroup, header, total, pageSize, pageCount: Math.ceil(total / pageSize),
             cacheHit, validation,
+            /** T90 诊断：本次打开各段耗时（毫秒）、楼数、ST 报的文件大小；不含正文。当前聊天的补摘要回来后 summaryMs / fileSize 才有值。 */
+            get timing() { return Object.freeze(cacheHit ? { cacheHit: true, floors: total, fileSize: loadTiming.fileSize } : { ...loadTiming }); },
             get closed() { return closed; },
             get stale() { ensureOpen(); return Boolean(entry.staleEvent); },
             onStale(callback) {
@@ -337,7 +419,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         const key = getCurrentChatKey(); return key ? prefetchChat(key, options) : false;
     }
     function clearChatCache() {
-        generation++; cache.clear();
+        generation++; cache.clear(); listed.clear();
         // 已有等待者仍可完成，但清空后的打开不能加入旧请求；旧响应也不能淘汰新缓存。
         pending.clear(); automaticPrefetch = null;
     }
@@ -349,7 +431,7 @@ export function createChatSource({ read = request, getContext = context, cacheEn
         try { const parsed = parseChatKey(chatKey); key = makeChatKey(parsed.isGroup ? { groupId: parsed.groupId, fileName: parsed.fileName } : { avatarUrl: parsed.avatarUrl, fileName: parsed.fileName }); }
         catch { return false; }
         const had = Boolean(cache.peek(key)) || pending.has(key);
-        cache.remove(key); pending.delete(key);
+        cache.remove(key); pending.delete(key); listed.delete(key);
         if (automaticPrefetch?.key === key) automaticPrefetch = null;
         if (had) counts.eventInvalidations++;
         return had;

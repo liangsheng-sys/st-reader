@@ -772,3 +772,35 @@ D02：以上接口不写 chats 目录、不碰聊天；`readonlyGuard.js` 名单
 测试：Node `testBackupServiceLogic`（11 项，内存替身的 user/files 与 extension_settings）覆盖 rev 比对、合并规则、7 份轮替只删自己、空浏览器不覆盖、两浏览器并集、接口不可用的提示、已读版本回落。浏览器 `dev/test-performance.mjs --backup`（已进 `test-release.cmd`）在 8100 真写 `.dev/data/default-user/user/files/`，断言服务器文件与磁盘文件的数据 = `exportAll()`，再只删 `st-reader` 这个 IndexedDB 库（不清整站，免得清掉 Ny 字体等宿主数据）、刷新，断言自动恢复，最后删掉标记批注并再备份一次。
 
 UI 接线（Opus）：Aa → ⋯ “备份”两行：`mirrorStatusText(getMirrorStatus())`，按钮“立即备份”=`mirrorNow({force:true})`、“从服务器恢复”=`restoreFromServer()`，旁边保留导出 / 导入 JSON；第一次打开阅读器时若启动合并恢复了内容，toast `restoreSummary(report)`；关阅读器 `flushProgress().finally(flushMirror)`；“更新后提醒”开关同步写 `hostSettings.updateNotice`，加载时以 ST 设置为准。
+
+### 5.17 打开速度与诊断（T90 / D39 / I060 / I061，2026-11-08，Opus 按 D32 交付）
+
+本节只**增加**。§5.14 冷读顺序那一句（"冷读保持只读角色/群组、search 与正文 get 顺序"）由下面"冷读顺序"取代；其余签名不变。
+
+**冷读顺序（I061）**：ST 没有"只看一个聊天文件"的摘要接口，`/api/chats/search` 会**同步**读入并逐行 JSON 解析该角色的每一个聊天文件（ST 期间整个卡住），角色聊天多时要几十秒到几分钟。改为：
+
+1. 角色卡 / 群组（不变）。
+2. 版本指纹：
+   - 抽屉列表（`listByCharacter` / `listRecent` 的单聊行 / `listByGroup`）60 秒内列过这个聊天 → 直接用那一行，零请求（行与 `readSummary` 同源同格式）；
+   - 否则先确认文件在：群聊看 `group.chats`；单聊用 `POST /api/characters/chats {avatar_url, simple:true}`（ST 只 `readdir`，不读文件），宿主当前聊天跳过。不在 → `NOT_FOUND`，**不读正文**（ST 的 `chats/get` 在角色没有聊天目录时会建空目录）。
+3. 正文 `chats/get` / `chats/group/get`。
+4. 没有列表行的，首屏后浏览器空闲时（`requestIdleCallback`，至多 2 秒）补查摘要：楼数对不上、找不到、拿不到指纹 → 这份缓存作废（下次打开冷读）。剩下的空档"读完正文到补查之间有人只改字不加楼"：当前聊天有 D34 ①② 兜底，别的聊天这时一般没人写。
+
+摘要来源：单聊由 `/api/chats/search` 改为 `/api/characters/chats {simple:false, metadata:false}`（异步流读，只解析末行，不卡 ST）；群聊仍是 `search {group_id}`（只扫这个群）。后台校验同样换源。
+
+| 签名 / 字段 | 约定 |
+|---|---|
+| `handle.timing` | 冻结 `{cacheHit:false, summary:'listed'\|'deferred', summaryMs, existsMs, cardsMs, fileMs, parseMs, fileSize, floors}`（毫秒、ST 报的大小字符串如 `"1412.75kb"`、楼数）；命中为 `{cacheHit:true, floors, fileSize}`。补查回来后 `summaryMs / fileSize` 才有值。不含正文、名字、文件名 |
+| `handle.validation`（冷读） | 有补查时等补查回来再给 `{state:'loaded'}`；首屏仍然**不能** await |
+| `store.settings.set(key, value, {transient:true})` | D39 瞬时状态：照样写 IndexedDB、照样在 `snapshot / exportAll` 里，但**不递增 rev、不触发 `onChange`**；改为通知 `onTransientChange`。不传第三参数与原来完全一样 |
+| `store.onTransientChange(listener)` | 每次瞬时写入提交后同步回调 `{rev:null}`；返回退订函数 |
+| `backupService` | 订阅 `onTransientChange` 只计数，不排 3 秒镜像；`flushMirror()`（关阅读器、`pagehide`）在没有排队、但自上次镜像以来瞬时状态写过时，强制补写**一次**。`getMirrorStatus()` 新增 `durationMs`（上次镜像从快照到上传完成的毫秒数） |
+| `clearFormatterCache()`（formatter.js） | 清空 T90 加的两个纯函数缓存：`cleanStyleText` 结果（200 条 / 200 万字）与清洗后楼层 HTML（400 条 / 800 万字，键含两开关与 ST 外部媒体设置、当前角色，因为 ST 的 DOMPurify 钩子会看它们）。只在内存 |
+
+UI（`prefs.js`）：阅读进度与候选记忆（`stcr:ui:progress:v1`）走 transient；偏好开关（`stcr:ui:prefs:v1`）照旧。
+
+诊断（`src/ui/diagnostics.js`）：阅读器每次打开聊天在首屏能滚动时（rAF 后第一个任务）记一次分段耗时，`console.info` 一行；Aa → ⋯ → 诊断显示短句并可"复制诊断信息"。`recordOpen` 只收数字、布尔和固定枚举，字符串一律丢弃（文件大小只收"数字+单位"）。
+
+首屏前不预建（T82 的空闲预建）：`loadChat` 画完首屏才放开 `schedulePrebuild`。
+
+测试：Node `chatCache.test.js` 新增两项（列表行复用 / 先确认后读 / 补查作废），原有并发与校验用例改为等冷读 `validation` 后再改文件；`backupService.test.js` 新增 D39 一项。浏览器 `dev/test-performance.mjs --heavy`（不进 test-release）在 `STCR-96-重楼-240楼` 上按"接着读"打开：冷开去掉等文件 ≤ 2 s、命中重开三次都 ≤ 300 ms、沙箱都在视口上下一屏内、首屏前无预建。

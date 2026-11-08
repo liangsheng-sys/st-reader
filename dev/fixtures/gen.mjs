@@ -9,6 +9,7 @@ import {
     FIXTURE_ID, CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, DISPLAY_REGEX, THEME, THEME_NAME, GROUP_ID, GROUP_CHAT, BIG_CHAT,
     makeCard, makeHeader, makeSmallChats, makeGroup, makeGroupMessages, makeLargeMessages,
 } from './data.mjs';
+import { writeHeavyChat } from './heavy.mjs';
 
 /** 在固定开发实例中生成本任务命名空间的数据；不下载、不调用任何 ST 写接口。 */
 export async function generateFixtures() {
@@ -46,6 +47,7 @@ export async function generateFixtures() {
     record(largeRelative, (function* () { yield makeHeader(CHARACTERS[2], BIG_CHAT); yield* makeLargeMessages(); })());
     const large = files.at(-1);
     if (large.bytes < 20 * 1024 * 1024) throw new Error('大文件不足 20 MiB。');
+    files.push(writeHeavyChat()); // T90：重楼 240 楼
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     settings.extension_settings ??= {};

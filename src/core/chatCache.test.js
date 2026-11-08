@@ -1,6 +1,8 @@
 // ST Reader — AGPL-3.0
 import { createChatSource, INVALIDATING_EVENTS, matchesHostChat } from './chatSource.js';
 const assert = (value, message = '断言失败') => { if (!value) throw new Error(message); };
+// T90：单聊摘要改走 /api/characters/chats，群聊仍是 /api/chats/search
+const isSummary = (url, body) => url === '/api/chats/search' || url === '/api/characters/chats' && !body?.simple; // simple 只列文件名，不算摘要
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 async function rejects(run, code) { try { await run(); } catch (error) { if (code) assert(error.code === code || error.name === code, `错误类型应为 ${code}`); return; } throw new Error('应拒绝本次操作'); }
@@ -34,7 +36,7 @@ export async function testChatCacheLogic() {
     const results = [], test = async (name, run) => { await run(); results.push({ name: `T53 ${name}`, passed: true }); };
     await test('D34 命中立即复用冻结页；非当前聊天每次命中都后台校验，不再有 60 秒窗口', async () => {
         const f = fixture(), first = await f.open('b'), page = first.page(0); first.close();
-        const searches = () => f.calls.filter(call => call.url === '/api/chats/search').length;
+        const searches = () => f.calls.filter(call => isSummary(call.url, call.body)).length;
         const second = await f.open('b');
         assert(second.cacheHit && second.page(0) === page && second.getMessage(0) === page.messages[0]);
         assert((await second.validation).state === 'fresh'); second.close();
@@ -45,6 +47,7 @@ export async function testChatCacheLogic() {
     await test('D28 大小、日期、楼数变化只通知；显式 reload 才读取新正文', async () => {
         for (const field of ['size', 'date', 'count']) {
             const f = fixture(), old = await f.open(), oldPage = old.page(0), events = [];
+            await old.validation; // T90：冷读的版本指纹在首屏后补查，等它回来再改文件
             old.onStale(event => events.push(event));
             if (field === 'count') f.files.get('a').rows.push({ mes: '新增虚构楼' }); else f.files.get('a')[field]++;
             f.files.get('a').rows[1].mes = '虚构更新';
@@ -57,7 +60,7 @@ export async function testChatCacheLogic() {
         }
     });
     await test('D28 文件消失通知 missing，保留正文；显式重读拒绝且不创建空聊天', async () => {
-        const f = fixture(), old = await f.open(); f.files.delete('a');
+        const f = fixture(), old = await f.open(); await old.validation; f.files.delete('a');
         const cached = await f.open(); let event; cached.onStale(value => { event = value; });
         assert((await cached.validation).state === 'stale' && event.reason === 'missing' && cached.page(0).messages.length === 4);
         await rejects(() => f.open('a', { reload: true }), 'NOT_FOUND');
@@ -65,15 +68,16 @@ export async function testChatCacheLogic() {
     });
     await test('D34 校验失败仍可读，失败结果不保留、下次打开立即重试；冷读缺字段不保留', async () => {
         let fail = false;
-        const f = fixture({ beforeRead: url => { if (fail && url === '/api/chats/search') throw new Error('虚构断网'); } });
-        (await f.open()).close(); fail = true;
+        const f = fixture({ beforeRead: (url, body) => { if (fail && isSummary(url, body)) throw new Error('虚构断网'); } });
+        const first = await f.open(); await first.validation; first.close(); fail = true;
         const cached = await f.open(); assert((await cached.validation).state === 'error' && !cached.stale && cached.page(0).messages.length === 4); cached.close();
         fail = false;
         const recovered = await f.open(); assert((await recovered.validation).state === 'fresh', '失败后应立即重新校验'); recovered.close();
-        assert(f.gets() === 1 && f.calls.filter(x => x.url === '/api/chats/search').length === 3);
+        assert(f.gets() === 1 && f.calls.filter(x => isSummary(x.url, x.body)).length === 3);
         delete f.files.get('a').size;
         const incomplete = await f.open(); assert((await incomplete.validation).code === 'INCOMPLETE_SUMMARY' && !incomplete.stale); incomplete.close();
-        (await f.open('a', { reload: true })).close(); (await f.open()).close();
+        // T90：冷读的指纹首屏后补查；缺字段时补查回来就把缓存丢掉
+        for (const options of [{ reload: true }, undefined]) { const handle = await f.open('a', options); await handle.validation; handle.close(); }
         assert(f.gets() === 3 && f.source.getChatCacheStats().entries === 0);
     });
     await test('D34 实时比对（纯函数）：楼数、末楼时间、候选数与 swipe_id；单候选有无 swipes 数组等价', async () => {
@@ -89,7 +93,7 @@ export async function testChatCacheLogic() {
     await test('D34 宿主当前聊天：命中时零网络比对；一致直接用缓存，不一致当 reload 冷读且不发变化通知', async () => {
         const f = fixture(); f.ctx.chat = structuredClone(f.files.get('a').rows.slice(1));
         const first = await f.open('a'), events = []; first.onStale(event => events.push(event));
-        const searches = () => f.calls.filter(call => call.url === '/api/chats/search').length, before = searches();
+        const searches = () => f.calls.filter(call => isSummary(call.url, call.body)).length, before = searches();
         const hit = await f.open('a'); const v = await hit.validation;
         assert(hit.cacheHit && v.state === 'fresh' && v.source === 'host' && searches() === before && f.gets() === 1, '一致时应零网络'); hit.close();
         // ST 里发了一条（宿主内存与文件都已有）：再开直接冷读到新楼，不弹横幅
@@ -208,25 +212,26 @@ export async function testChatCacheLogic() {
         const f = fixture({ beforeRead: async url => { if (url === '/api/chats/get') { reached.resolve(); await gate.promise; } } });
         const work = f.open(); await reached.promise; f.source.clearChatCache(); gate.resolve();
         const handle = await work; assert(handle.page(0).messages.length === 4 && f.source.getChatCacheStats().entries === 0); handle.close();
-        const oldSummary = deferred(), readingSummary = deferred(); let searches = 0, gets = 0;
-        const source = createChatSource({ getContext: () => ({}), read: async url => {
+        // T90：打开前不再等摘要；在途的是"文件在不在"那一步（simple 列目录）
+        const oldCheck = deferred(), checking = deferred(); let checks = 0, gets = 0;
+        const source = createChatSource({ getContext: () => ({}), read: async (url, body) => {
             if (url === '/api/characters/get') return { name: '虚构角色', data: {} };
-            if (url === '/api/chats/search') {
-                const version = ++searches === 1 ? 1 : 2;
-                if (version === 1) { readingSummary.resolve(); await oldSummary.promise; }
-                return [{ file_name: 'a.jsonl', file_size: version, last_mes: version }];
+            if (url === '/api/characters/chats' && body?.simple) {
+                if (++checks === 1) { checking.resolve(); await oldCheck.promise; }
+                return [{ file_name: 'a.jsonl' }];
             }
+            if (isSummary(url, body)) return [{ file_name: 'a.jsonl', file_size: 1, last_mes: 1, message_count: 1 }];
             return [{ user_name: '虚构旅人' }, { mes: ++gets === 1 ? '清空后的新正文' : '清空前的迟到正文' }];
         } });
-        const oldWork = source.openChat('fixture.png/a'); await readingSummary.promise; source.clearChatCache();
+        const oldWork = source.openChat('fixture.png/a'); await checking.promise; source.clearChatCache();
         const newWork = source.openChat('fixture.png/a'); await tick();
         try {
-            assert(searches === 2, '清空后的打开加入了旧请求');
-            const fresh = await newWork, page = fresh.page(0); fresh.close(); oldSummary.resolve(); (await oldWork).close();
-            assert(source.getChatCacheStats().entries === 1 && source.getChatCacheStats().invalidations === 0, '迟到旧摘要淘汰了新缓存');
+            assert(checks === 2, '清空后的打开加入了旧请求');
+            const fresh = await newWork, page = fresh.page(0); await fresh.validation; fresh.close(); oldCheck.resolve(); (await oldWork).close();
+            assert(source.getChatCacheStats().entries === 1 && source.getChatCacheStats().invalidations === 0, '迟到旧请求淘汰了新缓存');
             const next = await source.openChat('fixture.png/a'); await next.validation;
             assert(next.page(0) === page && gets === 2 && next.getMessage(0).swipes[0].text === '清空后的新正文', '迟到响应覆盖了新数据'); next.close();
-        } finally { oldSummary.resolve(); }
+        } finally { oldCheck.resolve(); }
     });
     await test('预取只准备当前聊天第一页；列表并行读取不重复预取', async () => {
         const f = fixture({ prefetchOnList: true });
@@ -245,17 +250,17 @@ export async function testChatCacheLogic() {
     });
     await test('D28 慢 search 不阻塞句柄；同时重开共享校验，取消后续调用不影响已打开者', async () => {
         const gate = deferred(), reached = deferred(); let slow = false;
-        const f = fixture({ beforeRead: async url => { if (slow && url === '/api/chats/search') { reached.resolve(); await gate.promise; } } });
-        (await f.open()).close(); slow = true;
+        const f = fixture({ beforeRead: async (url, body) => { if (slow && isSummary(url, body)) { reached.resolve(); await gate.promise; } } });
+        const first = await f.open(); await first.validation; first.close(); slow = true;
         const a = await Promise.race([f.open(), tick().then(() => { throw new Error('缓存句柄仍在等网络'); })]);
         await reached.promise;
         const b = await f.open(); assert(a.validation === b.validation && a.page(0) === b.page(0));
         const controller = new AbortController(); controller.abort(); await rejects(() => f.open('a', { signal: controller.signal }), 'AbortError');
-        assert(f.calls.filter(x => x.url === '/api/characters/get').length === 1 && f.calls.filter(x => x.url === '/api/chats/search').length === 2);
+        assert(f.calls.filter(x => x.url === '/api/characters/get').length === 1 && f.calls.filter(x => isSummary(x.url, x.body)).length === 2);
         gate.resolve(); assert((await a.validation).state === 'fresh'); a.close(); b.close();
     });
     await test('D28 通知可退订、close 自动退订、晚订阅补发且每个订阅只发一次', async () => {
-        const f = fixture(), old = await f.open(); let removed = 0, closed = 0, late = 0;
+        const f = fixture(), old = await f.open(); await old.validation; let removed = 0, closed = 0, late = 0;
         const off = old.onStale(() => removed++); off(); off(); old.onStale(() => closed++); old.close();
         f.files.get('a').size++;
         const a = await f.open(); await a.validation;
@@ -266,7 +271,7 @@ export async function testChatCacheLogic() {
         await rejects(() => old.onStale(() => {}), 'CLOSED'); a.close();
     });
     await test('D28 一个通知抛错不阻断其他订阅或误报校验失败', async () => {
-        const f = fixture(), a = await f.open(); let delivered = 0;
+        const f = fixture(), a = await f.open(); await a.validation; let delivered = 0;
         const original = console.error; console.error = () => {};
         try {
             a.onStale(() => { throw new Error('虚构 UI 错误'); }); a.onStale(() => delivered++);
@@ -275,7 +280,7 @@ export async function testChatCacheLogic() {
         } finally { console.error = original; a.close(); }
     });
     await test('D28 群聊同样后台通知，使用群 ID 查摘要和文件 ID 读正文', async () => {
-        const f = fixture(), a = await f.source.openChat('group:g/a'); f.files.get('a').date++;
+        const f = fixture(), a = await f.source.openChat('group:g/a'); await a.validation; f.files.get('a').date++;
         const b = await f.source.openChat('group:g/a'); assert((await b.validation).state === 'stale' && b.page(0) === a.page(0));
         assert(f.calls.filter(x => x.url === '/api/chats/search').every(x => x.body.group_id === 'g'));
         assert(f.calls.find(x => x.url === '/api/chats/group/get').body.id === 'a'); a.close(); b.close();
@@ -283,10 +288,10 @@ export async function testChatCacheLogic() {
     await test('D28 清空、淘汰、重载隔离迟到校验；不通知、不重填、不污染新快照', async () => {
         for (const action of ['clear', 'evict', 'reload']) {
             const gate = deferred(), reached = deferred(); let searches = 0;
-            const f = fixture({ cacheEntries: 1, beforeRead: async url => {
-                if (url === '/api/chats/search' && ++searches === 2) { reached.resolve(); await gate.promise; }
+            const f = fixture({ cacheEntries: 1, beforeRead: async (url, body) => {
+                if (isSummary(url, body) && ++searches === 2) { reached.resolve(); await gate.promise; }
             } });
-            const old = await f.open(); let events = 0; old.onStale(() => events++);
+            const old = await f.open(); await old.validation; let events = 0; old.onStale(() => events++);
             f.files.get('a').size++; const cached = await f.open(); await reached.promise;
             if (action === 'clear') f.source.clearChatCache();
             else if (action === 'evict') (await f.open('b')).close();
@@ -302,6 +307,35 @@ export async function testChatCacheLogic() {
         const fresh = await f.open('a', { reload: true }), page = fresh.page(0); fresh.close();
         gate.resolve(); (await pending).close(); const cached = await f.open(); await cached.validation;
         assert(cached.page(0) === page && f.gets() === 2); cached.close();
+    });
+    await test('T90 单聊摘要走 characters/chats；抽屉刚列过的聊天零摘要请求；否则先确认文件在、读正文，首屏后补查摘要', async () => {
+        let time = 0;
+        const f = fixture({ now: () => time }), summaries = () => f.calls.filter(call => isSummary(call.url, call.body)).length;
+        await f.source.listByCharacter('fixture.png');
+        const listed = summaries(), opened = await f.open('b');
+        assert(summaries() === listed && f.gets() === 1 && opened.timing.summary === 'listed' && opened.timing.floors === 4, '刚列过还去查摘要');
+        assert(!f.calls.some(call => call.url === '/api/chats/search'), '单聊不该再用 search');
+        opened.close(); f.files.get('b').size++;
+        const hit = await f.open('b'); assert((await hit.validation).state === 'stale', '列表行当指纹后仍要能发现变化'); hit.close();
+        await f.source.listRecent(); time += 61_000;
+        const before = summaries(), late = await f.open('c');
+        assert(late.timing.summary === 'deferred' && Number.isFinite(late.timing.existsMs) && summaries() === before, '过期的列表行不该再用，也不该在打开前扫摘要');
+        await late.validation; assert(summaries() === before + 1 && Number.isFinite(late.timing.summaryMs), '首屏后应补查一次'); late.close();
+        // 文件不在：simple 列目录就拒绝，不去读正文（ST 的 chats/get 会顺手建空目录）
+        const gets = f.gets(); await rejects(() => f.open('不存在'), 'NOT_FOUND'); assert(f.gets() === gets, '不存在的聊天去读了正文');
+    });
+    await test('T90 宿主当前聊天先读正文、空闲后补摘要；补回来楼数对不上就作废缓存', async () => {
+        const f = fixture(); f.ctx.chat = structuredClone(f.files.get('a').rows.slice(1));
+        const summaries = () => f.calls.filter(call => isSummary(call.url, call.body)).length;
+        const first = await f.open('a');
+        assert(summaries() === 0 && first.timing.summary === 'deferred' && Number.isFinite(first.timing.fileMs), '当前聊天不该先扫摘要');
+        for (let i = 0; i < 20 && summaries() === 0; i++) await tick();
+        await tick(); assert(summaries() === 1 && f.source.getChatCacheStats().entries === 1); first.close();
+        // 正文读完、补摘要之前 ST 又多存了一楼：摘要楼数 5 ≠ 正文 4 → 这份缓存不能留
+        const g = fixture(); g.ctx.chat = structuredClone(g.files.get('a').rows.slice(1));
+        const racing = await g.open('a'); g.files.get('a').rows.push({ name: '虚构角色', mes: '新楼', send_date: 9000 });
+        for (let i = 0; i < 20 && !g.calls.some(call => isSummary(call.url, call.body)); i++) await tick();
+        await tick(); assert(g.source.getChatCacheStats().entries === 0, '摘要比正文新时还留着缓存'); racing.close();
     });
     return results;
 }
