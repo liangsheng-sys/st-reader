@@ -24,4 +24,7 @@
 | `opus_T62.md` | Claude Code / Opus | 0.2.1 单卡修补（隐藏楼误判） |
 | `fable_resume.md` | Claude Code / Fable（新会话） | 任何时候要继续分配任务，粘它 + 你的反馈 |
 | `explorer_free.md` | 任何新模型 | 自由探索（D31），先交计划 |
+| `opus_T70-T73.md` / `opus_T80-T83.md` | Claude Code / Opus | 已用完（0.3.0 / 0.3.1 已发布） |
+| `opus_T90-T92.md` | Claude Code / Opus | M9（0.3.2）：从 main 579bde9 开工；T90 → T91 → T92 |
+| `opus_T95-T97.md` | Claude Code / Opus | M10（0.4.0）：等 0.3.2 发布提交合入 main 后再给 |
 
