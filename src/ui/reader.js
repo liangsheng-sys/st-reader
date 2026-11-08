@@ -215,7 +215,7 @@ export async function openReader({ tab, chatKey } = {}) {
         else if (current && tab !== 'recent') loadChat(current, { index: stVisibleIndex() });
         else showEmpty();
         if (tab) session.drawer.open(tab);
-        else if (!chatKey && !current) session.drawer.open('recent');
+        else if (!chatKey && !current) session.drawer.open(); // T91：停在上次的页签（本页会话），第一次是"最近"
         else if (getPrefs().drawerPinned && wide()) session.drawer.open();
         if (getPrefs().panelPinned && wide()) session.panel.open();
     } catch (error) {

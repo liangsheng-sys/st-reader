@@ -337,5 +337,71 @@ export async function testChatCacheLogic() {
         for (let i = 0; i < 20 && !g.calls.some(call => isSummary(call.url, call.body)); i++) await tick();
         await tick(); assert(g.source.getChatCacheStats().entries === 0, '摘要比正文新时还留着缓存'); racing.close();
     });
+    await test('T91 列表命中立刻给缓存并后台重拉；结果变了才通知 watchLists，没变不通知；返回的是副本', async () => {
+        const f = fixture();
+        const recents = () => f.calls.filter(call => call.url === '/api/chats/recent').length;
+        const first = await f.source.listRecent(50); assert(recents() === 1 && first.length === 4);
+        const seen = []; const stop = f.source.watchLists(event => seen.push(event));
+        first.length = 0; // 调用方改自己的数组不影响缓存
+        const hit = await f.source.listRecent(50); assert(hit.length === 4 && recents() === 2, '命中应立刻返回并后台重拉一次');
+        for (let i = 0; i < 5; i++) await tick();
+        assert(seen.length === 0, '结果没变不该通知');
+        f.files.get('c').date = 5000;
+        const stale = await f.source.listRecent(50); assert(stale.find(row => row.fileName === 'c').lastDate === new Date(1000).toISOString(), '命中先给旧缓存');
+        for (let i = 0; i < 5 && !seen.length; i++) await tick();
+        assert(seen.length === 1 && seen[0].listKey === 'recent:50' && seen[0].kind === 'recent' && seen[0].id === '50', '变了应通知一次');
+        assert(seen[0].rows.find(row => row.fileName === 'c').lastDate === new Date(5000).toISOString());
+        const fresh = await f.source.listRecent(50); assert(fresh.find(row => row.fileName === 'c').lastDate === new Date(5000).toISOString(), '缓存应换成新结果');
+        for (let i = 0; i < 5; i++) await tick(); assert(seen.length === 1, '再次命中、没变化不该再通知');
+        // refresh:true 跳过缓存，等这次请求
+        f.files.get('d').date = 7000; const before = recents();
+        const forced = await f.source.listRecent(50, { refresh: true });
+        assert(recents() === before + 1 && forced.find(row => row.fileName === 'd').lastDate === new Date(7000).toISOString(), 'refresh 应等到新结果');
+        // 角色、群组、按角色、按群组同样缓存
+        await f.source.listCharacters(); await f.source.listGroups(); await f.source.listByCharacter('fixture.png'); await f.source.listByGroup('g');
+        const n = f.calls.length; await f.source.listCharacters(); await f.source.listByGroup('g');
+        assert(f.calls.length === n + 2 && f.source.getChatCacheStats().lists === 5, '命中只发后台重拉');
+        stop(); f.source.clearChatCache(); assert(f.source.getChatCacheStats().lists === 0, '清缓存连列表一起清');
+    });
+    await test('T91 没缓存时取消就真取消、不填缓存；后台重拉失败保留旧缓存', async () => {
+        const gate = deferred(); let failing = false;
+        const f = fixture({ beforeRead: async (url, _body, opts) => {
+            if (url !== '/api/chats/recent') return;
+            if (failing) throw new Error('服务器不在');
+            if (opts.signal) await Promise.race([gate.promise, new Promise((_, reject) => opts.signal.addEventListener('abort', () => reject(new DOMException('已取消', 'AbortError')), { once: true }))]);
+        } });
+        const abort = new AbortController(); const job = f.source.listRecent(10, { signal: abort.signal }); abort.abort();
+        await rejects(() => job, 'AbortError'); await tick(); assert(f.source.getChatCacheStats().lists === 0, '取消的冷请求不该留缓存');
+        gate.resolve(); const rows = await f.source.listRecent(10); assert(rows.length === 4);
+        failing = true; const hit = await f.source.listRecent(10); assert(hit.length === 4);
+        for (let i = 0; i < 5; i++) await tick(); failing = false;
+        assert((await f.source.listRecent(10)).length === 4, '重拉失败应保留旧缓存');
+    });
+    await test('T91 / D41 宿主事件：消息事件 → 最近 + 当前角色的聊天列表；角色编辑 → 角色表；没人订阅不重拉', async () => {
+        const handlers = new Map();
+        const eventSource = { on: (type, fn) => handlers.set(type, fn), removeListener: type => handlers.delete(type) };
+        const f = fixture({ listRefreshDelayMs: 0 });
+        Object.assign(f.ctx, { eventSource, event_types: { MESSAGE_RECEIVED: 'message_received', CHAT_DELETED: 'chat_deleted', CHARACTER_EDITED: 'character_edited', GROUP_UPDATED: 'group_updated' } });
+        const stopEvents = f.source.watchHostChatEvents();
+        await f.source.listRecent(50); await f.source.listByCharacter('fixture.png'); await f.source.listByCharacter('other.png'); await f.source.listCharacters(); await f.source.listGroups();
+        const count = url => f.calls.filter(call => call.url === url).length;
+        const snap = () => ({ recent: count('/api/chats/recent'), chats: count('/api/characters/chats'), chars: count('/api/characters/all'), groups: count('/api/groups/all') });
+        const settle = async () => { for (let i = 0; i < 10; i++) await tick(); };
+        let before = snap(); handlers.get('message_received')(1); await settle();
+        assert(JSON.stringify(snap()) === JSON.stringify(before), '没人订阅时事件不该发请求');
+        const seen = []; const stop = f.source.watchLists(event => seen.push(event.listKey)); await settle();
+        let after = snap(); // 订阅时补上之前记下的脏列表
+        assert(after.recent === before.recent + 1 && after.chats === before.chats + 1 && after.chars === before.chars && after.groups === before.groups, '应只重拉最近和当前角色的聊天列表');
+        f.files.get('a').date = 8000; before = snap(); handlers.get('message_received')(2); await settle(); after = snap();
+        assert(after.recent === before.recent + 1 && after.chats === before.chats + 1 && after.chars === before.chars, '消息事件 → 最近 + 当前角色');
+        assert(seen.includes('recent:50') && seen.includes('character:fixture.png') && !seen.includes('character:other.png'), '变了的两张表应通知');
+        before = snap(); handlers.get('character_edited')({ detail: {} }); await settle(); after = snap();
+        assert(after.chars === before.chars + 1 && after.recent === before.recent && after.groups === before.groups, '角色编辑 → 只重拉角色表');
+        before = snap(); handlers.get('group_updated')(); await settle(); after = snap();
+        assert(after.groups === before.groups + 1 && after.chars === before.chars, '群组更新 → 群组表');
+        before = snap(); handlers.get('chat_deleted')('b'); await settle(); after = snap();
+        assert(after.recent === before.recent + 1 && after.chats === before.chats + 2, '删聊天（假数据里两个角色都列着 b） → 最近 + 含它的角色列表');
+        stop(); stopEvents(); assert(handlers.size === 0, '退订应移除全部监听');
+    });
     return results;
 }

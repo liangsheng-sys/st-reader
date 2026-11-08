@@ -804,3 +804,22 @@ UI（`prefs.js`）：阅读进度与候选记忆（`stcr:ui:progress:v1`）走 t
 首屏前不预建（T82 的空闲预建）：`loadChat` 画完首屏才放开 `schedulePrebuild`。
 
 测试：Node `chatCache.test.js` 新增两项（列表行复用 / 先确认后读 / 补查作废），原有并发与校验用例改为等冷读 `validation` 后再改文件；`backupService.test.js` 新增 D39 一项。浏览器 `dev/test-performance.mjs --heavy`（不进 test-release）在 `STCR-96-重楼-240楼` 上按"接着读"打开：冷开去掉等文件 ≤ 2 s、命中重开三次都 ≤ 300 ms、沙箱都在视口上下一屏内、首屏前无预建。
+
+### 5.18 列表缓存（T91 / D41，2026-11-08，Opus 按 D32 交付）
+
+本节只**增加**：五个列表函数签名不变，多一个可选项 `refresh`；新增 `watchLists`、`LIST_EVENTS`；`getChatCacheStats()` 多几个计数。
+
+| 签名 / 字段 | 约定 |
+|---|---|
+| `listCharacters / listGroups / listRecent / listByCharacter / listByGroup` | 同一页面会话内缓存在内存（按 `characters`、`groups`、`recent:<max>`、`character:<头像>`、`group:<id>` 分开存）。**有缓存**：立刻返回缓存的副本，同时后台重拉一次（同一张表同时只拉一次）；后台失败保留旧缓存、不抛。**没缓存**：等这次请求，带调用方的 `signal`（取消就真取消、不留缓存，与原来一样）。返回的数组每次是新副本，行对象仍冻结 |
+| `options.refresh: true` | 跳过缓存，等这次请求（有在途的先等它完再拉）；结果写回缓存，和旧的不同也照样通知 `watchLists` |
+| `watchLists(listener) → unsubscribe` | 后台重拉（命中后的、事件触发的、refresh 的）结果按 `JSON.stringify` 与缓存比，**不同才**同步回调 `{listKey, kind, id, rows}`：`kind` ∈ `characters / groups / recent / character / group`，`id` 为最近列表条数（字符串）、头像文件名或群组 ID、角色 / 群组表为 `null`；`rows` 冻结副本 |
+| `watchHostChatEvents()` 增补（D41） | 原 `INVALIDATING_EVENTS` 照旧作废聊天缓存，另加 `LIST_EVENTS = ['CHAT_CREATED','GROUP_CHAT_CREATED','CHARACTER_EDITED','CHARACTER_DELETED','CHARACTER_DUPLICATED','CHARACTER_RENAMED','GROUP_UPDATED']`（名字按 ST `public/scripts/events.js` 核对，宿主没有的跳过），只读订阅。命中把相关列表记"脏"：消息事件 / `CHAT_CHANGED` / 新建聊天 → 所有 `recent:*` + 宿主当前角色或群组的聊天列表；删聊天 / 删群聊 → `recent:*` + 当前的 + 列着那个文件的角色 / 群组列表；`CHARACTER_EDITED / DUPLICATED` → 角色表；`CHARACTER_DELETED / RENAMED` → 角色表、群组表、`recent:*`、全部 `character:*`；`GROUP_UPDATED` → 群组表 + 当前群聊列表。**有 `watchLists` 订阅者**（抽屉建着 = 阅读器开着）时，最后一个事件后 1.5 秒统一后台重拉（等 ST 存盘；在途的请求是事件前发的，等它完再拉一次）；没人订阅只记脏，不发请求——下次调用照样先给缓存再重拉 |
+| `clearChatCache()` | 连列表缓存、脏标记一起清 |
+| `getChatCacheStats()` 新增 | `lists`（缓存的表数）、`listHits / listMisses / listRefetches / listUpdates` |
+
+不写 IndexedDB（行里有末楼预览 = 聊天正文片段），刷新页面即空。`chatSource.js` 内部"60 秒内列过就复用摘要行"（§5.17）只认请求真正返回的时刻，命中缓存不续期。
+
+UI（`drawer.js`）：模块变量 `memory` 记页签、"角色 / 群组"、展开的角色、各页签滚动位置（本页会话）；骨架条延迟 150 ms 才画；订阅 `watchLists` 就地换（以视口顶上那一行为锚）；页签行加 ↻（`.stcr-drawer-refresh`）。`ownerMeta.js` 新增 `ownersWith({characters?, groups?})`：用新表与上次的另一张表重拼，不发请求；`loadOwners` 多收 `refresh`。
+
+测试：Node `chatCache.test.js` 三项（命中 / 差异才通知 / 副本 / refresh；冷请求取消不留缓存、后台失败保旧；事件 → 对应列表、没人订阅不发请求、退订）。浏览器 `src/core/drawerCacheBrowser.test.js`（`stcrSelfTest()` 全量里带，单跑 `stcrSelfTest({core:false,listCache:true})`）：真实事件名 + 真实只读请求，事件发在**新建的** ST `EventEmitter` 实例上（在全局 `eventSource` 上发 `MESSAGE_RECEIVED` 会让别的扩展当真去生图、念 TTS）；再开抽屉无骨架、页签 / 展开 / 滚动保留、↻ 重拉、后台变化不跳。

@@ -23,12 +23,27 @@ function sortFields(item) {
     };
 }
 
+let lastRaw = null; // T91：最近一次的原始角色 / 群组表（来自 core 的缓存），列表后台更新时只换变了的那张
+
 /**
+ * @param {{signal?:AbortSignal, refresh?:boolean}} [options] refresh：跳过 core 列表缓存，等这次请求
  * @returns {Promise<{characters:object[], groups:object[], tags:{id:string,name:string,color:string|null}[], stSort:object}>}
  *   characters / groups：{id, avatarUrl|groupId, name, thumbnailUrl, isGroup, tags:string[], ...排序字段}
  */
-export async function loadOwners({ signal } = {}) {
-    const [characters, groups] = await Promise.all([listCharacters({ signal }), listGroups({ signal })]);
+export async function loadOwners({ signal, refresh = false } = {}) {
+    const [characters, groups] = await Promise.all([listCharacters({ signal, refresh }), listGroups({ signal, refresh })]);
+    lastRaw = { characters, groups };
+    return composeOwners(characters, groups);
+}
+
+/** watchLists 报来新的角色表或群组表：和另一张上次的表重新拼（不发请求）。没拼过返回 null。 */
+export function ownersWith({ characters, groups }) {
+    if (!lastRaw) return null;
+    lastRaw = { characters: characters ?? lastRaw.characters, groups: groups ?? lastRaw.groups };
+    return composeOwners(lastRaw.characters, lastRaw.groups);
+}
+
+function composeOwners(characters, groups) {
     const ctx = hostContext();
     const hostChars = new Map((Array.isArray(ctx?.characters) ? ctx.characters : []).map(c => [c?.avatar, c]));
     const hostGroups = new Map((Array.isArray(ctx?.groups) ? ctx.groups : []).map(g => [String(g?.id), g]));

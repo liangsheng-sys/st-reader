@@ -2,12 +2,14 @@
 // 左侧聊天抽屉：最近 / 按角色 / 收藏的聊天 / 当前（F1、F12、F13、02 §1.2）。数据只经 core/chatSource（03 §5）。
 // T43：按角色页默认跟随 ST 自己的角色排序，顶上小下拉可临时换（只在这次打开阅读器期间有效）；ST 标签筛选；名字搜索；
 // 几百个角色时只画看得见的几十行（虚拟滚动，行高固定）。收藏页只列"收藏的整个聊天"（D19），楼 / 候选收藏在右侧面板。
+// T91 / D41：列表来自 core 的内存缓存——再开阅读器直接画上次的内容（不闪骨架），后台重拉有变化再就地换、滚动不跳；
+// 页签、展开的角色、各页签滚动位置记在本页会话（模块变量，刷新页面即空）。页签行的 ↻ 强制重拉当前页签。
 
-import { getCurrentChatKey, listByCharacter, listByGroup, listRecent, parseChatKey, prefetchCurrentChat } from '../core/chatSource.js';
+import { getCurrentChatKey, listByCharacter, listByGroup, listRecent, parseChatKey, prefetchCurrentChat, watchLists } from '../core/chatSource.js';
 import { isFavoriteChat, listFavoriteChats, loadFavoriteChats, onFavoriteChatsChange, toggleFavoriteChat } from './chatFavorites.js';
 import { h, iconButton } from './dom.js';
 import { filterOwners, formatListDate, matchesFilter, OWNER_SORTS, sortOwners } from './logic.js';
-import { loadOwners } from './ownerMeta.js';
+import { loadOwners, ownersWith } from './ownerMeta.js';
 import { redactString } from './redact.js';
 
 const TABS = [
@@ -20,27 +22,37 @@ const isAbort = error => error?.name === 'AbortError';
 /** 虚拟列表的固定行高（与 style.css 的 .stcr-vrow 对应）。 */
 const ROW = Object.freeze({ owner: 46, chat: 62, status: 38 });
 const OVERSCAN = 8;
+const RECENT_MAX = 50;
+/** 列表没在这么久内拿到（缓存未命中）才画骨架；命中缓存是微任务内的事，不会闪。 */
+const SKELETON_DELAY_MS = 150;
+/** 本页会话内跨"关了再开阅读器"保留的抽屉状态（T91）。只在内存。 */
+const memory = { tab: 'recent', ownerKind: 'characters', expanded: new Set(), scroll: {} };
 
 /**
  * @param {{onPick:(chatKey:string, target?:{index:number,swipe:number|null})=>void, getActiveKey:()=>string|null,
  *   onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean, toast?:(msg:string)=>void}} options
  */
 export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toast = () => {} }) {
-    let tab = 'recent';
-    let ownerKind = 'characters';
+    let tab = memory.tab;
+    let ownerKind = memory.ownerKind;
     let sortId = 'st';                 // 'st' = 跟随 ST；否则 OWNER_SORTS 的 id（只在这次打开期间有效）
     const pickedTags = new Set();
     let controller = null;
     let owners = null;                 // loadOwners() 的结果，本次打开阅读器内缓存
-    const expanded = new Map();        // ownerKey → 'loading' | {error} | ChatSummary[]
+    const expanded = new Map();        // ownerKey → 'loading' | {error} | ChatSummary[]；键同步记在 memory.expanded
     let items = [], offsets = [], total = 0;
     const rendered = new Map();        // 虚拟列表里此刻画着的行：key → 元素
     let frame = 0;
+    let recentRows = null;             // 最近页此刻画着的行（后台更新时比对用）
+    let skeletonTimer = 0;
+    let scrollReady = false;           // 内容画好、滚动位置还原后才记录滚动（骨架把列表撑矮时浏览器会把 scrollTop 压到 0）
+    let refreshing = false;
 
     const tabButtons = TABS.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-drawer-tab', role: 'tab', 'data-tab': item.id, title: item.id === 'favorites' ? '收藏的聊天' : item.label, 'aria-label': item.label },
         h('i', { class: `fa-solid ${item.icon}`, 'aria-hidden': 'true' }), h('span', { class: 'stcr-drawer-tab-label', text: item.label })));
     const filter = h('input', { type: 'search', class: 'stcr-drawer-filter text_pole', placeholder: '过滤名字或标题…', 'aria-label': '过滤列表' });
     const pin = iconButton('fa-thumbtack', '钉住抽屉', { class: 'stcr-drawer-pin' });
+    const refreshButton = iconButton('fa-rotate-right', '刷新列表', { class: 'stcr-drawer-refresh' });
     const kinds = h('div', { class: 'stcr-seg stcr-owner-kinds', role: 'group', 'aria-label': '角色或群组' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-kind': 'characters', text: '角色' }),
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-kind': 'groups', text: '群组' }));
@@ -55,7 +67,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     const el = h('aside', { class: 'stcr-drawer', 'aria-label': '选择聊天' },
         h('div', { class: 'stcr-drawer-head' },
             h('div', { class: 'stcr-drawer-tabs', role: 'tablist' }, tabButtons),
-            pin, iconButton('fa-xmark', '关闭抽屉', { class: 'stcr-drawer-close', 'data-act': 'close-drawer' })),
+            refreshButton, pin, iconButton('fa-xmark', '关闭抽屉', { class: 'stcr-drawer-close', 'data-act': 'close-drawer' })),
         h('div', { class: 'stcr-drawer-filter-row' }, filter),
         ownerBar,
         list,
@@ -64,9 +76,10 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     for (const button of tabButtons) button.addEventListener('click', () => showTab(button.dataset.tab));
     filter.addEventListener('input', () => applyFilter());
     pin.addEventListener('click', () => { onPinChange(!isPinned()); syncPin(); });
+    refreshButton.addEventListener('click', () => refreshTab());
     kinds.addEventListener('click', event => {
         const kind = event.target.closest('[data-kind]')?.dataset.kind;
-        if (kind && kind !== ownerKind) { ownerKind = kind; list.scrollTop = 0; renderOwners(); }
+        if (kind && kind !== ownerKind) { ownerKind = memory.ownerKind = kind; list.scrollTop = 0; renderOwners(); }
     });
     sortSelect.addEventListener('change', () => { sortId = sortSelect.value; list.scrollTop = 0; renderOwners(); });
     tagRow.addEventListener('click', event => {
@@ -79,7 +92,10 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         renderOwners();
     });
     tagMore.addEventListener('click', () => { tagsOpen = !tagsOpen; syncTagMore(); });
-    list.addEventListener('scroll', () => { if (tab === 'owners' && !frame) frame = requestAnimationFrame(() => { frame = 0; paintWindow(); }); }, { passive: true });
+    list.addEventListener('scroll', () => {
+        if (scrollReady) memory.scroll[tab] = list.scrollTop;
+        if (tab === 'owners' && !frame) frame = requestAnimationFrame(() => { frame = 0; paintWindow(); });
+    }, { passive: true });
     list.addEventListener('click', event => {
         const star = event.target.closest('[data-fav-key]');
         if (star) { toggleFavorite(star); return; }
@@ -92,6 +108,25 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     const stopFav = onFavoriteChatsChange((chatKey, on) => {
         for (const star of list.querySelectorAll(`[data-fav-key="${CSS.escape(chatKey)}"]`)) setStar(star, on);
         if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) showTab('favorites');
+    });
+    // 后台重拉回来、和缓存不一样：就地换掉，按第一行可见的行对齐，不跳
+    const stopLists = watchLists(event => {
+        try {
+            if (event.kind === 'characters' || event.kind === 'groups') {
+                const next = owners && ownersWith({ [event.kind]: event.rows });
+                if (!next) return;
+                owners = next;
+                if (tab === 'owners') keepAnchor(renderOwners);
+                else if (tab === 'recent' && recentRows) keepAnchor(() => renderRecent(recentRows));
+            } else if (event.kind === 'recent' && event.id === String(RECENT_MAX)) {
+                if (tab === 'recent' && recentRows) keepAnchor(() => renderRecent(event.rows));
+            } else if (event.kind === 'character' || event.kind === 'group') {
+                const ownerKey = `${event.kind === 'group' ? 'g' : 'c'}:${event.id}`;
+                if (!Array.isArray(expanded.get(ownerKey))) return;
+                expanded.set(ownerKey, byDate(event.rows));
+                if (tab === 'owners') keepAnchor(renderOwners);
+            }
+        } catch (error) { console.warn('[st-reader] 抽屉就地更新失败：', error); }
     });
 
     function syncPin() {
@@ -156,21 +191,110 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
             retry ? h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-act': 'retry', text: '重试' }) : null));
     }
     function loading() {
-        list.replaceChildren(...Array.from({ length: 5 }, () => h('div', { class: 'stcr-skeleton stcr-skeleton--row' })));
+        clearTimeout(skeletonTimer);
+        skeletonTimer = setTimeout(() => list.replaceChildren(...Array.from({ length: 5 }, () => h('div', { class: 'stcr-skeleton stcr-skeleton--row' }))), SKELETON_DELAY_MS);
+    }
+    function loaded() { clearTimeout(skeletonTimer); skeletonTimer = 0; }
+    const byDate = rows => [...rows].sort((a, b) => String(b.lastDate ?? '').localeCompare(String(a.lastDate ?? '')));
+
+    function renderRecent(rows) {
+        recentRows = rows;
+        if (!rows.length) { message('还没有最近的聊天。'); return; }
+        list.replaceChildren(...rows.map(summary => chatRow(summary)));
+        applyFilter();
+    }
+
+    /** 就地换内容：记下第一行可见的行离顶多远，换完把它放回原处（新聊天插到上面也不把人顶走）。 */
+    function keepAnchor(update) {
+        const was = scrollReady;
+        scrollReady = false;
+        if (tab === 'owners') {
+            const top = list.scrollTop;
+            let index = 0;
+            while (index < items.length - 1 && offsets[index + 1] <= top) index++;
+            const anchor = items[index], delta = anchor ? top - offsets[index] : 0;
+            update();
+            const at = anchor ? items.findIndex(item => item.key === anchor.key) : -1;
+            list.scrollTop = at >= 0 ? offsets[at] + delta : top;
+            paintWindow();
+        } else {
+            const box = list.getBoundingClientRect(), top = list.scrollTop;
+            const anchor = [...list.querySelectorAll(':scope > .stcr-row-wrap')].find(row => !row.hidden && row.getBoundingClientRect().bottom > box.top + 1);
+            const key = anchor?.querySelector('[data-key]')?.dataset.key;
+            const delta = anchor ? anchor.getBoundingClientRect().top - box.top : 0;
+            update();
+            list.scrollTop = top;
+            const again = key && list.querySelector(`:scope > .stcr-row-wrap [data-key="${CSS.escape(key)}"]`)?.closest('.stcr-row-wrap');
+            if (again) list.scrollTop += again.getBoundingClientRect().top - box.top - delta;
+        }
+        scrollReady = was;
+        if (was) memory.scroll[tab] = list.scrollTop;
+    }
+
+    /** 上次展开过的角色（本页会话）：重开抽屉时一起读回来（命中缓存是瞬间的），再画、再还原滚动。 */
+    async function restoreExpanded(signal) {
+        const keys = [...memory.expanded].filter(key => !expanded.has(key));
+        await Promise.all(keys.map(async ownerKey => {
+            const id = ownerKey.slice(2);
+            try {
+                const chats = ownerKey.startsWith('g:') ? await listByGroup(id, { signal }) : await listByCharacter(id, { signal });
+                if (memory.expanded.has(ownerKey)) expanded.set(ownerKey, byDate(chats));
+            } catch (error) {
+                if (isAbort(error)) throw error;
+                memory.expanded.delete(ownerKey); // 角色没了或读不到：不再记着
+            }
+        }));
+    }
+
+    /** ↻：当前页签跳过缓存重拉；列表保持原样，回来就地换。 */
+    async function refreshTab() {
+        if (refreshing) return;
+        refreshing = true;
+        refreshButton.disabled = true;
+        refreshButton.querySelector('i').classList.add('fa-spin');
+        const which = tab;
+        try {
+            if (which === 'recent') {
+                const rows = await listRecent(RECENT_MAX, { refresh: true });
+                if (tab === which) keepAnchor(() => renderRecent(rows));
+            } else if (which === 'owners') {
+                const [next] = await Promise.all([loadOwners({ refresh: true }), ...[...expanded.keys()].map(async ownerKey => {
+                    const id = ownerKey.slice(2);
+                    const chats = ownerKey.startsWith('g:') ? await listByGroup(id, { refresh: true }) : await listByCharacter(id, { refresh: true });
+                    if (Array.isArray(expanded.get(ownerKey))) expanded.set(ownerKey, byDate(chats));
+                })]);
+                owners = next;
+                if (tab === which) keepAnchor(renderOwners);
+            } else if (tab === which) {
+                const top = list.scrollTop;
+                await showTab(which);
+                list.scrollTop = top;
+            }
+        } catch (error) {
+            console.error('[st-reader] 刷新列表失败：', error);
+            toast(`没刷新上：${error.message ?? error}`);
+        } finally {
+            refreshing = false;
+            refreshButton.disabled = false;
+            refreshButton.querySelector('i').classList.remove('fa-spin');
+        }
     }
 
     async function showTab(next) {
-        tab = next;
+        tab = memory.tab = next;
         for (const button of tabButtons) button.setAttribute('aria-selected', String(button.dataset.tab === tab));
         ownerBar.hidden = tab !== 'owners';
         if (tab !== 'owners') filter.placeholder = '过滤名字或标题…';
         controller?.abort();
         controller = new AbortController();
         const { signal } = controller;
+        scrollReady = false;
+        recentRows = null;
         try {
             loading();
-            await Promise.all([ensureOwners(signal), loadFavoriteChats()]);
+            await Promise.all([ensureOwners(signal), loadFavoriteChats(), tab === 'owners' ? restoreExpanded(signal) : null]);
             if (signal.aborted) return;
+            loaded();
             if (tab === 'favorites') {
                 const marks = await listFavoriteChats();
                 if (signal.aborted) return;
@@ -184,23 +308,33 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
                     return chatRow(summary, { meta: `收藏于 ${formatListDate(mark.createdAt)}` });
                 }));
             } else if (tab === 'recent') {
-                const rows = await listRecent(50, { signal });
+                const rows = await listRecent(RECENT_MAX, { signal });
                 if (signal.aborted) return;
-                if (!rows.length) { message('还没有最近的聊天。'); return; }
-                list.replaceChildren(...rows.map(summary => chatRow(summary)));
+                renderRecent(rows);
+                restoreScroll();
+                return;
             } else if (tab === 'current') {
                 const key = getCurrentChatKey();
                 if (!key) { message('ST 里没有打开的聊天。'); return; }
                 const parsed = parseChatKey(key);
                 const summary = { chatKey: key, title: parsed.fileName, isGroup: parsed.isGroup, avatarUrl: parsed.avatarUrl, groupId: parsed.groupId, lastDate: null, messageCount: null, preview: '' };
                 list.replaceChildren(chatRow(summary));
-            } else { renderOwners(); return; }
+            } else { renderOwners(); restoreScroll(); return; }
             applyFilter();
+            restoreScroll();
         } catch (error) {
             if (isAbort(error)) return;
+            loaded();
             console.error('[st-reader] 抽屉列表读取失败：', error);
             message(`列表读取失败：${error.message ?? error}`, true);
         }
+    }
+
+    function restoreScroll() {
+        list.scrollTop = memory.scroll[tab] ?? 0;
+        if (tab === 'owners') paintWindow();
+        scrollReady = true;
+        memory.scroll[tab] = list.scrollTop; // 内容变短时浏览器会夹住
     }
 
     // ───────────── 按角色（虚拟列表） ─────────────
@@ -322,19 +456,20 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     }
 
     async function toggleOwner(ownerKey) {
-        if (expanded.has(ownerKey)) { expanded.delete(ownerKey); renderOwners(); return; }
+        if (expanded.has(ownerKey)) { expanded.delete(ownerKey); memory.expanded.delete(ownerKey); renderOwners(); return; }
         expanded.set(ownerKey, 'loading');
+        memory.expanded.add(ownerKey);
         renderOwners();
         const id = ownerKey.slice(2);
         const signal = controller?.signal;
         try {
             const chats = ownerKey.startsWith('g:') ? await listByGroup(id, { signal }) : await listByCharacter(id, { signal });
-            chats.sort((a, b) => String(b.lastDate ?? '').localeCompare(String(a.lastDate ?? '')));
             if (expanded.get(ownerKey) !== 'loading') return; // 等待期间又收起了
-            expanded.set(ownerKey, chats);
+            expanded.set(ownerKey, byDate(chats));
         } catch (error) {
             if (isAbort(error)) { expanded.delete(ownerKey); return; }
             expanded.set(ownerKey, { error: error.message ?? String(error) });
+            memory.expanded.delete(ownerKey);
         }
         if (tab === 'owners') renderOwners();
     }
@@ -362,12 +497,17 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         },
         close() { el.classList.remove('stcr-drawer--open'); },
         /** 脱敏显示变了：列表开着就按当前页签重画（名字、标题、预览跟着换）。 */
-        refreshList() { if (el.classList.contains('stcr-drawer--open')) { if (tab === 'owners' && owners) renderOwners(); else showTab(tab); } },
+        refreshList() {
+            if (!el.classList.contains('stcr-drawer--open')) return;
+            if (tab === 'owners' && owners) keepAnchor(renderOwners);
+            else if (tab === 'recent' && recentRows) keepAnchor(() => renderRecent(recentRows));
+            else showTab(tab);
+        },
         /** 收藏变了（备份导入等）：收藏页开着就重读。 */
         refreshFavorites() { if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) showTab('favorites'); },
         isOpen() { return el.classList.contains('stcr-drawer--open'); },
         focusFilter() { filter.focus(); },
         markActive,
-        destroy() { controller?.abort(); cancelAnimationFrame(frame); stopFav(); expanded.clear(); rendered.clear(); owners = null; },
+        destroy() { controller?.abort(); cancelAnimationFrame(frame); clearTimeout(skeletonTimer); stopFav(); stopLists(); expanded.clear(); rendered.clear(); owners = null; },
     };
 }

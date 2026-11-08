@@ -56,6 +56,12 @@ if (isDevInstance(window.location)) {
             const { testUpdateServiceBrowser } = await import('./src/core/updateServiceBrowser.test.js');
             results.push(...await testUpdateServiceLogic(), ...await testUpdateServiceBrowser());
         }
+        if (options.listCache ?? runCore) {
+            const { testDrawerCacheBrowser } = await import('./src/core/drawerCacheBrowser.test.js');
+            const items = await testDrawerCacheBrowser();
+            results.push(...items);
+            if (items.some(item => !item.passed)) throw new Error(`T91 抽屉列表缓存未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
