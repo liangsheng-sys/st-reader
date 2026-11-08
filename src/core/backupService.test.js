@@ -220,5 +220,24 @@ async function run() {
         let threw = false; try { host.patch({ chat: [] }); } catch { threw = true; }
         assert(threw, 'extension_settings 只接受登记过的字段');
     });
+    await test('D39 阅读进度连写 10 次、过 5 秒：不备份、rev 不变；关阅读器补写 1 次；再关不写；偏好开关照旧 3 秒备份', async () => {
+        const server = fakeServer(), time = clock(), a = browser(server, time);
+        await a.service.start(); await seedStore(a.store); a.timers.run(); await a.service.flushMirror();
+        const uploads = () => server.calls.filter(call => call.url === '/api/files/upload' && call.body.name === MAIN_FILE).length, before = uploads();
+        const rev = (await a.store.revision()).rev;
+        for (let i = 0; i < 10; i++) await a.store.settings.set('stcr:ui:progress:v1', { 'a.png/c': { i, t: i, sw: {} } }, { transient: true });
+        equal(a.timers.queue.size, 0, '瞬时写入排了镜像：');
+        time.tick(5000); a.timers.run(); await settle();
+        equal(uploads() - before, 0, '读的时候不该备份：'); equal((await a.store.revision()).rev, rev, 'rev 不该涨：');
+        await a.service.flushMirror(); await settle();
+        equal(uploads() - before, 1, '关阅读器应补写一次：');
+        const file = JSON.parse(server.files.get(MAIN_FILE));
+        equal(file.data.settings['stcr:ui:progress:v1']['a.png/c'].i, 9, '备份里应有最新进度：');
+        await a.service.flushMirror(); equal(uploads() - before, 1, '没有新进度不该再写：');
+        await a.store.settings.set('stcr:ui:prefs:v1', { fontSize: 20 });
+        equal([...a.timers.queue.values()].map(item => item.ms), [3000], '偏好开关应照旧排 3 秒镜像：');
+        a.timers.run(); await a.service.flushMirror(); equal(uploads() - before, 2);
+        assert(Number.isFinite(a.service.getMirrorStatus().durationMs), '状态里应有上次镜像耗时');
+    });
     return results;
 }

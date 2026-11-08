@@ -107,15 +107,15 @@ export async function testCoreLogic() {
         const calls = [];
         const source = createChatSource({ getContext: () => ({ name1: '旅人' }), read: async (url, body) => {
             calls.push({ url, body });
-            if (url === '/api/chats/search') return [{ file_name: 'test.jsonl', file_size: 100, last_mes: 1 }];
+            if (url === '/api/characters/chats') return [{ file_name: 'test.jsonl', file_size: 100, last_mes: 1 }];
             return url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' } : [{ user_name: '旅人' }, ...messages];
         } });
         const handle = await source.openChat(makeChatKey({ avatarUrl: 'a.png', fileName: 'test' }));
         equal(handle.total, 65); equal(handle.pageCount, 3); equal(handle.page(1).messages[0].index, 30); equal(handle.page(0).messages.length, 30);
-        equal(calls.map(call => call.url), ['/api/characters/get', '/api/chats/search', '/api/chats/get']);
+        equal(calls.map(call => call.url), ['/api/characters/get', '/api/characters/chats', '/api/chats/get']);
         throws(() => handle.page(3)); handle.close(); handle.close(); throws(() => handle.getMessage(0)); throws(() => handle.page(0));
         const emptySource = createChatSource({ getContext: () => ({}), read: async url => url === '/api/characters/get' ? { avatar: 'a.png', name: '甲' }
-            : url === '/api/chats/search' ? [{ file_name: 'empty.jsonl', file_size: 100, last_mes: 1 }] : [{ user_name: '旅人' }] });
+            : url === '/api/characters/chats' ? [{ file_name: 'empty.jsonl', file_size: 100, last_mes: 1 }] : [{ user_name: '旅人' }] });
         const empty = await emptySource.openChat('a.png/empty');
         equal(empty.total, 0); equal(empty.pageCount, 0); equal(empty.page(0).messages, []); empty.close();
     });

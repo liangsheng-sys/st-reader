@@ -20,7 +20,7 @@ export function themeFontSize() {
  * @param {{onExport:()=>void, onImport:()=>void, onMirror:()=>void, onRestore:()=>void, onManageRules?:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions
  * versionRow：⋯ 顶部的版本与更新（T54b）；onMirror / onRestore：立即备份 / 从服务器恢复（T70）；onManageRules：打开屏蔽词与替换规则（T81）
  */
-export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, onManageRules = () => {}, versionRow = null }) {
+export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, onManageRules = () => {}, onDiagnostics = () => {}, versionRow = null }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -78,6 +78,11 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const restoreBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-mirror-restore', onclick: () => onRestore(),
         title: '把 ST 服务器上那份合并回来：缺的补上，同一条以较新的为准，不删你现有的' },
         h('i', { class: 'fa-solid fa-clock-rotate-left', 'aria-hidden': 'true' }), ' 从服务器恢复');
+    // T90：最近一次打开聊天的分段耗时；复制出来只有数字，发给作者排查"打开慢"
+    const diagLine = h('span', { class: 'stcr-set-hint stcr-diag-line' });
+    const diagBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-diag-copy', onclick: () => onDiagnostics(),
+        title: '把最近一次打开聊天各步花了多久复制下来（只有数字，没有聊天内容、名字和文件名）' },
+        h('i', { class: 'fa-solid fa-stethoscope', 'aria-hidden': 'true' }), ' 复制诊断信息');
     const more = h('div', { class: 'stcr-set-more', hidden: true },
         versionRow?.el ?? null,
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
@@ -94,7 +99,9 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
                         h('i', { class: 'fa-solid fa-file-export', 'aria-hidden': 'true' }), ' 导出 JSON'),
                     h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', onclick: () => onImport(), title: '从导出过的 JSON 文件合并回来' },
                         h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入 JSON'),
-                    lastExport))));
+                    lastExport))),
+        h('div', { class: 'stcr-set-item stcr-set-diag' }, h('span', { class: 'stcr-set-label', text: '诊断' }),
+            h('div', { class: 'stcr-set-ctl' }, diagLine, diagBtn)));
     const moreBtn = iconButton('fa-ellipsis', '更多设置', { class: 'stcr-set-more-btn', 'aria-expanded': 'false' });
     const layoutBtn = iconButton('fa-table-cells-large', '换成面板样式', { class: 'stcr-set-layout-btn' });
     const row = (label, ...controls) => h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: label }), h('div', { class: 'stcr-set-ctl' }, ...controls));
@@ -216,7 +223,9 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         moreBtn.setAttribute('aria-expanded', 'false');
         fab.setAttribute('aria-expanded', 'false');
     }
-    return { fab, panel, sync, open, openMore, close, setBackupStatus, setMirrorStatus, isOpen: () => !panel.hidden };
+    /** 诊断那一行的短文字（diagnostics.diagnosticsLine） */
+    function setDiagnostics(text) { diagLine.textContent = text; }
+    return { fab, panel, sync, open, openMore, close, setBackupStatus, setMirrorStatus, setDiagnostics, isOpen: () => !panel.hidden };
 }
 
 function switchInput(label) {

@@ -9,7 +9,9 @@ import { assertDevPath, DEV_ROOT, PROJECT_ROOT, writeDevFile } from './fixtures/
 const origin = 'http://localhost:8100';
 const htmlHeight = process.argv.includes('--html-height'), updateService = process.argv.includes('--update-service');
 const chatCache = process.argv.includes('--chat-cache');
-const task = chatCache ? 't57' : updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
+// T90：重楼 240 楼（社区结构）打开速度三条阈值；不进 test-release（人类电脑忙时会抖）
+const heavy = process.argv.includes('--heavy');
+const task = heavy ? 't90' : chatCache ? 't57' : updateService ? 't54a' : htmlHeight ? 'i041' : 't30';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const chromePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(file => fs.existsSync(file));
 let browser, socket, profile;
@@ -27,9 +29,11 @@ async function evaluate(expression) {
 }
 try {
     if (!chromePath) throw new Error('请使用本机已安装的 Chrome 或 Edge；此脚本不会下载浏览器。');
-    const fixture = chatCache ? { file: 'STCR-90-大文件-1600楼', bytes: fs.statSync(assertDevPath(path.join(DEV_ROOT, 'data/default-user/chats/STCR_T11_Mist/STCR-90-大文件-1600楼.jsonl'))).size } : updateService ? { synthetic: true, name: '版本服务与开发目录' } : htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
+    const heavyPath = path.join(DEV_ROOT, 'data/default-user/chats/STCR_T11_Mist/STCR-96-重楼-240楼.jsonl');
+    if (heavy && !fs.existsSync(assertDevPath(heavyPath))) throw new Error('先停服，运行 node dev/fixtures/heavy.mjs 生成重楼样本');
+    const fixture = heavy ? { file: 'STCR-96-重楼-240楼', bytes: fs.statSync(assertDevPath(heavyPath)).size } : chatCache ? { file: 'STCR-90-大文件-1600楼', bytes: fs.statSync(assertDevPath(path.join(DEV_ROOT, 'data/default-user/chats/STCR_T11_Mist/STCR-90-大文件-1600楼.jsonl'))).size } : updateService ? { synthetic: true, name: '版本服务与开发目录' } : htmlHeight ? { synthetic: true, name: '纸月观测站与动态高度反例' }
         : JSON.parse(fs.readFileSync(assertDevPath(path.join(DEV_ROOT, 'fixtures/performance.json'))));
-    if (!htmlHeight && !updateService && fixture.bytes < (chatCache ? 21 : 50) * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
+    if (!heavy && !htmlHeight && !updateService && fixture.bytes < (chatCache ? 21 : 50) * 1048576) throw new Error('先双击 generate-performance.cmd 生成大文件');
     const response = await fetch(`${origin}/`, { signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('先启动开发实例');
     const tempRoot = path.join(PROJECT_ROOT, '.tmp');
     if (fs.lstatSync(tempRoot).isSymbolicLink()) throw new Error('.tmp 不能是联接');
@@ -81,10 +85,13 @@ try {
         await evaluate('document.fonts.ready.then(()=>true)');
     }
     await delay(3000);
-    console.log(chatCache ? '开发页面已就绪，开始 T57 缓存首屏与后台校验自测…' : updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
+    console.log(heavy ? '开发页面已就绪，开始 T90 重楼打开速度实测（约 15 秒）…' : chatCache ? '开发页面已就绪，开始 T57 缓存首屏与后台校验自测…' : updateService ? '开发页面已就绪，开始 T54a 版本服务自测…' : htmlHeight ? '开发页面已就绪，开始 I041 双窗口宽度自测…' : '开发页面已就绪，开始大文件阅读器实测（约 20 秒）…');
     if (process.argv.includes('--profile')) { await send('Profiler.enable'); await send('Profiler.start'); }
     let failure, report;
-    if (chatCache) {
+    if (heavy) {
+        try { await evaluate('window.stcrSelfTest({heavy:true})'); } catch (error) { failure = error; }
+        report = await evaluate('window.stcrHeavyReport') ?? { failure: failure?.message };
+    } else if (chatCache) {
         try { await evaluate('window.stcrSelfTest({cachePerformance:true})'); } catch (error) { failure = error; }
         report = await evaluate('window.stcrChatCacheReport') ?? { failure: failure?.message };
     } else if (updateService) {

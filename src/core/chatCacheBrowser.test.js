@@ -10,6 +10,9 @@ const snapshot = () => {
     return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, character: c.characterId, group: c.groupId, id: c.getCurrentChatId() });
 };
 const round = value => Math.round(value * 10) / 10;
+// T90：单聊摘要走 /api/characters/chats（simple 读法只列文件名，不算摘要）；群聊仍是 /api/chats/search
+const SUMMARY = 'summary';
+const kindOf = (url, body) => url === '/api/chats/search' || url === '/api/characters/chats' && !body?.simple ? SUMMARY : url;
 
 export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
     const before = snapshot(), results = [], requests = [], coreMs = [], readerMs = [], uiRequests = [], validations = [];
@@ -21,10 +24,10 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
         const started = performance.now();
         const response = await fetch(url, { method: 'POST', headers: ctx().getRequestHeaders(), body: JSON.stringify(body), signal });
         const data = await response.json();
-        requests.push({ path: url, ms: round(performance.now() - started) });
+        requests.push({ path: kindOf(url, body), ms: round(performance.now() - started) });
         assert(response.ok, `只读请求失败：${url} (${response.status})`);
         // 仅改这次测试的响应副本来模拟变更，不改合成聊天文件或宿主。
-        if (changeSummary && url === '/api/chats/search') return data.map(item => ({ ...item, file_size: String(item.file_size) + '-模拟变化' }));
+        if (changeSummary && kindOf(url, body) === SUMMARY) return data.map(item => ({ ...item, file_size: String(item.file_size) + '-模拟变化' }));
         return data;
     };
     // 这一段测"非当前聊天"的后台校验与横幅：给 source 的宿主上下文里不选任何聊天
@@ -42,7 +45,7 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
         }
         check('真实 API 命中复用冻结页，正文只下载一次', requests.filter(x => x.path === '/api/chats/get').length === 1 && Object.isFrozen(firstPage));
         const opened = performanceCheck ? 4 : 2;
-        check('D34 非当前聊天每次命中都后台校验一次（无 60 秒复用）', requests.filter(x => x.path === '/api/chats/search').length === opened && validations.slice(1).every(item => item.state === 'fresh'));
+        check('D34 非当前聊天每次命中都后台校验一次（无 60 秒复用）', requests.filter(x => x.path === SUMMARY).length === opened && validations.slice(1).every(item => item.state === 'fresh'));
         const backgroundValidationMs = validations.slice(1, 2).map(item => round(item.durationMs));
         check('缓存条数与估算字节均不超限', source.getChatCacheStats().entries === 1 && source.getChatCacheStats().bytes <= 150_000_000);
         changeSummary = true;
@@ -57,11 +60,11 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
         // D34 ①：用 ST 内存里真实的当前聊天与文件比对。规则若误判，每次打开当前聊天都会白白冷读
         const liveKey = getCurrentChatKey();
         if (liveKey && Array.isArray(ctx().chat)) {
-            const live = createChatSource({ read, getContext: ctx, prefetchOnList: false }), searchesBefore = requests.filter(x => x.path === '/api/chats/search').length;
-            const cold = await live.openChat(liveKey); cold.close();
+            const live = createChatSource({ read, getContext: ctx, prefetchOnList: false }), searchesBefore = requests.filter(x => x.path === SUMMARY).length;
+            const cold = await live.openChat(liveKey); await cold.validation; cold.close();
             const hit = await live.openChat(liveKey), result = await hit.validation; hit.close();
             check('D34 真实当前聊天：文件快照与宿主内存比对一致，命中零网络', hit.cacheHit && result.source === 'host' && live.getChatCacheStats().liveReloads === 0
-                && requests.filter(x => x.path === '/api/chats/search').length === searchesBefore + 1);
+                && requests.filter(x => x.path === SUMMARY).length === searchesBefore + 1);
             live.clearChatCache();
         } else check('D34 真实当前聊天比对（此轮宿主未选聊天，跳过）', true);
         check('D34 宿主内存多一楼即判过时（纯函数在真实页面）', !matchesHostChat([{ mes: '虚构', send_date: 1 }], [{ mes: '虚构', send_date: 1 }, { mes: '虚构', send_date: 2 }]));
@@ -76,9 +79,10 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
             // 保留只读保护的底层 fetch；记录完整阅读器路径中的真实正文/摘要请求。
             window.fetch = async (...args) => {
                 const path = new URL(args[0] instanceof Request ? args[0].url : String(args[0]), location.href).pathname;
+                let body = null; try { body = JSON.parse(args[1]?.body ?? 'null'); } catch { /* 不是 JSON */ }
                 const started = performance.now(), opening = iteration, response = await originalFetch(...args);
-                if (path === '/api/chats/search') {
-                    const work = response.clone().json().then(() => uiRequests.push({ path, ms: round(performance.now() - started), opening }));
+                if (kindOf(path, body) === SUMMARY) {
+                    const work = response.clone().json().then(() => uiRequests.push({ path: SUMMARY, ms: round(performance.now() - started), opening }));
                     validationWork.push(work);
                 } else if (path.startsWith('/api/')) uiRequests.push({ path, ms: round(performance.now() - started), opening });
                 return response;
@@ -95,18 +99,18 @@ export async function testChatCacheBrowser({ performanceCheck = false } = {}) {
                     }
                     await paint(); readerMs.push(round(performance.now() - started));
                     // 计时已结束。后台响应另记，下一轮前等完（D34：非当前聊天每次命中都校验一次）。
-                    while (uiRequests.filter(x => x.path === '/api/chats/search').length < (readerIsCurrent ? 1 : i + 1)) {
+                    while (uiRequests.filter(x => x.path === SUMMARY).length < (readerIsCurrent ? 1 : i + 1)) {
                         assert(performance.now() - started < 30000, '后台摘要校验超时'); await delay(10);
                     }
                     await Promise.all(validationWork); closeReader(); await paint();
                 }
                 check('正式阅读器四次打开也只下载一次正文', uiRequests.filter(x => x.path === '/api/chats/get').length === 1 && getChatCacheStats().hits >= 3);
                 check('21 MB 缓存命中时首屏渲染完成 < 300 ms（后台校验单独记录）', readerMs.slice(1).every(ms => ms < 300));
-                check('正式阅读器每次命中各校验一次（当前聊天则零网络比对）', uiRequests.filter(x => x.path === '/api/chats/search').length === expectedSearches);
+                check('正式阅读器每次命中各校验一次（当前聊天则零网络比对）', uiRequests.filter(x => x.path === SUMMARY).length === expectedSearches);
             } finally { closeReader(); setPrefs(prefs); window.fetch = originalFetch; clearChatCache(); }
         }
         check('宿主聊天、候选、选择与元信息未改变', before === snapshot());
-        const report = { browser: navigator.userAgent, fixture: decodeURIComponent(key.split('/')[1]), coreMs, readerMs, backgroundValidationMs, uiBackgroundValidationMs: uiRequests.filter(x => x.path === '/api/chats/search' && x.opening > 0).map(x => x.ms), requests, uiRequests, results, hostUnchanged: before === snapshot() };
+        const report = { browser: navigator.userAgent, fixture: decodeURIComponent(key.split('/')[1]), coreMs, readerMs, backgroundValidationMs, uiBackgroundValidationMs: uiRequests.filter(x => x.path === SUMMARY && x.opening > 0).map(x => x.ms), requests, uiRequests, results, hostUnchanged: before === snapshot() };
         window.stcrChatCacheReport = report;
         console.log('[st-reader] T53 缓存与首帧实测', JSON.stringify(report)); console.table(results);
         assert(results.every(x => x.passed), 'T53 未全部达标，详见 window.stcrChatCacheReport；不要把缓存命中视为 300 ms 已通过');

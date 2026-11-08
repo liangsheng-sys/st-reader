@@ -52,6 +52,33 @@ export function filterCssUrls(text, allowExternal) {
 }
 const SVG_REF = /^#stcr-svg-[\w.-]+$/;
 const KEYFRAMES_PREFIX = 'stcr-kf-';
+
+/**
+ * T90（I061）：纯函数结果的小缓存（只在内存，按字符总量封顶，最久没用的先丢）。
+ * 社区卡每楼带同一段 <style>，浏览器解析一遍要几毫秒；重开同一个聊天时每楼的清洗结果也完全一样。
+ */
+function memo(maxEntries, maxChars) {
+    const map = new Map();
+    let chars = 0;
+    return {
+        get(key) { const value = map.get(key); if (value === undefined) return undefined; map.delete(key); map.set(key, value); return value; },
+        set(key, value) {
+            const size = key.length + value.length;
+            if (size > maxChars / 4) return value; // 特别长的楼不占缓存
+            if (map.has(key)) { chars -= key.length + map.get(key).length; map.delete(key); }
+            map.set(key, value); chars += size;
+            for (const [oldKey, oldValue] of map) {
+                if (map.size <= maxEntries && chars <= maxChars) break;
+                map.delete(oldKey); chars -= oldKey.length + oldValue.length;
+            }
+            return value;
+        },
+        clear() { map.clear(); chars = 0; },
+    };
+}
+const styleMemo = memo(200, 2_000_000), htmlMemo = memo(400, 8_000_000);
+/** 测试 / 宿主环境变了时清空。 */
+export function clearFormatterCache() { styleMemo.clear(); htmlMemo.clear(); }
 /** 浏览器规范化后的选择器列表按顶层逗号拆开（括号、方括号、引号里的逗号不算）。 */
 function splitSelectors(text) {
     const parts = [];
@@ -80,6 +107,10 @@ function splitSelectors(text) {
  * @returns {string} 清洗后的样式表文本；什么都不剩时为空串
  */
 export function cleanStyleText(text, allowExternal, { scope = '' } = {}) {
+    const key = `${allowExternal ? 1 : 0}\u0000${scope}\u0000${text}`, cached = styleMemo.get(key);
+    return cached ?? styleMemo.set(key, parseStyleText(text, allowExternal, scope));
+}
+function parseStyleText(text, allowExternal, scope) {
     const sheet = new CSSStyleSheet();
     try { sheet.replaceSync(text); } catch { return ''; }
     const names = new Map();
@@ -158,8 +189,17 @@ function scopeInlineSvg(root) {
 }
 
 const STYLE_SCOPE = '#stcr_chat .mes_text ';
-/** 清洗并隔离文本内样式；只保留 data:image 与（ST 允许时的）https 图片，不请求同源路径。 */
+/**
+ * 清洗并隔离文本内样式；只保留 data:image 与（ST 允许时的）https 图片，不请求同源路径。
+ * T90：结果按"输入 + 两个开关 + 宿主外部媒体设置与当前角色"缓存（ST 的 DOMPurify 钩子会看这几项），重开同一个聊天不再逐楼重洗。
+ */
 function safeHtml(html, alreadySanitized = false, allowExternal = false) {
+    const power = runtime.getContext().powerUserSettings ?? {}, context = runtime.getContext();
+    const host = JSON.stringify([power.forbid_external_media, power.external_media_allowed_overrides, power.external_media_forbidden_overrides, context.characterId, context.groupId]);
+    const key = `${alreadySanitized ? 1 : 0}${allowExternal ? 1 : 0}${host}\u0000${html}`, cached = htmlMemo.get(key);
+    return cached ?? htmlMemo.set(key, sanitizeHtml(html, alreadySanitized, allowExternal));
+}
+function sanitizeHtml(html, alreadySanitized, allowExternal) {
     const { DOMPurify, hljs } = runtime.libs;
     html = runtime.chats.encodeStyleTags(html);
     // T83：<use> 指向本块 #id 的 href 先暂存成 data-stcr-use（DOMPurify 按 FORBID_ATTR 会删掉 href），清洗后由 scopeInlineSvg 核对再放回

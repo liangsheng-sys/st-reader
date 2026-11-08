@@ -131,3 +131,52 @@ export async function testPerformanceBrowser() {
         return results;
     } finally { closeReader(); setPrefs(prefs); clearChatCache(); removeEventListener('error', onError); removeEventListener('unhandledrejection', onError); }
 }
+
+/**
+ * T90（I061）：社区结构的"重楼"样本（dev/fixtures/heavy.mjs，240 楼，每楼 <style> + 三个 details + data: 小图 + 一条显示正则）。
+ * 按"接着读"打开（进度停在末楼），量三条：冷开去掉等 ST 返回文件 ≤ 2 秒、命中缓存重开 ≤ 300 ms、沙箱只建在视口上下一屏内；
+ * 另查首屏能滚动之前没有空闲预建。数字取自 Aa → 诊断 用的同一份记录（diagnostics.lastOpen）。
+ */
+export async function testHeavyOpenBrowser({ reopen = 3 } = {}) {
+    assert(!isReaderOpen(), '请先关闭阅读器');
+    const { lastOpen } = await import('../ui/diagnostics.js');
+    const { clearFormatterCache } = await import('./formatter.js');
+    await loadPrefs();
+    const prefs = { ...getPrefs() }, before = hostSnapshot(), results = [];
+    const key = makeChatKey({ avatarUrl: 'STCR_T11_Mist.png', fileName: 'STCR-96-重楼-240楼' });
+    const check = (name, passed) => { results.push({ name: `T90 ${name}`, passed }); };
+    const openOnce = async () => {
+        const previous = lastOpen();
+        await openReader({ chatKey: key });
+        const end = performance.now() + 30000;
+        while (lastOpen() === previous) { assert(performance.now() < end, '打开重楼样本超时，请先运行 node dev/fixtures/heavy.mjs（停服后）'); await delay(10); }
+        return lastOpen();
+    };
+    try {
+        setPrefs({ mode: 'scroll', direction: 'b', drawerPinned: false, panelPinned: false, hideUser: false, htmlMode: 'render' });
+        setReadPosition(key, 239, { title: 'STCR-96-重楼-240楼', owner: '雾岚（虚构）' }); // 模拟"接着读"：上次停在末楼
+        clearChatCache(); clearFormatterCache();
+        const cold = await openOnce();
+        const coldWithoutFile = cold.totalMs - (cold.fileMs ?? 0) - (cold.existsMs ?? 0);
+        const ids = floors().map(node => Number(node.getAttribute('mesid')));
+        await delay(800); // 让沙箱懒加载跑完一轮
+        const scroller = document.querySelector('.stcr-scroll'), box = scroller.getBoundingClientRect(), screen = scroller.clientHeight;
+        const frames = [...document.querySelectorAll('#stcr_chat iframe')].map(frame => frame.getBoundingClientRect());
+        const outside = frames.filter(rect => rect.bottom < box.top - screen || rect.top > box.bottom + screen).length;
+        closeReader(); await paint();
+        const hits = [];
+        for (let i = 0; i < reopen; i++) { hits.push(await openOnce()); closeReader(); await paint(); }
+        const report = { browser: navigator.userAgent, cold, coldWithoutFile, hitsMs: hits.map(item => item.totalMs), hits, floorsShown: [ids[0], ids.at(-1)], sandboxes: frames.length, sandboxesOutside: outside, hostUnchanged: before === hostSnapshot() };
+        window.stcrHeavyReport = report;
+        console.log('[st-reader] T90 重楼实测', JSON.stringify(report));
+        check('按进度打开到末楼，只建末楼所在的一两批', ids.includes(239) && ids.length <= 60);
+        check('冷开（去掉等 ST 返回文件）≤ 2 秒，且打开前不扫摘要', coldWithoutFile <= 2000 && !cold.cacheHit && cold.summary !== 'request');
+        check(`命中缓存重开 ${reopen} 次都 ≤ 300 ms`, hits.every(item => item.cacheHit && item.totalMs <= 300));
+        check('沙箱只建在视口上下一屏内', outside === 0);
+        check('首屏能滚动之前没有空闲预建', [cold, ...hits].every(item => item.prebuiltBeforeReady === 0));
+        check('宿主聊天/候选/选择/元信息不变', report.hostUnchanged);
+        console.table(results);
+        assert(results.every(item => item.passed), 'T90 重楼打开未达标，见 window.stcrHeavyReport');
+        return results;
+    } finally { closeReader(); setPrefs(prefs); clearChatCache(); }
+}
