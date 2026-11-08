@@ -4,7 +4,8 @@
 // 只读写本扩展自己的这一格；不碰 chat / chatMetadata，也不调任何聊天保存方法（D02）。
 
 const KEY = 'st-reader';
-const FIELDS = new Set(['rev', 'mirrorId', 'mirroredAt', 'bytes', 'lastDaily', 'dailies', 'lastSeenVersion', 'updateNotice']);
+// T92 / D44：topbarIcon（布尔，缺省视为 true）= ST 顶栏是否挂阅读器书本图标
+const FIELDS = new Set(['rev', 'mirrorId', 'mirroredAt', 'bytes', 'lastDaily', 'dailies', 'lastSeenVersion', 'updateNotice', 'topbarIcon']);
 
 function context(getContext) {
     try { return getContext?.() ?? null; } catch { return null; }

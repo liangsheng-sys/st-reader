@@ -6,7 +6,8 @@
 // 页签、展开的角色、各页签滚动位置记在本页会话（模块变量，刷新页面即空）。页签行的 ↻ 强制重拉当前页签。
 
 import { getCurrentChatKey, listByCharacter, listByGroup, listRecent, parseChatKey, prefetchCurrentChat, watchLists } from '../core/chatSource.js';
-import { isFavoriteChat, listFavoriteChats, loadFavoriteChats, onFavoriteChatsChange, toggleFavoriteChat } from './chatFavorites.js';
+import { isFavoriteChat, listFavoriteChats, loadFavoriteChats, onFavoriteChatsChange, setFavoriteNote, toggleFavoriteChat } from './chatFavorites.js';
+import { createNoteEditor } from './noteEditor.js';
 import { h, iconButton } from './dom.js';
 import { filterOwners, formatListDate, matchesFilter, OWNER_SORTS, sortOwners } from './logic.js';
 import { loadOwners, ownersWith } from './ownerMeta.js';
@@ -51,6 +52,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     const tabButtons = TABS.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-drawer-tab', role: 'tab', 'data-tab': item.id, title: item.id === 'favorites' ? '收藏的聊天' : item.label, 'aria-label': item.label },
         h('i', { class: `fa-solid ${item.icon}`, 'aria-hidden': 'true' }), h('span', { class: 'stcr-drawer-tab-label', text: item.label })));
     const filter = h('input', { type: 'search', class: 'stcr-drawer-filter text_pole', placeholder: '过滤名字或标题…', 'aria-label': '过滤列表' });
+    const placeholderFor = which => (which === 'favorites' ? '过滤名字、标题或备注…' : '过滤名字或标题…');
     const pin = iconButton('fa-thumbtack', '钉住抽屉', { class: 'stcr-drawer-pin' });
     const refreshButton = iconButton('fa-rotate-right', '刷新列表', { class: 'stcr-drawer-refresh' });
     const kinds = h('div', { class: 'stcr-seg stcr-owner-kinds', role: 'group', 'aria-label': '角色或群组' },
@@ -97,6 +99,8 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         if (tab === 'owners' && !frame) frame = requestAnimationFrame(() => { frame = 0; paintWindow(); });
     }, { passive: true });
     list.addEventListener('click', event => {
+        const pen = event.target.closest('[data-note-key]');
+        if (pen) { editNote(pen); return; }
         const star = event.target.closest('[data-fav-key]');
         if (star) { toggleFavorite(star); return; }
         const row = event.target.closest('[data-key]');
@@ -107,7 +111,10 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     });
     const stopFav = onFavoriteChatsChange((chatKey, on) => {
         for (const star of list.querySelectorAll(`[data-fav-key="${CSS.escape(chatKey)}"]`)) setStar(star, on);
-        if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) showTab('favorites');
+        if (tab === 'favorites' && el.classList.contains('stcr-drawer--open')) {
+            const top = list.scrollTop;
+            showTab('favorites').then(() => { list.scrollTop = top; }); // 改备注 / 收藏后整页重画，停在原处
+        }
     });
     // 后台重拉回来、和缓存不一样：就地换掉，按第一行可见的行对齐，不跳
     const stopLists = watchLists(event => {
@@ -160,20 +167,52 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         icon.classList.toggle('fa-regular', !on);
     }
 
-    function chatRow(summary, { showOwner = true, meta: extraMeta = null } = {}) {
+    /** note：收藏页传备注（空串 = 还没写），其他页不传——只有收藏页有铅笔和备注行（D44）。 */
+    function chatRow(summary, { showOwner = true, meta: extraMeta = null, note = null } = {}) {
         const owner = ownerOf(summary);
         const meta = extraMeta ?? [formatListDate(summary.lastDate), summary.messageCount !== null ? `${summary.messageCount} 楼` : ''].filter(Boolean).join(' · ');
         const star = iconButton('fa-star', '收藏这个聊天', { class: 'stcr-row-fav', 'data-fav-key': summary.chatKey, 'data-fav-title': [owner.name, summary.title].filter(Boolean).join(' · ') });
         setStar(star, isFavoriteChat(summary.chatKey));
-        return h('div', { class: 'stcr-row-wrap', role: 'listitem', 'data-filter': [owner.name, summary.title].join('\n') }, // 只过滤名字和标题；全文搜索是 v2
+        const shownNote = note ? redactString(note, summary.avatarUrl) : '';
+        const pen = note !== null ? iconButton('fa-pen', note ? '编辑备注' : '写备注', { class: 'stcr-row-note-btn', 'data-note-key': summary.chatKey, 'data-fav-title': [owner.name, summary.title].filter(Boolean).join(' · ') }) : null;
+        // 只过滤名字、标题和收藏备注；全文搜索是 v2
+        return h('div', { class: `stcr-row-wrap${pen ? ' stcr-row-wrap--note' : ''}`, role: 'listitem', 'data-filter': [owner.name, summary.title, note ?? ''].join('\n'), 'data-note': note },
             h('button', { type: 'button', class: `stcr-btn stcr-row${summary.chatKey === getActiveKey() ? ' stcr-row--active' : ''}`, 'data-key': summary.chatKey },
                 h('span', { class: 'stcr-row-title' },
                     h('span', { text: redactString(showOwner ? owner.name : summary.title, summary.avatarUrl) }),
                     summary.isGroup && showOwner ? h('small', { class: 'stcr-row-tag', text: '群' }) : null),
                 h('span', { class: 'stcr-row-meta', text: showOwner ? [redactString(summary.title, summary.avatarUrl), meta].filter(Boolean).join(' · ') : meta }),
-                summary.preview ? h('span', { class: 'stcr-row-preview', text: redactString(summary.preview.replace(/\s+/g, ' '), summary.avatarUrl) }) : null),
-            star);
+                summary.preview ? h('span', { class: 'stcr-row-preview', text: redactString(summary.preview.replace(/\s+/g, ' '), summary.avatarUrl) }) : null,
+                shownNote ? h('span', { class: 'stcr-row-note', text: shownNote, title: shownNote }) : null),
+            pen, star);
     }
+
+    /** 收藏页的铅笔：在这一行下面就地打开备注框；回车 / 点别处保存，Esc 取消。 */
+    function editNote(pen) {
+        const wrap = pen.closest('.stcr-row-wrap');
+        if (!wrap || wrap.querySelector('.stcr-fav-note-input')) return;
+        const noteLine = wrap.querySelector('.stcr-row-note');
+        const restore = () => { editor.el.remove(); if (noteLine) noteLine.hidden = false; wrap.classList.remove('stcr-row-wrap--editing'); };
+        const editor = createNoteEditor({
+            value: noteOf(wrap),
+            onCancel: restore,
+            onSave: async text => {
+                editor.el.disabled = true;
+                try {
+                    const saved = await setFavoriteNote(pen.dataset.noteKey, text, pen.dataset.favTitle);
+                    toast(saved ? '备注已保存' : '备注已清空');
+                } catch (error) {
+                    console.error('[st-reader] 保存收藏备注失败：', error);
+                    toast(`备注没保存上：${error.message ?? error}`);
+                } finally { if (editor.el.isConnected) restore(); } // 有变化时收藏页已整页重画，这里只收拾没变的情况
+            },
+        });
+        if (noteLine) noteLine.hidden = true;
+        wrap.classList.add('stcr-row-wrap--editing');
+        wrap.querySelector('.stcr-row').after(editor.el);
+        editor.focus();
+    }
+    const noteOf = wrap => wrap.dataset.note ?? '';
 
     async function toggleFavorite(star) {
         star.disabled = true;
@@ -284,7 +323,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         tab = memory.tab = next;
         for (const button of tabButtons) button.setAttribute('aria-selected', String(button.dataset.tab === tab));
         ownerBar.hidden = tab !== 'owners';
-        if (tab !== 'owners') filter.placeholder = '过滤名字或标题…';
+        if (tab !== 'owners') filter.placeholder = placeholderFor(tab);
         controller?.abort();
         controller = new AbortController();
         const { signal } = controller;
@@ -305,7 +344,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
                 list.replaceChildren(...marks.map(mark => {
                     const parsed = parseChatKey(mark.chatKey);
                     const summary = { chatKey: mark.chatKey, title: parsed.fileName, isGroup: parsed.isGroup, avatarUrl: parsed.avatarUrl, groupId: parsed.groupId, lastDate: null, messageCount: null, preview: '' };
-                    return chatRow(summary, { meta: `收藏于 ${formatListDate(mark.createdAt)}` });
+                    return chatRow(summary, { meta: `收藏于 ${formatListDate(mark.createdAt)}`, note: mark.note ?? '' });
                 }));
             } else if (tab === 'recent') {
                 const rows = await listRecent(RECENT_MAX, { signal });

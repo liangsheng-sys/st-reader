@@ -13,7 +13,8 @@ import { backupStatus, describeStoreError, exportBackup, pickAndImport } from '.
 import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
 import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
-import { isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, toggleFavoriteChat } from './chatFavorites.js';
+import { favoriteNote, isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, setFavoriteNote, toggleFavoriteChat } from './chatFavorites.js';
+import { createNoteEditor } from './noteEditor.js';
 import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
@@ -512,7 +513,7 @@ function onClick(event) {
     // 浮层按钮自己的处理已经把自己移走了（比如"写批注"关掉小浮层、打开输入框）：这次点击已处理完，
     // 不能再被当成"点了浮层外面"，否则会把刚打开的输入框立刻关掉。
     if (!target.isConnected) return;
-    if (session.popover && !session.popover.contains(target) && !target.closest('[data-act="swipe-list"], [data-act="jump"]')) closePopover(session);
+    if (session.popover && !session.popover.contains(target) && !target.closest('[data-act="swipe-list"], [data-act="jump"], [data-act="fav-chat"]')) closePopover(session);
     if (session.settings.isOpen() && !session.settings.panel.contains(target) && target !== session.settings.fab) session.settings.close();
     if (!session.follow.contains(target)) setFollowOpen(false);
     // 抽屉/面板没钉住时浮在正文上，点它外面就收起（02 §3.1）。
@@ -539,7 +540,9 @@ function onClick(event) {
             case 'drawer': toggleDrawer(); return;
             case 'close-drawer': session.drawer.close(); return;
             case 'panel': togglePanel(); return;
-            case 'fav-chat': toggleChatFav(); return;
+            case 'fav-chat': toggleChatFav(actEl); return;
+            case 'fav-note': editChatNote(); return;
+            case 'fav-remove': closePopover(session); removeChatFav(); return;
             case 'redact-off': setPrefs({ redact: false }); say('已关闭脱敏显示'); return;
             case 'close-panel': session.panel.close(); return;
             case 'jump': openJump(); return;
@@ -869,22 +872,86 @@ async function syncChatFav(session) {
     button.hidden = false;
     button.classList.toggle('stcr-on', on);
     button.setAttribute('aria-pressed', String(on));
-    button.title = on ? '取消收藏此聊天' : '收藏此聊天（在左侧"收藏"页里能找到）';
-    button.setAttribute('aria-label', on ? '取消收藏此聊天' : '收藏此聊天');
+    const note = on ? redactString(favoriteNote(session.chatKey), session.chatKey) : '';
+    button.title = on ? `已收藏此聊天${note ? `：${note}` : ''}（点一下：编辑备注 / 取消收藏）` : '收藏此聊天（在左侧"收藏"页里能找到）';
+    button.setAttribute('aria-label', on ? '已收藏此聊天：编辑备注或取消收藏' : '收藏此聊天');
+    button.setAttribute('aria-haspopup', on ? 'menu' : 'false');
     const icon = button.querySelector('i');
     icon.classList.toggle('fa-solid', on);
     icon.classList.toggle('fa-regular', !on);
 }
 
-async function toggleChatFav() {
+const chatFavTitle = session => [session.owner, session.handle.title].filter(Boolean).join(' · ');
+
+/** 顶栏 ☆（D44）：没收藏 → 直接收藏；已收藏 → 小菜单"编辑备注… / 取消收藏"（免得一碰就取消）。 */
+async function toggleChatFav(button) {
     const session = S;
     if (!session?.handle) return;
+    if (session.popover?.classList.contains('stcr-fav-menu')) { closePopover(session); return; }
+    if (isFavoriteChat(session.chatKey)) { openChatFavMenu(button ?? session.favBtn); return; }
     try {
-        const on = await toggleFavoriteChat(session.chatKey, [session.owner, session.handle.title].filter(Boolean).join(' · '));
-        say(on ? '已收藏此聊天（左侧抽屉"收藏"页）' : '已取消收藏此聊天');
+        await toggleFavoriteChat(session.chatKey, chatFavTitle(session));
+        say('已收藏此聊天（左侧抽屉"收藏"页）。再点 ☆ 可以写备注');
     } catch (error) {
         console.error('[st-reader] 收藏聊天失败：', error);
         say(`没收藏上：${describeStoreError(error)}`);
+    }
+}
+
+function openChatFavMenu(anchor) {
+    const session = S;
+    closePopover(session);
+    const note = redactString(favoriteNote(session.chatKey), session.chatKey);
+    const menu = h('div', { class: 'stcr-popover stcr-fav-menu', role: 'menu', 'aria-label': '收藏此聊天' },
+        note ? h('div', { class: 'stcr-fav-menu-note', text: note, title: note }) : null,
+        h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-fav-menu-item', 'data-act': 'fav-note' },
+            h('i', { class: 'fa-solid fa-pen', 'aria-hidden': 'true' }), note ? ' 编辑备注…' : ' 写备注…'),
+        h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-fav-menu-item', 'data-act': 'fav-remove' },
+            h('i', { class: 'fa-regular fa-star', 'aria-hidden': 'true' }), ' 取消收藏'));
+    placePopover(menu, anchor);
+    menu.querySelector('button')?.focus({ preventScroll: true });
+}
+
+/** 菜单里"编辑备注…"：同一块小浮层换成输入框。回车 / 点外面保存，Esc 取消。 */
+function editChatNote() {
+    const session = S;
+    if (!session?.handle || !session.popover?.classList.contains('stcr-fav-menu')) return;
+    const chatKey = session.chatKey, menu = session.popover;
+    const editor = createNoteEditor({
+        value: favoriteNote(chatKey),
+        onCancel: () => { if (S === session && session.popover === menu) closePopover(session, { cancel: true }); session.scroller.focus({ preventScroll: true }); },
+        onSave: async text => {
+            if (S === session && session.popover === menu) closePopover(session, { cancel: true });
+            try {
+                const saved = await setFavoriteNote(chatKey, text, chatFavTitle(session));
+                say(saved ? '备注已保存（左侧抽屉"收藏"页能看到）' : '备注已清空');
+            } catch (error) {
+                console.error('[st-reader] 保存收藏备注失败：', error);
+                say(`备注没保存上：${describeStoreError(error)}`);
+            }
+            if (S === session) session.scroller.focus({ preventScroll: true });
+        },
+    });
+    menu.classList.add('stcr-fav-menu--edit');
+    menu.setAttribute('role', 'dialog');
+    menu.replaceChildren(h('div', { class: 'stcr-fav-menu-label', text: '这个聊天的备注' }), editor.el,
+        h('div', { class: 'stcr-fav-menu-hint', text: '回车保存 · Esc 取消 · 清空即删除' }));
+    menu.style.left = ''; menu.style.top = '';
+    placePopover(menu, session.favBtn); // 变宽了，按新宽度重新贴着 ☆ 放，别出右边
+    setPopover(menu, { onDismiss: () => editor.commit() }); // 点浮层外面 = 保存
+    editor.focus();
+}
+
+async function removeChatFav() {
+    const session = S;
+    if (!session?.handle || !isFavoriteChat(session.chatKey)) return;
+    const hadNote = !!favoriteNote(session.chatKey);
+    try {
+        await toggleFavoriteChat(session.chatKey, chatFavTitle(session));
+        say(hadNote ? '已取消收藏此聊天（备注一起删了）' : '已取消收藏此聊天');
+    } catch (error) {
+        console.error('[st-reader] 取消收藏失败：', error);
+        say(`没取消上：${describeStoreError(error)}`);
     }
 }
 

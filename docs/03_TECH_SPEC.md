@@ -744,7 +744,7 @@ IndexedDB 仍是主存与读取路径；本节只**增加**接口，§5.5 已有
 | `store.mergeBackup(json)` | D33 合并，返回 `{report:{分类:{added,updated,kept}}, changed, localNewer}`；与 `importAll` 同样完整校验。修订号先取 `max(本地, 文件 rev)`，有改动再 +1 |
 | `mergeNewer(target, incoming)` | 纯函数（就地改 target）：记录同 id 以 `updatedAt` 新者胜，本地独有 / 较新保留；屏蔽词并集；设置只补本地没有的键（本地已有的键保留本地值）；最后校验图片引用 |
 
-**`src/core/hostSettings.js`**：`hostSettings.available()`、`hostSettings.read()`（冻结副本）、`hostSettings.patch(patch)`（写 `getContext().extensionSettings['st-reader']` 后调 ST 的 `saveSettingsDebounced()`；只接受 `rev / mirrorId / mirroredAt / bytes / lastDaily / dailies / lastSeenVersion / updateNotice`，其他字段抛 TypeError）；`hostBackedSettings(storeSettings)` 给 updateService 用；`foreignExtensionSettings(settings)` 仅供测试快照去掉本扩展那一格。只碰这一格，不碰 chat / chatMetadata，不调聊天保存。
+**`src/core/hostSettings.js`**：`hostSettings.available()`、`hostSettings.read()`（冻结副本）、`hostSettings.patch(patch)`（写 `getContext().extensionSettings['st-reader']` 后调 ST 的 `saveSettingsDebounced()`；只接受 `rev / mirrorId / mirroredAt / bytes / lastDaily / dailies / lastSeenVersion / updateNotice / topbarIcon`（`topbarIcon` 为 T92 / D44 新增，见 §5.19），其他字段抛 TypeError）；`hostBackedSettings(storeSettings)` 给 updateService 用；`foreignExtensionSettings(settings)` 仅供测试快照去掉本扩展那一格。只碰这一格，不碰 chat / chatMetadata，不调聊天保存。
 
 **`src/core/backupService.js`**（单例导出；`createBackupService` 工厂仅测试注入）
 
@@ -823,3 +823,23 @@ UI（`prefs.js`）：阅读进度与候选记忆（`stcr:ui:progress:v1`）走 t
 UI（`drawer.js`）：模块变量 `memory` 记页签、"角色 / 群组"、展开的角色、各页签滚动位置（本页会话）；骨架条延迟 150 ms 才画；订阅 `watchLists` 就地换（以视口顶上那一行为锚）；页签行加 ↻（`.stcr-drawer-refresh`）。`ownerMeta.js` 新增 `ownersWith({characters?, groups?})`：用新表与上次的另一张表重拼，不发请求；`loadOwners` 多收 `refresh`。
 
 测试：Node `chatCache.test.js` 三项（命中 / 差异才通知 / 副本 / refresh；冷请求取消不留缓存、后台失败保旧；事件 → 对应列表、没人订阅不发请求、退订）。浏览器 `src/core/drawerCacheBrowser.test.js`（`stcrSelfTest()` 全量里带，单跑 `stcrSelfTest({core:false,listCache:true})`）：真实事件名 + 真实只读请求，事件发在**新建的** ST `EventEmitter` 实例上（在全局 `eventSource` 上发 `MESSAGE_RECEIVED` 会让别的扩展当真去生图、念 TTS）；再开抽屉无骨架、页签 / 展开 / 滚动保留、↻ 重拉、后台变化不跳。
+
+### 5.19 收藏备注与顶栏图标开关（T92 / D44，2026-11-08，Opus 按 D32 交付）
+
+本节只**增加**。
+
+| 签名 / 字段 | 约定 |
+|---|---|
+| 收藏记录 `kind:'chat'` 的 `note` | 可选字符串，≤ 500 字（`FAVORITE_NOTE_MAX`，store.js 导出）。`bookmarks.put` 时去首尾空白，空串即删字段；校验要求"无首尾空白、非空、≤ 500"，不满足抛 `INVALID_DATA`（导入同样整份拒收，不部分写入）。整楼 / 候选收藏不看这个字段（与原来一样）。导出 `version` 仍为 1；没有 `note` 的旧备份照常导入；`importAll` 遇同 id 仍是跳过、`mergeBackup` 仍按 `updatedAt` 新者胜（备注随整条记录走） |
+| `hostSettings` 字段 `topbarIcon` | 布尔；缺省（`undefined`）视为 `true`。只有这一处新增，名单其余不变 |
+
+UI：
+
+| 模块 | 约定 |
+|---|---|
+| `chatFavorites.js` | 新增 `favoriteNote(chatKey)`（同步，先 `loadFavoriteChats`）、`cleanNote(text)`（换行变空格、去首尾空白、截 500）、`setFavoriteNote(chatKey, note, title?)`：没变不写库不通知；没收藏的顺手收藏；变了就通知 `onFavoriteChatsChange`，回调多第三个参数 `{note}`。取消收藏连备注一起删 |
+| `noteEditor.js`（新） | `createNoteEditor({value, onSave, onCancel})` → `{el, focus, commit, cancel}`：单行 textarea（`.stcr-fav-note-input`），回车 / 失焦 / `commit()` 保存，Esc / `cancel()` 取消，只触发一次；按键不冒泡给阅读器快捷键 |
+| `topbarIcon.js`（新） | `topbarIconOn()`、`setTopbarIcon(on)`（写 `hostSettings` 后通知）、`onTopbarIconChange(listener)`；Aa 开关、扩展面板开关、`mount.js` 都经这里，互相同步 |
+| `mount.js` | 导出 `mountTopbarButton()` / `unmountTopbarButton()`；`mountEntries` 按 `topbarIconOn()` 决定挂不挂，并订阅变化运行时挂 / 摘；另用 `renderExtensionTemplateAsync(…/src/ui/templates, 'settings')` 往 `#extensions_settings2` 挂"阅读器"小块（`#stcr_settings_block`，ST 的 `inline-drawer` 外观，开关 `#stcr_topbar_icon_toggle`） |
+
+测试：Node `coreFixes.test.js` 一项（去空白 / 空即删 / 500 上限 / 非字符串拒收 / 导出 version 1 / 旧备份导入 / 坏备注整份拒收 / 合并新者胜、旧的不覆盖）。浏览器 `src/ui/favNoteBrowser.test.js`（`stcrSelfTest()` 全量里带，单跑 `stcrSelfTest({core:false,favNote:true})`）19 项：铅笔回车存、Esc 不存、过滤搜备注、顶栏 ☆ 两项菜单、菜单里改备注点外面保存、菜单取消收藏、未收藏直接收藏、两处开关同步摘 / 挂图标、关着 `/reader` 照常；跑完恢复收藏与开关原值。
