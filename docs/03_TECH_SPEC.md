@@ -864,3 +864,14 @@ UI：
 UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有聊天时显示）与快捷键 `O`；抽屉每行 `.stcr-row-st-btn`（`data-st-key`，`createDrawer` 新增可选回调 `onOpenInSt(chatKey)`），不是正在读的聊天时 `index` 取存下的阅读进度 `i`（没有就 `null`，ST 照常停在末尾），`swipes` 取存下的候选记录 `sw`；prefs 新增 `openInStConfirm`（默认 `true`，确认框里勾"不再提示"写 `false`）。阅读器关闭后的提示用 ST 的 `toastr`。
 
 测试：Node `hostNavigation.test.js`（9 项：文件名 / 下标 / 忙碌 / 计划 / 候选比较 / 忙不调用 / 换角色顺序与无扩展名 / 只选角色、只开文件、就是当前 / 群聊、存盘中、无事件、超时退订 / D40 静态边界）。浏览器 `src/ui/openInStBrowser.test.js`：**会让 ST 真的切聊天**，不进 `stcrSelfTest()` 全量也不进 test-release，单跑 `stcrSelfTest({core:false, openInSt:true})`；跑前复制 `.dev/data/default-user/characters/`，跑后还原（ST 会改写样本角色卡的 `chat` 字段，fixture 哈希自测会因此失败）。
+
+### 5.21 阅读器配色表（T96 / D42，2026-11-09，Opus 按 D32 交付）
+
+本节只**增加**。新模块 `src/core/readerPalettes.js`，纯数据、无副作用，不读不写任何东西。阅读器主题（T96）、分享卡片"纸张 / 深色"模板、导出文档的 HTML 样式（T97）共用这一份颜色。
+
+| 导出 | 约定 |
+|---|---|
+| `READER_THEMES` | `['host', 'paper', 'night']`（冻结） |
+| `READER_PALETTES` | `{ paper, night }`（冻结），每套键：`page` 纸面、`panel` 抽屉 / 面板 / 浮层、`text` 正文、`faint` 名字行与小字、`quote` 引号里的话与链接（`null` = 用 ST 强调色与 `quoteMix` 六四混合，即 `color-mix(in srgb, <强调色> 60%, <quoteMix>)`）、`quoteMix`、`em` 斜体、`strong` 粗体、`code` 代码底色、`codeText` 代码字色、`border` 细线、`shadow` 阴影、`underline` 下划线。值都是 CSS 颜色字面值 |
+
+`style.css` 里 `#stcr_root[data-theme="paper|night"]` 的 `--stcr-th-*` 与卡片模板 CSS 写的是同一组字面值（CSS 读不到 JS），`ui.test.js`"阅读器主题与卡片模板同一套颜色"逐项核对，改颜色要两处一起改。

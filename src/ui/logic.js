@@ -13,7 +13,9 @@ export const DEFAULT_PREFS = Object.freeze({
     mode: null,            // 'scroll' / 'paged'；null = 跟随方向默认
     fontDelta: 0,          // 在主题字号上加减的像素
     lineHeight: null,      // null = 跟随主题
-    width: null,           // 正文栏最大宽度 px；null = 跟随方向默认
+    width: null,           // 正文栏最大宽度 px（widthMode 'custom' 时用）；null = 跟随方向默认
+    widthMode: 'host',     // T96 / D42：'host' 跟随酒馆（方向默认）/ 'full' 铺满左右面板之间 / 'custom' 用 width
+    theme: 'host',         // T96 / D42：'host' 跟随酒馆主题 / 'paper' 纸张 / 'night' 夜读
     hideUser: false,
     hideStHidden: false,   // T62 验收后：收起在 ST 里点过小眼睛的楼（用户楼和角色楼都算）
     expandAllReasoning: false,
@@ -54,16 +56,26 @@ export function normalizePrefs(raw) {
     if (Number.isFinite(input.fontDelta)) out.fontDelta = Math.round(clamp(input.fontDelta, PREF_LIMITS.fontDelta));
     if (Number.isFinite(input.lineHeight)) out.lineHeight = Math.round(clamp(input.lineHeight, PREF_LIMITS.lineHeight) * 10) / 10;
     if (Number.isFinite(input.width)) out.width = Math.round(clamp(input.width, PREF_LIMITS.width) / 10) * 10;
+    // T96 之前没有 widthMode：设过宽度的人原样保留（= 自定义）
+    if (['host', 'full', 'custom'].includes(input.widthMode)) out.widthMode = input.widthMode;
+    else if (out.width !== null) out.widthMode = 'custom';
+    if (['host', 'paper', 'night'].includes(input.theme)) out.theme = input.theme;
     for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'autoNames', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice', 'openInStConfirm']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
 }
 
-/** 实际生效的阅读模式与宽度：用户改过的优先，否则取方向默认。 */
+/**
+ * 实际生效的阅读模式与宽度：用户改过的优先，否则取方向默认。
+ * 宽度（T96）：跟随酒馆 = 方向默认（B 为 null，即量出来的 ST 聊天栏宽度；A 为 680）；自定义 = width（没设过从 800 起）；
+ * 铺满 = null 且 full: true（正文列不限宽，CSS 留页边距）。
+ */
 export function effectivePrefs(prefs) {
     const defaults = DIRECTION_DEFAULTS[prefs.direction] ?? DIRECTION_DEFAULTS.b;
-    return { ...prefs, mode: prefs.mode ?? defaults.mode, width: prefs.width ?? defaults.width };
+    const widthMode = prefs.widthMode ?? (prefs.width !== null && prefs.width !== undefined ? 'custom' : 'host');
+    const width = widthMode === 'custom' ? prefs.width ?? defaults.width ?? 800 : widthMode === 'full' ? null : defaults.width;
+    return { ...prefs, mode: prefs.mode ?? defaults.mode, widthMode, width, full: widthMode === 'full' };
 }
 
 /** "思考了 12 秒" / "思考了 1 分 5 秒" / 无时长时"思考过程"。0 秒有效（03 §5.2）。 */

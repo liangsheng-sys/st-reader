@@ -33,7 +33,18 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const lineRange = h('input', { type: 'range', min: PREF_LIMITS.lineHeight.min, max: PREF_LIMITS.lineHeight.max, step: '0.1', 'aria-label': '行距' });
     const lineValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复主题行距' });
     const widthRange = h('input', { type: 'range', min: PREF_LIMITS.width.min, max: PREF_LIMITS.width.max, step: '10', 'aria-label': '正文宽度' });
-    const widthValue = h('button', { type: 'button', class: 'stcr-btn stcr-num', title: '点这里恢复默认宽度' });
+    const widthValue = h('span', { class: 'stcr-num stcr-width-num' });
+    // T96 / D42：正文宽度三选一；滑块只在"自定义"时出现
+    const widthSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '正文宽度' },
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-width-mode': 'host', text: '跟随酒馆', title: '和 ST 聊天栏一样宽（书页排版是 680）' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-width-mode': 'full', text: '铺满', title: '撑满左右两个面板之间，两边留一点页边距' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-width-mode': 'custom', text: '自定义', title: '用滑块自己定' }));
+    const widthCustom = h('span', { class: 'stcr-width-custom' }, widthRange, widthValue);
+    // T96 / D42：阅读器自己的主题。只换阅读器里的颜色和楼层样子，不改字体，不碰 ST
+    const themeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读器主题' },
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-theme-pick': 'host', text: '跟随酒馆', title: '颜色、聊天框都和 ST 主题一样' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-theme-pick': 'paper', text: '纸张', title: '暖白纸色，去掉聊天框，像读书' }),
+        h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-theme-pick': 'night', text: '夜读', title: '深色纸面，去掉聊天框，晚上看不刺眼' }));
     const hideUser = switchInput('隐藏用户楼');
     const hideStHidden = switchInput('隐藏 ST 已隐藏的楼');
     hideStHidden.el.title = '在 ST 里点过小眼睛（不发给模型）的楼，用户楼和角色楼都收成一行，点开能看';
@@ -116,10 +127,11 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     redactRow.classList.add('stcr-set-redact');
     const panel = h('div', { class: 'stcr-settings', role: 'dialog', 'aria-label': '阅读设置', hidden: true },
         h('div', { class: 'stcr-settings-grid' },
+            row('主题', themeSeg),
             row('翻页', modeSeg),
             font,
             row('行距', lineRange, lineValue),
-            row('宽度', widthRange, widthValue),
+            row('宽度', widthSeg, widthCustom),
             row('思维链', reasoningSeg),
             row('显示', hideUser.el, hideStHidden.el, htmlBar.el, sideSeg, followOpen.el),
             redactRow),
@@ -142,8 +154,18 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     fontValue.addEventListener('click', () => setPrefs({ fontDelta: 0 }));
     lineRange.addEventListener('input', () => setPrefs({ lineHeight: Number(lineRange.value) }));
     lineValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ lineHeight: null }); });
-    widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value) }));
-    widthValue.addEventListener('click', event => { event.preventDefault(); setPrefs({ width: null }); });
+    widthRange.addEventListener('input', () => setPrefs({ width: Number(widthRange.value), widthMode: 'custom' }));
+    widthSeg.addEventListener('click', event => {
+        const mode = event.target.closest('[data-width-mode]')?.dataset.widthMode;
+        if (!mode) return;
+        // 第一次点"自定义"：从现在看到的宽度起步，不跳
+        if (mode === 'custom' && getPrefs().width === null) setPrefs({ widthMode: mode, width: Number(widthRange.value) });
+        else setPrefs({ widthMode: mode });
+    });
+    themeSeg.addEventListener('click', event => {
+        const theme = event.target.closest('[data-theme-pick]')?.dataset.themePick;
+        if (theme) setPrefs({ theme });
+    });
     hideUser.input.addEventListener('change', () => setPrefs({ hideUser: hideUser.input.checked }));
     hideStHidden.input.addEventListener('change', () => setPrefs({ hideStHidden: hideStHidden.input.checked }));
     htmlSeg.addEventListener('click', event => {
@@ -184,10 +206,13 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         for (const button of modeSeg.children) button.classList.toggle('stcr-on', button.dataset.mode === shown.mode);
         for (const button of dirSeg.children) button.classList.toggle('stcr-on', button.dataset.dir === prefs.direction);
         fontValue.textContent = String(Math.round(themeFontSize() + prefs.fontDelta));
-        lineRange.value = String(prefs.lineHeight ?? 1.6);
+        lineRange.value = String(prefs.lineHeight ?? (prefs.theme === 'host' ? 1.6 : 1.8));
         lineValue.textContent = prefs.lineHeight === null ? '主题' : prefs.lineHeight.toFixed(1);
-        widthRange.value = String(shown.width ?? 800);
-        widthValue.textContent = shown.width === null ? '跟随 ST' : String(shown.width);
+        for (const button of themeSeg.children) button.classList.toggle('stcr-on', button.dataset.themePick === prefs.theme);
+        for (const button of widthSeg.children) button.classList.toggle('stcr-on', button.dataset.widthMode === shown.widthMode);
+        widthCustom.hidden = shown.widthMode !== 'custom';
+        if (shown.widthMode === 'custom') { widthRange.value = String(shown.width); widthValue.textContent = String(shown.width); }
+        else widthRange.value = String(document.querySelector('#stcr_root .stcr-scroll > #stcr_chat')?.getBoundingClientRect().width ?? 800);
         hideUser.input.checked = prefs.hideUser;
         hideStHidden.input.checked = prefs.hideStHidden;
         for (const button of htmlSeg.children) button.classList.toggle('stcr-on', button.dataset.htmlMode === prefs.htmlMode);

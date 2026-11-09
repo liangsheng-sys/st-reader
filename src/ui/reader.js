@@ -733,6 +733,9 @@ function applyPrefs(prefs) {
     else root.style.removeProperty('--stcr-line-height');
     if (shown.width !== null) root.style.setProperty('--stcr-width', `${shown.width}px`);
     else root.style.removeProperty('--stcr-width');
+    // T96 / D42：阅读器主题与"铺满"。跟随酒馆时两个属性都不在，样式与之前完全一样
+    if (prefs.theme === 'host') delete root.dataset.theme; else root.dataset.theme = prefs.theme;
+    if (shown.full) root.dataset.width = 'full'; else delete root.dataset.width;
     if (prefs.direction !== 'a') root.classList.remove('stcr-chrome-hidden');
     S.follow.dataset.side = prefs.followSide;
     if (!S.follow.hidden) placeFollower(S); // 左 / 右换了（T82：位置不再每帧重算）

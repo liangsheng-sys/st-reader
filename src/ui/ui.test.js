@@ -313,6 +313,20 @@ export async function testUiLogic() {
             equal(redactString('星灯在灯台', 'Other.png/聊天'), '星灯在某地', '别的角色：');
         } finally { setRedactState(null); }
     });
+    check('T96 主题与宽度：默认跟随酒馆，坏值回默认，旧的自定义宽度迁成"自定义"', () => {
+        equal([DEFAULT_PREFS.theme, DEFAULT_PREFS.widthMode], ['host', 'host']);
+        equal([normalizePrefs({ theme: 'paper' }).theme, normalizePrefs({ theme: 'night' }).theme, normalizePrefs({ theme: 'sepia' }).theme], ['paper', 'night', 'host']);
+        equal([normalizePrefs({ widthMode: 'full' }).widthMode, normalizePrefs({ widthMode: 'wide' }).widthMode], ['full', 'host']);
+        equal(normalizePrefs({ width: 900 }).widthMode, 'custom', '只有旧 width：');
+        equal(normalizePrefs({ width: 900, widthMode: 'host' }).widthMode, 'host', '两个都有：');
+    });
+    check('T96 生效宽度：跟随酒馆走方向默认，铺满不给宽度，自定义用滑块值', () => {
+        const scroll = effectivePrefs(normalizePrefs({ widthMode: 'full', width: 900 }));
+        equal([scroll.width, scroll.full, scroll.widthMode], [null, true, 'full']);
+        equal(effectivePrefs(normalizePrefs({ direction: 'a', widthMode: 'host', width: 900 })).width, 680);
+        equal(effectivePrefs(normalizePrefs({ widthMode: 'custom', width: 900 })).width, 900);
+        equal(effectivePrefs(normalizePrefs({ widthMode: 'host' })).full, false);
+    });
     return [...results];
 }
 
@@ -354,6 +368,32 @@ export async function testUiStatic() {
     out.push({ name: '每个界面文件都是合法的 ES 模块', passed: broken.length === 0, detail: broken.length ? broken.join('；') : '全部能按模块解析' });
     const mixed = sources.filter(({ text }) => text.includes('\r\n')).map(({ file }) => file);
     out.push({ name: '换行统一为 LF', passed: mixed.length === 0, detail: mixed.length ? mixed.join(', ') : '无 CRLF' });
+    // T96：阅读器"纸张 / 夜读"与卡片"纸张 / 深色"模板同一套颜色（readerPalettes.js 是源头）
+    {
+        const { READER_PALETTES } = await import('../core/readerPalettes.js');
+        const css = await readFile(path.join(dir, '..', '..', 'style.css'), 'utf8');
+        const block = selector => css.match(new RegExp(`${selector.replace(/[[\]"]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+        const vars = text => Object.fromEntries([...text.matchAll(/--stcr-th-([\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]));
+        const { readFileSync } = await import('node:fs');
+        const card = readFileSync(path.join(dir, 'cardStudio.js'), 'utf8');
+        const keys = { page: 'page', panel: 'panel', text: 'text', faint: 'faint', em: 'em', strong: 'strong', code: 'code', codeText: 'code-text', border: 'border', shadow: 'shadow', underline: 'underline' };
+        const wrong = [];
+        for (const [theme, tpl] of [['paper', 'paper'], ['night', 'dark']]) {
+            const p = READER_PALETTES[theme], v = vars(block(`#stcr_root[data-theme="${theme}"]`));
+            for (const [key, name] of Object.entries(keys)) if (v[name] !== p[key]) wrong.push(`${theme}.${key}：style.css ${v[name]} ≠ ${p[key]}`);
+            const quote = p.quote ?? `color-mix(in srgb, var(--stcr-host-quote) 60%, ${p.quoteMix})`;
+            if (v.quote !== quote) wrong.push(`${theme}.quote：${v.quote}`);
+            const has = (selector, decl) => css.includes(`#stcr_root .stcr-card--${tpl}${selector} {`) && css.split(`#stcr_root .stcr-card--${tpl}${selector} {`)[1].split('}')[0].includes(decl);
+            if (!has('', `background: ${p.page};`) || !has('', `color: ${p.text};`)) wrong.push(`卡片 ${tpl} 底色/字色`);
+            if (!has(' .name_text', `color: ${p.faint};`)) wrong.push(`卡片 ${tpl} 名字色`);
+            if (!css.includes(`.stcr-card--${tpl} .mes_text i { color: ${p.em}; }`)) wrong.push(`卡片 ${tpl} 斜体`);
+            if (!css.includes(`.stcr-card--${tpl} .mes_text b { color: ${p.strong}; }`)) wrong.push(`卡片 ${tpl} 粗体`);
+            if (!css.includes(`.stcr-card--${tpl} .mes_text code { background: ${p.code}; color: ${p.codeText}; }`)) wrong.push(`卡片 ${tpl} 代码`);
+            if (p.quote && !card.includes(`const PAPER_RED = '${p.quote}';`)) wrong.push('卡片 PAPER_RED');
+            if (p.quoteMix && !card.includes(`60%, ${p.quoteMix})`)) wrong.push('卡片深色强调色');
+        }
+        out.push({ name: 'T96 阅读器主题与卡片模板同一套颜色（readerPalettes.js）', passed: wrong.length === 0, detail: wrong.length ? wrong.join('；') : '纸张、夜读各项与配色表一致' });
+    }
     out.push({ name: '界面文件数', passed: sources.length >= 8, detail: sources.map(s => s.file).join(', ') });
     return out;
 }
