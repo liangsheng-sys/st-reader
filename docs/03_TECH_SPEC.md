@@ -16,6 +16,7 @@
   - `/api/characters/all` → 角色列表（ChatVault 用的就是它）
   - `/api/characters/get` `{avatar_url}` → 完整角色卡（含该角色的作用域正则）
   - `/api/groups/all` `{}` → 群组定义（成员、聊天 ID、元信息）
+  - `/api/chats/export` `{file, exportfilename, format:'jsonl', avatar_url | is_group:true}`（T97 补充，D43）→ `{result: 原文}`；format 为 jsonl 时 ST 只 `readFileSync`，不写（§5.22 末尾）
   - 注意：`/api/chats/get` 在角色 chat 目录不存在时会 `mkdirSync`，属于宿主行为，可接受。
 - D25 允许的扩展更新接口（均 POST，带 `getRequestHeaders()`）：`/api/extensions/version` 与 `/api/extensions/update`，body 固定 `{extensionName:'st-reader', global:boolean}`，只对阅读器自身安装目录执行 Git fetch / pull，不涉及聊天。它们会由 ST 访问仓库远端 github.com；不是聊天只读 API，亦不扩展到任意扩展目录。用户目录优先，仅 404 才试全局目录；更新只用检查确认的那个位置。
 - 版本与日志允许 GET 自身同源 `manifest.json` / `CHANGELOG.md`，禁重定向、`cache:'no-store'`。ST 1.14.0 的 getManifests 非公开且没有 getExtensionManifest 导出，T54a 使用同源 fetch。
