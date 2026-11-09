@@ -101,6 +101,7 @@ export async function testUiLogic() {
         equal([normalizePrefs({ followOpen: true }).followOpen, normalizePrefs({ followOpen: 'yes' }).followOpen], [true, false]);
         equal(normalizePrefs({ htmlBarHidden: true, followSide: 'left' }).followSide, 'left');
         equal(normalizePrefs({ htmlBarHidden: true }).htmlBarHidden, true);
+        equal([normalizePrefs(null).openInStConfirm, normalizePrefs({ openInStConfirm: false }).openInStConfirm, normalizePrefs({ openInStConfirm: 0 }).openInStConfirm], [true, false, true]);
         equal([normalizePrefs({ htmlBarHidden: 1, followSide: 'top' }).htmlBarHidden, normalizePrefs({ followSide: 'top' }).followSide], [false, 'right']);
     });
     check('T80 楼层胶囊位置：列外空白够就停在列旁不压字，不够贴边', () => {

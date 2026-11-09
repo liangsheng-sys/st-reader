@@ -3,6 +3,7 @@
 // 只读（D02）：只调 03 §5 的读取接口；候选/思维链/进度/划线/收藏都是阅读器自己的状态，绝不写回 ST。
 
 import { getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js';
+import { checkOpenInHost, openInHost } from '../core/hostNavigation.js';
 import { maskHtmlString } from '../core/cardExport.js';
 import { initFormatter } from '../core/formatter.js';
 import { store } from '../core/store.js';
@@ -95,7 +96,7 @@ export async function openReader({ tab, chatKey } = {}) {
         stateBox: root.querySelector('.stcr-state'), progressBtn: root.querySelector('.stcr-progress'),
         progressLine: root.querySelector('.stcr-progress-line > span'), topPercent: root.querySelector('.stcr-top-percent'),
         titleOwner: root.querySelector('.stcr-title-owner'), titleFile: root.querySelector('.stcr-title-file'),
-        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), redactBadge: root.querySelector('.stcr-redact-badge'),
+        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), openStBtn: root.querySelector('.stcr-open-st-btn'), redactBadge: root.querySelector('.stcr-redact-badge'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], hold: null, popover: null, popoverDismiss: null,
@@ -549,6 +550,7 @@ function onClick(event) {
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
             case 'stale-reload': reloadStale(); return;
             case 'reload': reloadStale(); return;
+            case 'open-in-st': openInSt(); return;
             case 'stale-dismiss': hideStaleBanner(session); session.scroller.focus({ preventScroll: true }); return;
             case 'continue': loadChat(actEl.dataset.key, { index: Number(actEl.dataset.index) }); return;
             case 'open-drawer': session.drawer.open('recent'); return;
@@ -654,6 +656,7 @@ function handleKey(event) {
         case 'r': case 'R': { const mes = getPrefs().hideReasoning ? null : keyTarget(); if (mes) toggleReasoning(mes); break; }
         case 'b': case 'B': { const mes = keyTarget(); if (mes && !mes.classList.contains('stcr-mes--system')) toggleBookmark(mes, false); break; }
         case 'g': case 'G': openJump(); break;
+        case 'o': case 'O': openInSt(); break;
         case '\\': toggleDrawer(); break;
         case '/': togglePanel(); break;
         default: handled = false;
@@ -865,6 +868,7 @@ async function toggleBookmark(mes, forSwipe) {
 async function syncChatFav(session) {
     const button = session.favBtn;
     session.reloadBtn.hidden = !(session.handle && session.chatKey);
+    session.openStBtn.hidden = session.reloadBtn.hidden;
     if (!session.handle || !session.chatKey) { button.hidden = true; return; }
     try { await loadFavoriteChats(); } catch { button.hidden = true; return; }
     if (S !== session) return;
@@ -884,6 +888,48 @@ async function syncChatFav(session) {
 const chatFavTitle = session => [session.owner, session.handle.title].filter(Boolean).join(' · ');
 
 /** 顶栏 ☆（D44）：没收藏 → 直接收藏；已收藏 → 小菜单"编辑备注… / 取消收藏"（免得一碰就取消）。 */
+/**
+ * 顶栏 ↗ / O：在酒馆里打开这个聊天（T95 / D40）。切换全由 ST 自己公开的函数完成，阅读器不写任何东西、不改 swipe_id。
+ * 酒馆忙、群聊不支持、找不到角色 → 只提示，阅读器不动；否则关阅读器，之后的提示用 ST 的 toastr（阅读器已经没了）。
+ */
+async function openInSt() {
+    const session = S;
+    if (!session?.handle || !session.chatKey || session.openingSt) return;
+    const chatKey = session.chatKey;
+    const precheck = () => {
+        try { checkOpenInHost(chatKey); return true; } catch (error) { say(error?.message ?? String(error)); return false; }
+    };
+    if (!precheck()) return;
+    // 先记下正在读的楼：确认框关掉时 ST 会把焦点还给阅读器，阅读器可能被带着滚一点
+    const floor = currentFloor();
+    const index = floor ? Number(floor.getAttribute('mesid')) : null;
+    if (getPrefs().openInStConfirm) {
+        session.openingSt = true;
+        try {
+            const skip = h('input', { type: 'checkbox' });
+            const content = h('div', { class: 'stcr-confirm-text' },
+                h('p', { text: '把酒馆切到这个聊天？酒馆会像你在它的聊天列表里点开一样，把它记为这个角色当前的聊天。阅读器自己不会改任何东西。' }),
+                h('label', { class: 'checkbox_label stcr-confirm-check' }, skip, h('span', { text: '不再提示' })));
+            if (!await confirmDialog(content, '打开')) return;
+            if (skip.checked) setPrefs({ openInStConfirm: false });
+        } finally { session.openingSt = false; }
+        if (S !== session || session.chatKey !== chatKey || !precheck()) return; // 确认期间换了聊天 / 酒馆开始生成
+    }
+    const swipes = [...session.swipeView];
+    closeReader();
+    const notify = (message, kind = 'info') => globalThis.toastr?.[kind]?.(message, '阅读器');
+    try {
+        const result = await openInHost(chatKey, { index, swipes });
+        const notes = [];
+        if (!result.floorLoaded) notes.push(`酒馆只加载了最后一部分楼层，第 ${index + 1} 楼要在酒馆里往上翻、点"显示更多消息"`);
+        if (result.swipeDiffers.length) notes.push('酒馆显示的是它自己当前的候选（阅读器里换过的候选没有带过去）');
+        if (notes.length) notify(notes.join('；'));
+    } catch (error) {
+        console.error('[st-reader] 在酒馆里打开失败：', error);
+        notify(error?.code ? error.message : `在酒馆里打开失败：${error?.message ?? error}`, 'warning');
+    }
+}
+
 async function toggleChatFav(button) {
     const session = S;
     if (!session?.handle) return;
@@ -1219,6 +1265,7 @@ function releaseChat(session) {
     session.titleFile.textContent = '';
     session.favBtn.hidden = true;
     session.reloadBtn.hidden = true;
+    session.openStBtn.hidden = true;
     session.follow.hidden = true;
     session.follow.dataset.key = '';
 }
