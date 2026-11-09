@@ -5,7 +5,7 @@ import { createMemoryChatCache, estimateJsonBytes } from './chatCache.js';
 export class StcrDataError extends Error {
     constructor(code, message) { super(message); this.name = 'StcrDataError'; this.code = code; }
 }
-const READ_ENDPOINTS = new Set(['/api/chats/recent', '/api/characters/all', '/api/characters/get', '/api/characters/chats', '/api/groups/all', '/api/chats/search', '/api/chats/get', '/api/chats/group/get']);
+const READ_ENDPOINTS = new Set(['/api/chats/recent', '/api/characters/all', '/api/characters/get', '/api/characters/chats', '/api/groups/all', '/api/chats/search', '/api/chats/get', '/api/chats/group/get', '/api/chats/export']);
 const context = () => globalThis.SillyTavern.getContext();
 
 function component(value) {
@@ -623,3 +623,20 @@ export const { listCharacters, listGroups, listRecent, listByCharacter, listByGr
  * @property {(pageIndex?:number)=>{pageIndex:number,start:number,end:number,total:number,pageCount:number,messages:readonly object[]}} page 零基页码，end 不包含
  * @property {()=>void} close 幂等释放此句柄；之后读取抛 CLOSED，原始数据与页模型由内存 LRU 保留
  */
+
+/**
+ * T97 补充：酒馆原生的"导出 jsonl"——同一个接口、同样的参数（ST 聊天列表的导出按钮，public/script.js），
+ * 拿回聊天文件原文，一个字节不改。这个接口 format 为 jsonl 时只读文件、把内容放在 result 里返回，不写任何东西。
+ * 只生成 Blob，下载由 UI 做。
+ * @param {string} chatKey
+ * @param {{signal?:AbortSignal, read?:Function}} [options] read 只给测试注入
+ * @returns {Promise<{filename:string, blob:Blob}>}
+ */
+export async function exportRawChat(chatKey, { signal, read = request } = {}) {
+    const key = parseChatKey(chatKey);
+    const filename = `${key.fileName}.jsonl`;
+    const body = { is_group: key.isGroup, avatar_url: key.isGroup ? undefined : key.avatarUrl, file: filename, exportfilename: filename, format: 'jsonl' };
+    const data = await read('/api/chats/export', body, { signal });
+    if (typeof data?.result !== 'string') throw new StcrDataError('INVALID_RESPONSE', '酒馆没有返回聊天文件');
+    return { filename, blob: new Blob([data.result], { type: 'application/octet-stream' }) };
+}

@@ -875,3 +875,24 @@ UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有
 | `READER_PALETTES` | `{ paper, night }`（冻结），每套键：`page` 纸面、`panel` 抽屉 / 面板 / 浮层、`text` 正文、`faint` 名字行与小字、`quote` 引号里的话与链接（`null` = 用 ST 强调色与 `quoteMix` 六四混合，即 `color-mix(in srgb, <强调色> 60%, <quoteMix>)`）、`quoteMix`、`em` 斜体、`strong` 粗体、`code` 代码底色、`codeText` 代码字色、`border` 细线、`shadow` 阴影、`underline` 下划线。值都是 CSS 颜色字面值 |
 
 `style.css` 里 `#stcr_root[data-theme="paper|night"]` 的 `--stcr-th-*` 与卡片模板 CSS 写的是同一组字面值（CSS 读不到 JS），`ui.test.js`"阅读器主题与卡片模板同一套颜色"逐项核对，改颜色要两处一起改。
+
+### 5.22 导出为文档（T97 / D43，2026-11-09，Opus 按 D32 交付）
+
+本节只**增加**。三个新文件：`src/core/documentText.js`（纯逻辑，Node 可测）、`src/core/documentExport.js`（浏览器：逐楼渲染、HTML 块快照、图片内嵌、分批与取消）、`src/core/htmlBlockLocate.js`（"一楼排好版的正文里哪些是 HTML 块"，原在 `src/ui/htmlBlocks.js`，逐字搬来，`htmlBlocks.js` 原名转出 `findHtmlBlocks`，调用方不变）。只读：不写聊天、不改候选、不改 ST 任何状态；只生成 Blob，下载由 UI 做。
+
+| 签名 | 约定 |
+|---|---|
+| `exportDocument(handle, options, {onProgress?, signal?})` → `Promise<{filename, mimeType, blob, stats}>` | `handle` 是 `openChat` 的句柄，导出完成前不能 close。`options`：`format` `'txt'`/`'html'`；`swipes` `'host'`（ST 当前）/`'reader'`（`swipeOf(index)` 给的，无效回落 ST 当前）/`'all'`；`speaker` `'name'`/`'role'`（user / char）/`'none'`；`include` 见下；`from`/`to` 零基闭区间，缺省整个聊天，越界抛 `RangeError`，空聊天抛 `RangeError`；`swipeOf?`；`redact?` `{maskWords, rules, autoNames}`（`null` = 不脱敏）；`owner?`（文件名的角色名，缺省 `header.characterName`）。每 ~12 ms 让出主线程（`requestIdleCallback`）并 `onProgress(done, total)`；`signal` 取消时抛 `AbortError`，不产出文件。`stats`：`{floors, skipped, htmlBlocks, images, imagePlaceholders, fallbacks, warnings[]}` |
+| `include` | `{floorNumbers, time, user, reasoning, html, details, tables, code, hidden}`，布尔；默认只有 `floorNumbers`、`user` 为 `true`（`DOC_INCLUDE_DEFAULTS`）。`user:false` 跳过用户楼；`hidden:false` 跳过 `isSystem` 或 `isNarrator` 的楼（ST 隐藏楼与系统楼）；`html` = `findHtmlBlocks` 认出来的块（对不上位置的整楼 HTML 当普通正文）；`details` = 正文里的 `<details>`；`tables` = `<table>`；`code` = `<pre>`（行内 `code` 一直保留为文字） |
+| 文字来源 | 每个候选 `renderMessage(handle, index, swipe)` 的 `html` / `reasoningHtml` 放进 `document.implementation.createHTMLDocument` 的惰性文档（不加载图片、不跑脚本）里遍历。永远丢掉：脚本、样式、模板、表单控件、媒体、iframe、内联 SVG、公式、`hidden` 或行内 `display:none` 的元素；链接只留文字。`renderMessage` 抛错的候选按原文逐行导出，`stats.fallbacks`+1 并记一条提示 |
+| 脱敏 | `redact` 给出时，每个文本节点过 `maskCodeText`（屏蔽词 → 等长 █，替换规则 → 替换文字，图标 → ★ 等字符，图片 → "[图片]"）；选项与"复制脱敏版"相同：名字与规则作用范围按发言者（群聊按这一楼的成员），`autoReplaceNames = redact.autoNames !== false`。说话人名字、聊天名、角色名（文件名）同样处理；HTML 块先 `maskHtmlString` 再快照。规则无效时一开始就抛错，不产出"可能没脱敏"的文件 |
+| 图片（只 HTML） | `data:image/` 的 png、jpeg、gif、webp、avif、svg+xml 原样；同源地址用 `createResourceLoader`（D23 读取器，`fetchFn` 只放行同源）读成 `data:image/*`；外站与读不到的写 `<span class="img">[图片]</span>`。HTML 块里的图跟着块的快照走。TXT 一律写"[图片]" |
+| HTML 块（只 HTML，勾上时） | `renderStatic(块, {width:640, allowNetwork:true, fetchFn:只放行同源})` 得到禁脚本、禁网、资源已内嵌的静态文档，序列化后放进 `<iframe sandbox="" srcdoc="…" style="height:实际高度px">`；失败写"[HTML 块]"并记提示 |
+| TXT 输出 | `text/plain;charset=utf-8`，UTF-8 BOM，CRLF；头两行聊天名、"角色名 · 共 N 楼 / 第 a–b 楼"；楼的格式见 `txtFloor` |
+| HTML 输出 | `text/html;charset=utf-8`；`<meta charset="utf-8">`、`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'">`、`no-referrer`；样式 `DOC_STYLE`（`readerPalettes` 纸张 / 系统深色时夜读；夜读引号色 = `#e18a24` 与 `quoteMix` 六四混合）；无脚本、无外链、不嵌字体 |
+
+`documentText.js` 导出（纯函数）：`DOC_FORMATS`、`DOC_SWIPES`、`DOC_SPEAKERS`、`DOC_INCLUDE_DEFAULTS`、`DOC_EXPORT_DEFAULTS`、`normalizeDocOptions(raw)`（坏值回默认，不含范围与脱敏）、`textLines(root, {include, blocks?, mask?})` → 行数组、`cleanHtml(root, {include, blocks?, mask?, image?})` → 片段、`escapeHtml`、`docDate(value)` → `YYYY-MM-DD HH:mm`、`speakerLabel(speaker, {name, isUser})`、`floorHeading(include, {number, date})`、`docFileName(owner, title, format)`（去 `\ / : * ? " < > |` 与控制字符、截 120 字）、`txtFloor(floor, include)` / `htmlFloor(floor, include)`（全空返回 `null`）、`DOC_STYLE`、`DOC_CSP`、`htmlDocumentHead({title, subtitle})`、`HTML_DOCUMENT_TAIL`。DOM 只用 `nodeType / localName / childNodes / getAttribute / hasAttribute / data`。
+
+实测（8100，无头 Chrome，`--enable-precise-memory-info`）：4000 楼 / 50 MiB 样本整本导出 TXT 12.0 秒、53 MB 文件，HTML 11.8 秒、53.4 MB；JS 堆打开聊天后 59–65 MB，导出峰值 176 / 228 MB，结束 GC 后回到 66 MB（聊天还在内存缓存里），清缓存后 29 MB（与导出前相同）。
+
+**T97 验收后补充（2026-11-09，D43 补充）**：`chatSource.js` 新导出 `exportRawChat(chatKey, {signal?})` → `Promise<{filename, blob}>`。请求与 ST 聊天列表的导出按钮（`public/script.js` `.exportRawChatButton`）相同：`POST /api/chats/export`，`{is_group, avatar_url（群聊为 undefined）, file: '<fileName>.jsonl', exportfilename: 同上, format: 'jsonl'}`；ST 在 `format === 'jsonl'` 时只 `readFileSync` 并把原文放在 `result` 返回（`src/endpoints/chats.js`），不写文件。`blob` 为 `application/octet-stream`，内容与磁盘上的聊天文件逐字节相同（8100 两个样本 SHA-256 核对过）；`result` 不是字符串抛 `StcrDataError('INVALID_RESPONSE')`。`READ_ENDPOINTS` 增加 `/api/chats/export` 这一项（只增）；D02 禁用名单、守卫、审计不变。
