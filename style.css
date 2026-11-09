@@ -1827,3 +1827,29 @@ body.stcr-reader-open {
 }
 #stcr_root .stcr-width-custom { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
 #stcr_root .stcr-width-num:hover { background: none; }
+
+/* ── T97 / D43：导出为文档对话框（文档面板里的一张表单）。两列：左标签右控件，手机上标签叠在控件上面 ── */
+#stcr_root .stcr-dx { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+#stcr_root .stcr-dx-row { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); align-items: start; gap: 12px; }
+#stcr_root .stcr-dx-label { color: var(--stcr-faint); text-align: right; line-height: 32px; white-space: nowrap; }
+#stcr_root .stcr-dx-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; min-height: 32px; }
+#stcr_root .stcr-dx .stcr-seg { flex-wrap: wrap; }
+#stcr_root .stcr-dx .stcr-seg-btn { padding: 4px 12px; }
+#stcr_root .stcr-dx-hint { margin: -6px 0 0 calc(4.5em + 12px) !important; color: var(--stcr-faint); font-size: 12.5px; line-height: 1.6; }
+#stcr_root .stcr-dx-range { display: inline-flex; align-items: center; gap: 4px; color: var(--stcr-faint); font-size: 13px; }
+#stcr_root .stcr-dx-num { width: 5.2em; padding: 3px 6px; border: 1px solid var(--stcr-border); border-radius: 6px; background: transparent; color: var(--stcr-text); font: inherit; }
+#stcr_root .stcr-dx-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(10em, 1fr)); gap: 6px 14px; width: 100%; padding-top: 6px; }
+#stcr_root .stcr-dx-check { display: inline-flex; align-items: flex-start; gap: 6px; margin: 0; cursor: pointer; line-height: 1.5; }
+#stcr_root .stcr-dx-check input { flex: none; margin: .25em 0 0; }
+#stcr_root .stcr-dx-row:last-child .stcr-dx-check { padding-top: 6px; }
+#stcr_root .stcr-dx-status { min-width: 0; color: var(--stcr-faint); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stcr_root .stcr-dx-bar { flex: none; width: 90px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--stcr-text) 12%, transparent); overflow: hidden; }
+#stcr_root .stcr-dx-bar > span { display: block; width: 0; height: 100%; background: var(--stcr-accent); transition: width .2s; }
+#stcr_root .stcr-dx-go { border-color: color-mix(in srgb, var(--stcr-accent) 60%, transparent); }
+#stcr_root .stcr-dx-go:disabled, #stcr_root .stcr-dx button:disabled, #stcr_root .stcr-dx input:disabled { opacity: .5; cursor: default; }
+@media (max-width: 599px) {
+    #stcr_root .stcr-dx-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    #stcr_root .stcr-dx-label { text-align: left; line-height: 1.4; }
+    #stcr_root .stcr-dx-hint { margin-left: 0 !important; }
+    #stcr_root .stcr-dx-bar { width: 56px; }
+}

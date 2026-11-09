@@ -28,6 +28,7 @@ import { hasRedaction, redactString, setRedactState, visibleText } from './redac
 import { createSettingsBar } from './settingsBar.js';
 import { createRulesManager } from './rulesUi.js';
 import { createDocPanel } from './docPanel.js';
+import { openDocExport } from './docExport.js';
 import { createVersionRow, maybeShowWhatsNew } from './updateUi.js';
 import { diagnosticsLine, diagnosticsText, lastOpen, patchOpen, recordOpen } from './diagnostics.js';
 
@@ -96,7 +97,7 @@ export async function openReader({ tab, chatKey } = {}) {
         stateBox: root.querySelector('.stcr-state'), progressBtn: root.querySelector('.stcr-progress'),
         progressLine: root.querySelector('.stcr-progress-line > span'), topPercent: root.querySelector('.stcr-top-percent'),
         titleOwner: root.querySelector('.stcr-title-owner'), titleFile: root.querySelector('.stcr-title-file'),
-        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), openStBtn: root.querySelector('.stcr-open-st-btn'), redactBadge: root.querySelector('.stcr-redact-badge'),
+        panelBtn: root.querySelector('.stcr-panel-btn'), favBtn: root.querySelector('.stcr-chat-fav'), reloadBtn: root.querySelector('.stcr-reload-btn'), openStBtn: root.querySelector('.stcr-open-st-btn'), moreBtn: root.querySelector('.stcr-top-more'), redactBadge: root.querySelector('.stcr-redact-badge'),
         handle: null, chatKey: null, owner: '', token: 0, controller: null,
         firstPage: -1, lastPage: -1, swipeView: new Map(), reasoning: new Map(), hoverIndex: null,
         userAvatar: '', restoreFocus: document.activeElement, cleanup: [], hold: null, popover: null, popoverDismiss: null,
@@ -552,6 +553,8 @@ function onClick(event) {
             case 'stale-reload': reloadStale(); return;
             case 'reload': reloadStale(); return;
             case 'open-in-st': openInSt(); return;
+            case 'top-more': toggleTopMenu(actEl); return;
+            case 'doc-export': closePopover(session); openExportDialog(); return;
             case 'stale-dismiss': hideStaleBanner(session); session.scroller.focus({ preventScroll: true }); return;
             case 'continue': loadChat(actEl.dataset.key, { index: Number(actEl.dataset.index) }); return;
             case 'open-drawer': session.drawer.open('recent'); return;
@@ -873,6 +876,7 @@ async function syncChatFav(session) {
     const button = session.favBtn;
     session.reloadBtn.hidden = !(session.handle && session.chatKey);
     session.openStBtn.hidden = session.reloadBtn.hidden;
+    session.moreBtn.hidden = session.reloadBtn.hidden;
     if (!session.handle || !session.chatKey) { button.hidden = true; return; }
     try { await loadFavoriteChats(); } catch { button.hidden = true; return; }
     if (S !== session) return;
@@ -935,6 +939,34 @@ async function openInSt(fromDrawer = null) {
         console.error('[st-reader] 在酒馆里打开失败：', error);
         notify(error?.code ? error.message : `在酒馆里打开失败：${error?.message ?? error}`, 'warning');
     }
+}
+
+/** 顶栏 ⋮（T97）：小菜单，目前只有"导出为文档…"。 */
+function toggleTopMenu(button) {
+    const session = S;
+    if (!session?.handle) return;
+    if (session.popover?.classList.contains('stcr-top-menu')) { closePopover(session); return; }
+    closePopover(session);
+    const menu = h('div', { class: 'stcr-popover stcr-fav-menu stcr-top-menu', role: 'menu', 'aria-label': '更多' },
+        h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-fav-menu-item', 'data-act': 'doc-export' },
+            h('i', { class: 'fa-solid fa-file-lines', 'aria-hidden': 'true' }), ' 导出为文档…'));
+    placePopover(menu, button ?? session.moreBtn);
+    menu.querySelector('button')?.focus({ preventScroll: true });
+}
+
+/** 导出为文档（T97 / D43）：对话框在 docExport.js，这里只交给它这个聊天的信息和阅读器的状态。 */
+function openExportDialog() {
+    const session = S;
+    if (!session?.handle) return;
+    const shown = currentFloor();
+    const at = shown ? Number(shown.getAttribute('mesid')) : 0;
+    const prefs = getPrefs();
+    openDocExport({
+        docPanel: session.docPanel, chatKey: session.chatKey, owner: session.owner, total: session.handle.total, visible: [at, at],
+        swipeOf: index => (session.swipeView.has(index) ? session.swipeView.get(index) : null),
+        saved: prefs.docExport, remember: value => setPrefs({ docExport: value }),
+        redactOn: !!prefs.redact, autoNames: !!prefs.autoNames, root: session.root, toast: say,
+    });
 }
 
 /** 顶栏 ☆（D44）：没收藏 → 直接收藏；已收藏 → 小菜单"编辑备注… / 取消收藏"（免得一碰就取消）。 */
@@ -1274,6 +1306,7 @@ function releaseChat(session) {
     session.favBtn.hidden = true;
     session.reloadBtn.hidden = true;
     session.openStBtn.hidden = true;
+    session.moreBtn.hidden = true;
     session.follow.hidden = true;
     session.follow.dataset.key = '';
 }

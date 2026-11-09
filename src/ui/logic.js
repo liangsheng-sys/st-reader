@@ -1,6 +1,8 @@
 // ST Reader — AGPL-3.0
 // 阅读器界面的纯逻辑：不碰 DOM、不碰宿主，Node 与浏览器共用（ui.test.js）。
 
+import { DOC_EXPORT_DEFAULTS, normalizeDocOptions } from '../core/documentText.js';
+
 /** 设置项的取值范围。null 表示"跟随主题 / 跟随排版方向的默认值"。 */
 export const PREF_LIMITS = Object.freeze({
     fontDelta: { min: -6, max: 14 },
@@ -33,6 +35,7 @@ export const DEFAULT_PREFS = Object.freeze({
     panelPinned: false,
     updateNotice: true,    // T54b：更新后第一次打开弹"本次更新了什么"；面板里勾"不再提醒"就关
     openInStConfirm: true, // T95："在酒馆里打开"前先确认；确认框里勾"不再提示"就关
+    docExport: DOC_EXPORT_DEFAULTS, // T97 / D43：导出为文档上次选的格式 / 候选 / 说话人 / 包含项（范围和脱敏不记）
 });
 
 /** 各排版方向在用户没手动改过时的默认值（02 §7 差异表）。width null = 跟随 ST 聊天宽度。 */
@@ -60,6 +63,7 @@ export function normalizePrefs(raw) {
     if (['host', 'full', 'custom'].includes(input.widthMode)) out.widthMode = input.widthMode;
     else if (out.width !== null) out.widthMode = 'custom';
     if (['host', 'paper', 'night'].includes(input.theme)) out.theme = input.theme;
+    out.docExport = normalizeDocOptions(input.docExport);
     for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'autoNames', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice', 'openInStConfirm']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
