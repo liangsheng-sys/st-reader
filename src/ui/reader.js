@@ -118,6 +118,7 @@ export async function openReader({ tab, chatKey } = {}) {
             if (!getPrefs().drawerPinned || !wide()) session.drawer.close();
         },
         getActiveKey: () => S?.chatKey ?? null,
+        onOpenInSt: key => openInSt(key),
         isPinned: () => getPrefs().drawerPinned,
         onPinChange: pinned => setPrefs({ drawerPinned: pinned }),
         toast: say,
@@ -887,22 +888,25 @@ async function syncChatFav(session) {
 
 const chatFavTitle = session => [session.owner, session.handle.title].filter(Boolean).join(' · ');
 
-/** 顶栏 ☆（D44）：没收藏 → 直接收藏；已收藏 → 小菜单"编辑备注… / 取消收藏"（免得一碰就取消）。 */
 /**
  * 顶栏 ↗ / O：在酒馆里打开这个聊天（T95 / D40）。切换全由 ST 自己公开的函数完成，阅读器不写任何东西、不改 swipe_id。
  * 酒馆忙、群聊不支持、找不到角色 → 只提示，阅读器不动；否则关阅读器，之后的提示用 ST 的 toastr（阅读器已经没了）。
+ * fromDrawer：抽屉每行的 ↗（T95 验收后补充）。不是正在读的聊天时，停在上次读到的楼（没读过 = 照 ST 的样子停在末尾），候选比对用存下的记录。
  */
-async function openInSt() {
+async function openInSt(fromDrawer = null) {
     const session = S;
-    if (!session?.handle || !session.chatKey || session.openingSt) return;
-    const chatKey = session.chatKey;
+    if (!session || session.openingSt) return;
+    const reading = !fromDrawer || (fromDrawer === session.chatKey && session.handle);
+    if (reading && (!session.handle || !session.chatKey)) return;
+    const chatKey = reading ? session.chatKey : fromDrawer;
     const precheck = () => {
         try { checkOpenInHost(chatKey); return true; } catch (error) { say(error?.message ?? String(error)); return false; }
     };
     if (!precheck()) return;
     // 先记下正在读的楼：确认框关掉时 ST 会把焦点还给阅读器，阅读器可能被带着滚一点
-    const floor = currentFloor();
-    const index = floor ? Number(floor.getAttribute('mesid')) : null;
+    const saved = reading ? null : getProgress(chatKey);
+    const floor = reading ? currentFloor() : null;
+    const index = floor ? Number(floor.getAttribute('mesid')) : Number.isInteger(saved?.i) ? saved.i : null;
     if (getPrefs().openInStConfirm) {
         session.openingSt = true;
         try {
@@ -913,9 +917,9 @@ async function openInSt() {
             if (!await confirmDialog(content, '打开')) return;
             if (skip.checked) setPrefs({ openInStConfirm: false });
         } finally { session.openingSt = false; }
-        if (S !== session || session.chatKey !== chatKey || !precheck()) return; // 确认期间换了聊天 / 酒馆开始生成
+        if (S !== session || (reading && session.chatKey !== chatKey) || !precheck()) return; // 确认期间换了聊天 / 酒馆开始生成
     }
-    const swipes = [...session.swipeView];
+    const swipes = reading ? [...session.swipeView] : Object.entries(saved?.sw ?? {}).map(([key, value]) => [Number(key), value]);
     closeReader();
     const notify = (message, kind = 'info') => globalThis.toastr?.[kind]?.(message, '阅读器');
     try {
@@ -930,6 +934,7 @@ async function openInSt() {
     }
 }
 
+/** 顶栏 ☆（D44）：没收藏 → 直接收藏；已收藏 → 小菜单"编辑备注… / 取消收藏"（免得一碰就取消）。 */
 async function toggleChatFav(button) {
     const session = S;
     if (!session?.handle) return;

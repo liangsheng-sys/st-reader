@@ -861,6 +861,6 @@ UI：
 | `scrollHostTo(index, document?)` | `#chat .mes[mesid="N"]` 存在则 `scrollIntoView({block:'start'})` 并返回 `true`，否则 `false`。只读 DOM |
 | `openInHost(chatKey, {index?, swipes?, timeoutMs=10000, scrollDelays=[300,1300], getContext?, document?})` → `Promise<{status:'current'\|'opened', floorLoaded, swipeDiffers}>` | `checkOpenInHost` → 不是当前聊天：单聊需要时 `selectCharacterById`（返回后角色没变 → `BUSY`），宿主当前聊天还不是目标再 `openCharacterChat(无扩展名)`；群聊 `openGroupChat`。等 `CHAT_CHANGED` 且宿主当前聊天就是目标（或导航函数返回时已经是），每走完一步重新计 `timeoutMs`，超时抛 `TIMEOUT`；ST 函数自己抛的错原样抛出。最后滚到 `index`，并在 `scrollDelays` 后补滚（ST 打开后会自己滚到底两次），`#chat` 上有滚轮 / 触屏 / 键盘 / 指针按下就停止补滚 |
 
-UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有聊天时显示）与快捷键 `O`；prefs 新增 `openInStConfirm`（默认 `true`，确认框里勾"不再提示"写 `false`）。阅读器关闭后的提示用 ST 的 `toastr`。
+UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有聊天时显示）与快捷键 `O`；抽屉每行 `.stcr-row-st-btn`（`data-st-key`，`createDrawer` 新增可选回调 `onOpenInSt(chatKey)`），不是正在读的聊天时 `index` 取存下的阅读进度 `i`（没有就 `null`，ST 照常停在末尾），`swipes` 取存下的候选记录 `sw`；prefs 新增 `openInStConfirm`（默认 `true`，确认框里勾"不再提示"写 `false`）。阅读器关闭后的提示用 ST 的 `toastr`。
 
 测试：Node `hostNavigation.test.js`（9 项：文件名 / 下标 / 忙碌 / 计划 / 候选比较 / 忙不调用 / 换角色顺序与无扩展名 / 只选角色、只开文件、就是当前 / 群聊、存盘中、无事件、超时退订 / D40 静态边界）。浏览器 `src/ui/openInStBrowser.test.js`：**会让 ST 真的切聊天**，不进 `stcrSelfTest()` 全量也不进 test-release，单跑 `stcrSelfTest({core:false, openInSt:true})`；跑前复制 `.dev/data/default-user/characters/`，跑后还原（ST 会改写样本角色卡的 `chat` 字段，fixture 哈希自测会因此失败）。

@@ -97,6 +97,17 @@ export async function testOpenInStBrowser({ force = false } = {}) {
         check('换角色：ST 选了星灯、开着这个聊天', aster, `${ctx().characters[ctx().characterId]?.avatar} ${ctx().getCurrentChatId?.()}`);
         check('阅读器里选了第 2 个候选，ST 仍是第 1 个，并提示', ctx().chat[1]?.swipe_id === 0 && /它自己当前的候选/.test(toasts()), `ST 第 2 楼候选序号 ${ctx().chat[1]?.swipe_id}；${toasts()}`);
         results.push({ name: 'T95 资料：星灯切过去后 ST 的 swipe_id', passed: true, detail: JSON.stringify(swipeIds()), swipeIds: swipeIds() });
+
+        // ⑦ 抽屉每行的 ↗（T95 验收后补充）：不进阅读器，直接让 ST 打开，停在上次读到的楼
+        setReadPosition(HEAVY, 190);
+        await openReader({ tab: 'recent' });
+        if (await until(() => document.querySelector('#stcr_root .stcr-doc'), 800)) document.querySelector('#stcr_root .stcr-doc-close')?.click();
+        const go = await until(() => document.querySelector(`#stcr_root .stcr-drawer [data-st-key="${CSS.escape(HEAVY)}"]`), 15000);
+        check('抽屉"最近"里每行有 ↗', !!go && document.querySelectorAll('#stcr_root .stcr-drawer .stcr-row-st-btn').length === document.querySelectorAll('#stcr_root .stcr-drawer .stcr-row[data-key]').length);
+        go?.click();
+        const fromDrawer = await until(() => !isReaderOpen() && ctx().getCurrentChatId?.() === 'STCR-96-重楼-240楼' && ctx().chat.length === 240, 30000);
+        await wait(1600);
+        check('点抽屉的 ↗：阅读器关了，ST 切到重楼，停在上次读到的第 191 楼', fromDrawer && Math.abs(offsetInHost(190) ?? 9999) <= 4, `${ctx().getCurrentChatId?.()}，离顶 ${offsetInHost(190)}px`);
     } catch (error) {
         check('流程没有抛错', false, error?.stack ?? error);
     } finally {
