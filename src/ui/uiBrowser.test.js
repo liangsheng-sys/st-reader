@@ -163,6 +163,7 @@ export async function testTextAlignBrowser({ themes = BUILTIN_THEMES, force = fa
     results.push(...await testHtmlAfterRegexBrowser({ force, quiet: true }));
     results.push(...await testNavBrowser({ force, quiet: true }));
     results.push(...await testScrollPerfBrowser({ force, quiet: true }));
+    results.push(...await testReaderThemeBrowser({ force, quiet: true }));
     console.table(results);
     return results;
 }
@@ -502,6 +503,98 @@ export async function testHostStylesBrowser({ force = false, quiet = false } = {
         fakeMes.remove();
         outside.remove();
         head.remove();
+    }
+    if (!quiet) console.table(results);
+    return results;
+}
+
+/**
+ * T96 / D42：阅读器主题与"铺满"。在重楼样本（正则美化标记、HTML 状态栏、details）上：
+ * ①纸张 / 夜读 × 跟随酒馆 / 铺满：纸面底色与 readerPalettes 一致、楼层去了气泡底色、默认行距 1.8、HTML 块还在；
+ *   铺满时正文列撑到滚动区两边只留页边距（24–40px），HTML 块"跟随正文"跟着变宽。
+ * ②卡片里的"继承主题"仍拿 ST 的主题色（.stcr-card 里还原）。
+ * ③切回跟随酒馆：正文若干计算样式与切换前完全一样。跑完把四个设置恢复原值。
+ */
+export async function testReaderThemeBrowser({ force = false, quiet = false, chatKey = 'STCR_T11_Mist.png/STCR-96-重楼-240楼' } = {}) {
+    if (!isDevInstance(location) && !force) throw new Error('只在开发实例运行');
+    if (isReaderOpen()) closeReader();
+    const { READER_PALETTES } = await import('../core/readerPalettes.js');
+    const results = [];
+    const check = (name, passed, detail = '') => results.push({ name: `T96 ${name}`, passed: !!passed, detail: String(detail) });
+    const until = async (test, ms = 8000) => { const end = Date.now() + ms; while (!test() && Date.now() < end) await wait(50); return test(); };
+    const keep = (({ theme, widthMode, width, lineHeight }) => ({ theme, widthMode, width, lineHeight }))(getPrefs());
+    const solid = color => { const probe = h('i', { style: `color:${color}` }); document.body.append(probe); const out = getComputedStyle(probe).color; probe.remove(); return out; };
+    try {
+        setPrefs({ theme: 'host', widthMode: 'host', lineHeight: null });
+        setReadPosition(chatKey, 5);
+        await openReader({ chatKey });
+        const root = document.getElementById('stcr_root');
+        await until(() => root.querySelector('#stcr_chat > .mes[mesid="5"]') && getComputedStyle(root).position === 'fixed', 30000);
+        if (await until(() => root.querySelector('.stcr-doc'), 1000)) root.querySelector('.stcr-doc-close')?.click();
+        // 打开时会从存储重读一次设置：等它落定再定基准
+        setPrefs({ theme: 'host', widthMode: 'host', lineHeight: null });
+        await wait(600);
+        const scroller = root.querySelector('.stcr-scroll'), chat = root.querySelector('#stcr_chat');
+        const mes = () => root.querySelector('#stcr_chat > .mes[mesid="5"]');
+        const look = () => {
+            const m = mes(), text = m.querySelector('.mes_text'), name = m.querySelector('.name_text'), q = m.querySelector('.mes_text q');
+            const pick = (el, props) => (el ? props.map(p => getComputedStyle(el).getPropertyValue(p)).join(' | ') : '—');
+            return {
+                root: pick(root, ['color', 'background-color']),
+                chat: pick(chat, ['color', 'background-color', 'max-width', 'width', 'padding-left', 'text-shadow']),
+                mes: pick(m, ['background-color', 'border-top-width', 'padding-top', 'margin-bottom', 'box-shadow']),
+                text: pick(text, ['color', 'line-height', 'font-size', 'font-family']),
+                name: pick(name, ['color', 'font-size']),
+                q: pick(q, ['color']),
+                html: [...m.querySelectorAll('.stcr-html')].map(el => Math.round(el.getBoundingClientRect().width)).join(','),
+            };
+        };
+        const before = look();
+        check('样本楼里有 HTML 块（状态栏）', before.html !== '', before.html);
+        for (const theme of ['paper', 'night']) {
+            for (const widthMode of ['host', 'full']) {
+                setPrefs({ theme, widthMode });
+                await wait(400);
+                const palette = READER_PALETTES[theme], m = mes(), text = m.querySelector('.mes_text');
+                const page = getComputedStyle(chat).backgroundColor, fontSize = parseFloat(getComputedStyle(text).fontSize);
+                const label = `${theme === 'paper' ? '纸张' : '夜读'} × ${widthMode === 'full' ? '铺满' : '跟随酒馆'}`;
+                check(`${label}：纸面底色与配色表一致、根节点同色`, page === solid(palette.page) && getComputedStyle(root).backgroundColor === page, page);
+                check(`${label}：楼层没有气泡底色和阴影`, getComputedStyle(m).backgroundColor === 'rgba(0, 0, 0, 0)' && getComputedStyle(m).boxShadow === 'none', getComputedStyle(m).backgroundColor);
+                check(`${label}：正文字色、默认行距 1.8`, getComputedStyle(text).color === solid(palette.text) && Math.abs(parseFloat(getComputedStyle(text).lineHeight) / fontSize - 1.8) < 0.02,
+                    `${getComputedStyle(text).color} ${getComputedStyle(text).lineHeight}`);
+                check(`${label}：HTML 状态栏还在`, m.querySelectorAll('.stcr-html').length > 0);
+                if (widthMode === 'full') {
+                    const s = scroller.getBoundingClientRect(), c = chat.getBoundingClientRect(), pad = parseFloat(getComputedStyle(chat).paddingLeft);
+                    check(`${label}：正文列撑满滚动区，两边页边距 24–40px`, Math.abs(c.width - s.width) < 24 && pad >= 24 && pad <= 40,
+                        `正文 ${Math.round(c.width)} / 滚动区 ${Math.round(s.width)}，页边距 ${pad}`);
+                    const widths = [...m.querySelectorAll('.stcr-html')].map(el => Math.round(el.getBoundingClientRect().width));
+                    results.push({ name: `T96 资料：${label} 正文内宽 ${Math.round(c.width - pad * 2)}，HTML 块宽 ${widths.join(',')}`, passed: true, detail: '' });
+                }
+            }
+        }
+        // 卡片里的"继承主题"：.stcr-card 里还原成 ST 的颜色
+        setPrefs({ theme: 'paper', widthMode: 'host' });
+        await wait(200);
+        const style = 'color: var(--SmartThemeBodyColor); background-color: var(--SmartThemeChatTintColor)';
+        const card = h('div', { class: 'stcr-card' }, h('span', { style }, '样'));
+        const host = h('span', { style }, '样');
+        root.append(card);
+        document.body.append(host);
+        const cs = getComputedStyle(card.firstChild), hs = getComputedStyle(host);
+        check('纸张下卡片的"继承主题"仍是 ST 主题色', cs.color === hs.color && cs.backgroundColor === hs.backgroundColor, `${cs.color} / ${hs.color}`);
+        card.remove();
+        host.remove();
+        setPrefs({ theme: 'host', widthMode: 'host' });
+        await wait(400);
+        const after = look();
+        const diff = Object.keys(before).filter(key => before[key] !== after[key]);
+        check('切回跟随酒馆：正文计算样式与切换前完全一样', diff.length === 0 && !root.hasAttribute('data-theme') && !root.hasAttribute('data-width'),
+            diff.map(key => `${key}: ${before[key]} → ${after[key]}`).join('；') || '颜色、宽度、行距、页边距、名字、引号、HTML 块宽度都一样');
+    } catch (error) {
+        check('流程没有抛错', false, error?.stack ?? error);
+    } finally {
+        if (isReaderOpen()) closeReader();
+        setPrefs(keep);
     }
     if (!quiet) console.table(results);
     return results;

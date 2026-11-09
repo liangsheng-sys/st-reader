@@ -1677,3 +1677,153 @@
 /* T80：Aa → 显示 里的"楼层胶囊 左 / 右" */
 #stcr_root .stcr-follow-side { display: inline-flex; align-items: center; gap: 8px; margin-left: 14px; }
 #stcr_root .stcr-follow-side .stcr-seg-btn { min-width: 2.6em; padding: 3px 10px; }
+
+/* ── T96 / D42：阅读器主题（纸张 / 夜读）与"铺满" ──
+ * 做法是"兼容"：在阅读器子树里覆盖 ST 的主题变量，克隆来的 ST 规则、用户正则美化、楼内样式照常命中，只是颜色换了。
+ * 不改字体。跟随酒馆（默认）时 #stcr_root 上没有 data-theme / data-width，下面这些一条都不生效，与改前一致。
+ * 颜色与卡片"纸张 / 深色"模板同源：字面值来自 src/core/readerPalettes.js，ui.test.js 逐项核对。 */
+/* ST 的原值先在 body 上记一份：卡片"继承主题"要用回 ST 主题（同一元素上取不到被覆盖前的值） */
+body.stcr-reader-open {
+    --stcr-host-body: var(--SmartThemeBodyColor);
+    --stcr-host-em: var(--SmartThemeEmColor);
+    --stcr-host-underline: var(--SmartThemeUnderlineColor);
+    --stcr-host-quote: var(--SmartThemeQuoteColor, #e18a24);
+    --stcr-host-blur-tint: var(--SmartThemeBlurTintColor);
+    --stcr-host-chat-tint: var(--SmartThemeChatTintColor);
+    --stcr-host-user-tint: var(--SmartThemeUserMesBlurTintColor);
+    --stcr-host-bot-tint: var(--SmartThemeBotMesBlurTintColor);
+    --stcr-host-shadow: var(--SmartThemeShadowColor);
+    --stcr-host-border: var(--SmartThemeBorderColor);
+    --stcr-host-reasoning-body: var(--reasoning-body-color);
+    --stcr-host-reasoning-em: var(--reasoning-em-color);
+}
+#stcr_root[data-theme="paper"] {
+    --stcr-th-page: #f5f0e6;
+    --stcr-th-panel: #ede6d8;
+    --stcr-th-text: #2a2521;
+    --stcr-th-faint: #8b7f72;
+    --stcr-th-quote: #8a3a2e;
+    --stcr-th-em: #5b4f44;
+    --stcr-th-strong: #1f1b18;
+    --stcr-th-code: rgba(42, 37, 33, .06);
+    --stcr-th-code-text: #3b332d;
+    --stcr-th-border: rgba(42, 37, 33, .16);
+    --stcr-th-shadow: rgba(60, 45, 30, .16);
+    --stcr-th-underline: #6b5d50;
+    --SmartThemeCheckboxBgColorR: 42;
+    --SmartThemeCheckboxBgColorG: 37;
+    --SmartThemeCheckboxBgColorB: 33;
+    /* ST 自己写死的灰与半透明黑白（给深色界面配的：思维链标题条、输入框底、细边框）。纸面上换成同一色调的浅版 */
+    --grey30: #e4dccd;
+    --grey30a: rgba(42, 37, 33, .08);
+    --grey5020a: rgba(42, 37, 33, .1);
+    --black30a: rgba(42, 37, 33, .05);
+    --black50a: rgba(42, 37, 33, .08);
+    --black60a: rgba(42, 37, 33, .1);
+    --black70a: rgba(42, 37, 33, .12);
+    --white20a: rgba(42, 37, 33, .14);
+    --white30a: rgba(42, 37, 33, .2);
+    --white50a: rgba(42, 37, 33, .32);
+    color-scheme: light;
+}
+#stcr_root[data-theme="night"] {
+    --stcr-th-page: #141518;
+    --stcr-th-panel: #1c1d21;
+    --stcr-th-text: #e4e0d8;
+    --stcr-th-faint: #a9a39a;
+    --stcr-th-quote: color-mix(in srgb, var(--stcr-host-quote) 60%, #a39d93);
+    --stcr-th-em: #bdb7ad;
+    --stcr-th-strong: #f3efe8;
+    --stcr-th-code: rgba(255, 255, 255, .06);
+    --stcr-th-code-text: #d8d3ca;
+    --stcr-th-border: rgba(255, 255, 255, .11);
+    --stcr-th-shadow: rgba(0, 0, 0, .55);
+    --stcr-th-underline: #9fb7a8;
+    --SmartThemeCheckboxBgColorR: 228;
+    --SmartThemeCheckboxBgColorG: 224;
+    --SmartThemeCheckboxBgColorB: 216;
+    color-scheme: dark;
+}
+#stcr_root[data-theme] {
+    --SmartThemeBodyColor: var(--stcr-th-text);
+    --SmartThemeEmColor: var(--stcr-th-em);
+    --SmartThemeUnderlineColor: var(--stcr-th-underline);
+    --SmartThemeQuoteColor: var(--stcr-th-quote);
+    --SmartThemeBlurTintColor: var(--stcr-th-panel);
+    --SmartThemeChatTintColor: var(--stcr-th-page);
+    --SmartThemeUserMesBlurTintColor: transparent;
+    --SmartThemeBotMesBlurTintColor: transparent;
+    --SmartThemeShadowColor: var(--stcr-th-shadow);
+    --SmartThemeBorderColor: var(--stcr-th-border);
+    /* 这几个在 ST 的 :root 上按上面的变量算好了才继承下来，这里要重算一遍 */
+    --SmartThemeCheckboxTickColorValue: calc(((((var(--SmartThemeCheckboxBgColorR) * 299) + (var(--SmartThemeCheckboxBgColorG) * 587) + (var(--SmartThemeCheckboxBgColorB) * 114)) / 1000) - 128) * -1000);
+    --SmartThemeCheckboxTickColor: rgb(var(--SmartThemeCheckboxTickColorValue), var(--SmartThemeCheckboxTickColorValue), var(--SmartThemeCheckboxTickColorValue));
+    --reasoning-body-color: var(--stcr-th-em);
+    --reasoning-em-color: color-mix(in srgb, var(--stcr-th-em) 67%, var(--stcr-th-page) 33%);
+    --stcr-panel: var(--stcr-th-panel);
+    --stcr-faint: var(--stcr-th-faint);
+    --stcr-hover: color-mix(in srgb, var(--stcr-th-text) 8%, transparent);
+    background-color: var(--stcr-th-page);
+}
+/* 正文：纸面铺满（盖住 ST 背景图）、去聊天框、名字行弱化、行距 1.8、楼间距加大。只管阅读区，不碰卡片里的 #stcr_chat */
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat { background-color: var(--stcr-th-page); text-shadow: none; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes {
+    background: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    margin: 0 !important;
+    padding: 1.3em .6em 1em !important;
+}
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes + .mes { border-top: 1px solid var(--stcr-th-border) !important; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .name_text { color: var(--stcr-th-faint); font-weight: 600; font-size: .92em; letter-spacing: .03em; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .ch_name .timestamp,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .ch_name .mesIDDisplay,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .ch_name .mes_timer,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .ch_name .tokenCounterDisplay { opacity: .7; }
+#stcr_root[data-theme]:not(.stcr-lh-custom) .stcr-scroll > #stcr_chat .mes_text,
+#stcr_root[data-theme]:not(.stcr-lh-custom) .stcr-scroll > #stcr_chat .mes_reasoning { line-height: 1.8; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text strong,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text b { color: var(--stcr-th-strong); }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text :not(pre) > code,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text pre { background-color: var(--stcr-th-code); color: var(--stcr-th-code-text); }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text a { color: var(--stcr-th-quote); }
+/* 正文、引号、斜体这三样基础文字的颜色由阅读器主题定：ST 主题的自定义 CSS 常把它们写死成配深色背景的颜色（还带 !important），
+ * 放到纸面上就看不清。楼里自带的样式（行内 style、正则美化的类名、状态栏、HTML 块）不受影响。 */
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text { color: var(--stcr-th-text) !important; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes[is_user="true"] .mes_text { color: color-mix(in srgb, var(--stcr-th-text) 82%, var(--stcr-th-page)) !important; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text q { color: var(--stcr-th-quote) !important; }
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text em,
+#stcr_root[data-theme] .stcr-scroll > #stcr_chat .mes_text i { color: var(--stcr-th-em) !important; }
+/* 外框（顶栏、底栏）与纸面一色；抽屉、面板、设置条、浮层走 --stcr-panel（上面已换成纸色） */
+#stcr_root[data-theme] .stcr-topbar,
+#stcr_root[data-theme] .stcr-footer { background-color: var(--stcr-th-page); }
+/* 划线四色：纸面上浅色底不够显眼，加深一些；夜读沿用原来的（本来就是为深色主题调的） */
+#stcr_root[data-theme="paper"] ::highlight(stcr-hl-yellow) { background-color: rgba(255, 196, 0, .42); text-decoration: underline 2px rgba(196, 140, 0, .95); }
+#stcr_root[data-theme="paper"] ::highlight(stcr-hl-green)  { background-color: rgba(40, 180, 90, .26); text-decoration: underline 2px rgba(20, 130, 60, .95); }
+#stcr_root[data-theme="paper"] ::highlight(stcr-hl-blue)   { background-color: rgba(50, 130, 240, .24); text-decoration: underline 2px rgba(30, 95, 200, .95); }
+#stcr_root[data-theme="paper"] ::highlight(stcr-hl-pink)   { background-color: rgba(240, 80, 150, .22); text-decoration: underline 2px rgba(200, 50, 120, .95); }
+/* 卡片工作台里的卡片：不跟阅读器主题走，"继承主题"模板仍是 ST 的主题（T96 只换阅读器） */
+#stcr_root[data-theme] .stcr-card {
+    --SmartThemeBodyColor: var(--stcr-host-body);
+    --SmartThemeEmColor: var(--stcr-host-em);
+    --SmartThemeUnderlineColor: var(--stcr-host-underline);
+    --SmartThemeQuoteColor: var(--stcr-host-quote);
+    --SmartThemeBlurTintColor: var(--stcr-host-blur-tint);
+    --SmartThemeChatTintColor: var(--stcr-host-chat-tint);
+    --SmartThemeUserMesBlurTintColor: var(--stcr-host-user-tint);
+    --SmartThemeBotMesBlurTintColor: var(--stcr-host-bot-tint);
+    --SmartThemeShadowColor: var(--stcr-host-shadow);
+    --SmartThemeBorderColor: var(--stcr-host-border);
+    --reasoning-body-color: var(--stcr-host-reasoning-body);
+    --reasoning-em-color: var(--stcr-host-reasoning-em);
+}
+
+/* 铺满：正文列撑满左右面板之间，两边留页边距；HTML 块"跟随正文"跟着变宽 */
+#stcr_root[data-width="full"] .stcr-scroll > #stcr_chat { max-width: none; padding-left: clamp(24px, 3vw, 40px); padding-right: clamp(24px, 3vw, 40px); }
+@media (max-width: 599px) {
+    #stcr_root[data-width="full"] .stcr-scroll > #stcr_chat { padding-left: 12px; padding-right: 12px; }
+}
+#stcr_root .stcr-width-custom { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+#stcr_root .stcr-width-num:hover { background: none; }
