@@ -578,6 +578,15 @@
 #stcr_root .stcr-row-note-btn:hover { opacity: 1; }
 @media (pointer: coarse) { #stcr_root .stcr-row-note-btn { opacity: .45; } }
 #stcr_root .stcr-row-wrap--editing .stcr-row-note-btn { opacity: 0; pointer-events: none; }
+/* T95 验收后补充：每行的 ↗（在酒馆里打开）；在 ☆ 左边，收藏页在铅笔左边。和 ☆ 一样悬停出现 */
+#stcr_root .stcr-row-wrap > .stcr-row { padding-right: 62px; }
+#stcr_root .stcr-row-wrap--note > .stcr-row { padding-right: 90px; }
+#stcr_root .stcr-row-st-btn { position: absolute; top: 4px; right: 32px; min-width: 28px; height: 28px; font-size: 11px; opacity: 0; }
+#stcr_root .stcr-row-wrap--note .stcr-row-st-btn { right: 60px; }
+#stcr_root .stcr-row-wrap:hover .stcr-row-st-btn, #stcr_root .stcr-row-st-btn:focus-visible { opacity: .6; }
+#stcr_root .stcr-row-st-btn:hover { opacity: 1; }
+@media (pointer: coarse) { #stcr_root .stcr-row-st-btn { opacity: .45; } }
+#stcr_root .stcr-row-wrap--editing .stcr-row-st-btn { opacity: 0; pointer-events: none; }
 #stcr_root .stcr-fav-note-input { display: block; width: calc(100% - 20px); margin: -2px 10px 8px 12px; min-height: 30px; padding: 5px 8px; resize: none; overflow-y: auto; font-size: 13px; line-height: 1.45; }
 #stcr_root .stcr-fav-menu { display: flex; flex-direction: column; min-width: 180px; }
 #stcr_root .stcr-fav-menu-note { max-width: 260px; padding: 4px 10px 6px; color: var(--stcr-faint); font-size: 12px; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--stcr-border); margin-bottom: 4px; }
@@ -1016,6 +1025,8 @@
 .stcr-import-preview ul { margin: 6px 0; padding-left: 1.4em; }
 .stcr-import-preview .stcr-import-hint { opacity: .75; font-size: .92em; }
 .stcr-confirm-text { margin: 0; line-height: 1.7; }
+.stcr-confirm-text p { margin: 0; }
+.stcr-confirm-check { justify-content: center; margin-top: 10px; opacity: .8; font-size: .92em; }
 
 /* ── 卡片工作台（T23a、02 §6.1）：阅读器之上再叠一层，外框只用主题变量 ── */
 #stcr_root .stcr-studio {

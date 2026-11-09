@@ -31,9 +31,9 @@ const memory = { tab: 'recent', ownerKind: 'characters', expanded: new Set(), sc
 
 /**
  * @param {{onPick:(chatKey:string, target?:{index:number,swipe:number|null})=>void, getActiveKey:()=>string|null,
- *   onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean, toast?:(msg:string)=>void}} options
+ *   onPinChange:(pinned:boolean)=>void, isPinned:()=>boolean, toast?:(msg:string)=>void, onOpenInSt?:(chatKey:string)=>void}} options
  */
-export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toast = () => {} }) {
+export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toast = () => {}, onOpenInSt = null }) {
     let tab = memory.tab;
     let ownerKind = memory.ownerKind;
     let sortId = 'st';                 // 'st' = 跟随 ST；否则 OWNER_SORTS 的 id（只在这次打开期间有效）
@@ -101,6 +101,8 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
     list.addEventListener('click', event => {
         const pen = event.target.closest('[data-note-key]');
         if (pen) { editNote(pen); return; }
+        const go = event.target.closest('[data-st-key]');
+        if (go) { onOpenInSt?.(go.dataset.stKey); return; }
         const star = event.target.closest('[data-fav-key]');
         if (star) { toggleFavorite(star); return; }
         const row = event.target.closest('[data-key]');
@@ -175,6 +177,8 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
         setStar(star, isFavoriteChat(summary.chatKey));
         const shownNote = note ? redactString(note, summary.avatarUrl) : '';
         const pen = note !== null ? iconButton('fa-pen', note ? '编辑备注' : '写备注', { class: 'stcr-row-note-btn', 'data-note-key': summary.chatKey, 'data-fav-title': [owner.name, summary.title].filter(Boolean).join(' · ') }) : null;
+        // T95 验收后补充：每行的 ↗ 不进阅读器、直接让酒馆打开（D40）
+        const go = onOpenInSt ? iconButton('fa-arrow-up-right-from-square', '在酒馆里打开（停在上次读到的地方）', { class: 'stcr-row-st-btn', 'data-st-key': summary.chatKey }) : null;
         // 只过滤名字、标题和收藏备注；全文搜索是 v2
         return h('div', { class: `stcr-row-wrap${pen ? ' stcr-row-wrap--note' : ''}`, role: 'listitem', 'data-filter': [owner.name, summary.title, note ?? ''].join('\n'), 'data-note': note },
             h('button', { type: 'button', class: `stcr-btn stcr-row${summary.chatKey === getActiveKey() ? ' stcr-row--active' : ''}`, 'data-key': summary.chatKey },
@@ -184,7 +188,7 @@ export function createDrawer({ onPick, getActiveKey, onPinChange, isPinned, toas
                 h('span', { class: 'stcr-row-meta', text: showOwner ? [redactString(summary.title, summary.avatarUrl), meta].filter(Boolean).join(' · ') : meta }),
                 summary.preview ? h('span', { class: 'stcr-row-preview', text: redactString(summary.preview.replace(/\s+/g, ' '), summary.avatarUrl) }) : null,
                 shownNote ? h('span', { class: 'stcr-row-note', text: shownNote, title: shownNote }) : null),
-            pen, star);
+            go, pen, star);
     }
 
     /** 收藏页的铅笔：在这一行下面就地打开备注框；回车 / 点别处保存，Esc 取消。 */

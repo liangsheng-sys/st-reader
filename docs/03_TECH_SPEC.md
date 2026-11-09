@@ -843,3 +843,24 @@ UI：
 | `mount.js` | 导出 `mountTopbarButton()` / `unmountTopbarButton()`；`mountEntries` 按 `topbarIconOn()` 决定挂不挂，并订阅变化运行时挂 / 摘；另用 `renderExtensionTemplateAsync(…/src/ui/templates, 'settings')` 往 `#extensions_settings2` 挂"阅读器"小块（`#stcr_settings_block`，ST 的 `inline-drawer` 外观，开关 `#stcr_topbar_icon_toggle`） |
 
 测试：Node `coreFixes.test.js` 一项（去空白 / 空即删 / 500 上限 / 非字符串拒收 / 导出 version 1 / 旧备份导入 / 坏备注整份拒收 / 合并新者胜、旧的不覆盖）。浏览器 `src/ui/favNoteBrowser.test.js`（`stcrSelfTest()` 全量里带，单跑 `stcrSelfTest({core:false,favNote:true})`）19 项：铅笔回车存、Esc 不存、过滤搜备注、顶栏 ☆ 两项菜单、菜单里改备注点外面保存、菜单取消收藏、未收藏直接收藏、两处开关同步摘 / 挂图标、关着 `/reader` 照常；跑完恢复收藏与开关原值。
+
+### 5.20 在酒馆里打开（T95 / D40，2026-11-09，Opus 按 D32 交付）
+
+本节只**增加**。新模块 `src/core/hostNavigation.js`；它是整个扩展里**唯一**调用 ST 切换聊天函数（`selectCharacterById` / `openCharacterChat` / `openGroupChat`）的地方（`hostNavigation.test.js` 静态检查），只在用户点顶栏按钮或按 `O` 时调用。D02 名单、`readonlyGuard`、`audit-readonly` 不变；ST 切换时自己做的事（清屏、改角色卡 / 群组的"当前聊天"指针并保存、读新聊天）是 ST 的行为，阅读器不写任何东西、不改 `swipe_id`。
+
+核对过的 ST 行为（`public/script.js`、`scripts/group-chats.js`、`scripts/bookmarks.js`、`scripts/welcome-screen.js`）：`openCharacterChat(file_name)` 要**不带** `.jsonl` 的名字（ST 聊天列表点开时就 `replace('.jsonl','')`）；`selectCharacterById(下标)` 在存盘中或 `is_send_press` 时什么都不做就返回，换角色时会先把该角色**当前**的聊天整个读一遍并发一次 `CHAT_CHANGED`；生成中 ST 给 `body` 打 `data-generating="true"` 并显示 `#mes_stop`（`isChatSaving`、`is_send_press` 不在 `getContext()` 上）；`getContext()` 有 `openGroupChat(groupId, chatId)`（只在该群组已选中时有效），**没有** `openGroupById`（I062）。
+
+| 签名 | 约定 |
+|---|---|
+| `hostFileName(name)` | 去掉结尾 `.jsonl`（不区分大小写） |
+| `findCharacterIndex(characters, avatarUrl)` | 按 `avatar` 找下标，找不到 `-1` |
+| `hostBusy(document?)` | `body.dataset.generating === 'true'` 或 `#mes_stop` 计算样式可见 → `true` |
+| `planOpen(ctx, chatKey)` | 纯函数。→ `{kind:'current'}` / `{kind:'character', index, fileName, select}`（`select`：当前是群组或别的角色）/ `{kind:'group', groupId, fileName}`；抛 `StcrDataError`：`NOT_FOUND`（ST 里没有这个角色 / 群组 / 群聊文件）、`GROUP_UNSUPPORTED`（群聊不是当前选中的群组）、`UNSUPPORTED`（ST 没公开对应函数） |
+| `checkOpenInHost(chatKey, {getContext?, document?})` | 动手前检查：忙抛 `BUSY`，再走 `planOpen`。UI 在确认框前后各调一次，失败只提示、不关阅读器 |
+| `swipeDifferences(hostChat, swipes)` | `swipes = [[楼, 候选], …]`；返回宿主 `swipe_id`（缺省当 0）与之不同的楼下标 |
+| `scrollHostTo(index, document?)` | `#chat .mes[mesid="N"]` 存在则 `scrollIntoView({block:'start'})` 并返回 `true`，否则 `false`。只读 DOM |
+| `openInHost(chatKey, {index?, swipes?, timeoutMs=10000, scrollDelays=[300,1300], getContext?, document?})` → `Promise<{status:'current'\|'opened', floorLoaded, swipeDiffers}>` | `checkOpenInHost` → 不是当前聊天：单聊需要时 `selectCharacterById`（返回后角色没变 → `BUSY`），宿主当前聊天还不是目标再 `openCharacterChat(无扩展名)`；群聊 `openGroupChat`。等 `CHAT_CHANGED` 且宿主当前聊天就是目标（或导航函数返回时已经是），每走完一步重新计 `timeoutMs`，超时抛 `TIMEOUT`；ST 函数自己抛的错原样抛出。最后滚到 `index`，并在 `scrollDelays` 后补滚（ST 打开后会自己滚到底两次），`#chat` 上有滚轮 / 触屏 / 键盘 / 指针按下就停止补滚 |
+
+UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有聊天时显示）与快捷键 `O`；抽屉每行 `.stcr-row-st-btn`（`data-st-key`，`createDrawer` 新增可选回调 `onOpenInSt(chatKey)`），不是正在读的聊天时 `index` 取存下的阅读进度 `i`（没有就 `null`，ST 照常停在末尾），`swipes` 取存下的候选记录 `sw`；prefs 新增 `openInStConfirm`（默认 `true`，确认框里勾"不再提示"写 `false`）。阅读器关闭后的提示用 ST 的 `toastr`。
+
+测试：Node `hostNavigation.test.js`（9 项：文件名 / 下标 / 忙碌 / 计划 / 候选比较 / 忙不调用 / 换角色顺序与无扩展名 / 只选角色、只开文件、就是当前 / 群聊、存盘中、无事件、超时退订 / D40 静态边界）。浏览器 `src/ui/openInStBrowser.test.js`：**会让 ST 真的切聊天**，不进 `stcrSelfTest()` 全量也不进 test-release，单跑 `stcrSelfTest({core:false, openInSt:true})`；跑前复制 `.dev/data/default-user/characters/`，跑后还原（ST 会改写样本角色卡的 `chat` 字段，fixture 哈希自测会因此失败）。

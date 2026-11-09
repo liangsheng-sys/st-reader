@@ -68,6 +68,10 @@ if (isDevInstance(window.location)) {
             results.push(...items);
             if (items.some(item => !item.passed)) throw new Error(`T92 收藏备注 / 顶栏图标开关未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
         }
+        if (options.openInSt) { // T95：会让 ST 真的切换聊天，不进全量
+            const { testOpenInStBrowser } = await import('./src/ui/openInStBrowser.test.js');
+            results.push(...await testOpenInStBrowser());
+        }
         if (options.fixtures) {
             const { testBrowserFixtures } = await import('./src/core/fixtureSelfTest.js');
             results.push(...await testBrowserFixtures(options));
