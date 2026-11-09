@@ -2,7 +2,7 @@
 // 阅读器主控（T21/T22/T23a）：全屏覆盖层 #stcr_root、正文 #stcr_chat（D12）。
 // 只读（D02）：只调 03 §5 的读取接口；候选/思维链/进度/划线/收藏都是阅读器自己的状态，绝不写回 ST。
 
-import { getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js';
+import { exportRawChat, getCurrentChatKey, openChat, parseChatKey } from '../core/chatSource.js';
 import { checkOpenInHost, openInHost } from '../core/hostNavigation.js';
 import { maskHtmlString } from '../core/cardExport.js';
 import { initFormatter } from '../core/formatter.js';
@@ -555,6 +555,7 @@ function onClick(event) {
             case 'open-in-st': openInSt(); return;
             case 'top-more': toggleTopMenu(actEl); return;
             case 'doc-export': closePopover(session); openExportDialog(); return;
+            case 'raw-export': closePopover(session); exportRaw(); return;
             case 'stale-dismiss': hideStaleBanner(session); session.scroller.focus({ preventScroll: true }); return;
             case 'continue': loadChat(actEl.dataset.key, { index: Number(actEl.dataset.index) }); return;
             case 'open-drawer': session.drawer.open('recent'); return;
@@ -941,7 +942,7 @@ async function openInSt(fromDrawer = null) {
     }
 }
 
-/** 顶栏 ⋮（T97）：小菜单，目前只有"导出为文档…"。 */
+/** 顶栏 ⋮（T97）：小菜单：导出为文档…、导出原始聊天（酒馆原生 .jsonl）。 */
 function toggleTopMenu(button) {
     const session = S;
     if (!session?.handle) return;
@@ -949,9 +950,31 @@ function toggleTopMenu(button) {
     closePopover(session);
     const menu = h('div', { class: 'stcr-popover stcr-fav-menu stcr-top-menu', role: 'menu', 'aria-label': '更多' },
         h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-fav-menu-item', 'data-act': 'doc-export' },
-            h('i', { class: 'fa-solid fa-file-lines', 'aria-hidden': 'true' }), ' 导出为文档…'));
+            h('i', { class: 'fa-solid fa-file-lines', 'aria-hidden': 'true' }), ' 导出为文档…'),
+        h('button', { type: 'button', role: 'menuitem', class: 'stcr-btn stcr-fav-menu-item', 'data-act': 'raw-export', title: '和酒馆聊天列表里的"导出 jsonl"一样：聊天文件原样下载，可以再导入酒馆' },
+            h('i', { class: 'fa-solid fa-file-code', 'aria-hidden': 'true' }), ' 导出原始聊天（.jsonl）'));
     placePopover(menu, button ?? session.moreBtn);
     menu.querySelector('button')?.focus({ preventScroll: true });
+}
+
+/** 导出原始聊天（T97 验收后补充）：酒馆原生 jsonl，原样下载。 */
+async function exportRaw() {
+    const session = S;
+    if (!session?.handle || session.rawExporting) return;
+    session.rawExporting = true;
+    try {
+        const { filename, blob } = await exportRawChat(session.chatKey);
+        const url = URL.createObjectURL(blob);
+        const link = h('a', { href: url, download: filename, class: 'stcr-offscreen' });
+        session.root.append(link); // 放在阅读器里：点击事件不冒泡到 ST
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        if (S === session) say(`已导出：${filename}（在浏览器的下载文件夹里，可以在酒馆里导入）`);
+    } catch (error) {
+        console.error('[st-reader] 导出原始聊天失败：', error);
+        if (S === session) say(`没导出来：${error?.message ?? error}`);
+    } finally { session.rawExporting = false; }
 }
 
 /** 导出为文档（T97 / D43）：对话框在 docExport.js，这里只交给它这个聊天的信息和阅读器的状态。 */

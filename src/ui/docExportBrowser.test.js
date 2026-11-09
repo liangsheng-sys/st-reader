@@ -127,6 +127,15 @@ export async function testDocExportBrowser({ force = false } = {}) {
         await until(() => root.querySelector('.stcr-dx'), 2000);
         check('再打开：停在上次选的"网页 .html"', root.querySelector('.stcr-dx [data-format="html"]')?.classList.contains('stcr-on'));
         root.querySelector('.stcr-doc-close')?.click();
+        // ⑨ 验收后补充：⋮ → 导出原始聊天（酒馆原生 jsonl，原样）
+        captured = null;
+        more.click();
+        root.querySelector('.stcr-top-menu [data-act="raw-export"]')?.click();
+        await until(() => captured, 8000);
+        const raw = captured?.blob ? await captured.blob.text() : '';
+        const rows = raw.split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } });
+        check('导出原始聊天：下载"STCR-01-正则与多候选.jsonl"，每行一条 JSON，头一行是聊天信息、其余 12 楼', captured?.name === 'STCR-01-正则与多候选.jsonl'
+            && rows.length === 13 && rows.every(Boolean) && 'user_name' in rows[0] && rows.slice(1).every(row => typeof row.mes === 'string'), `${captured?.name} ${rows.length} 行`);
         check('导出全程没有改动 ST 的聊天、元信息与当前选择', snapshot() === before);
     } catch (error) {
         check('流程没有抛错', false, error?.stack ?? error);

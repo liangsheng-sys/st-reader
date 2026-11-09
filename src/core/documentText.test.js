@@ -2,6 +2,7 @@
 // T97：导出文档纯逻辑的 Node 自测（无 DOM：用最小的假节点）。node src/core/documentText.test.js
 import { cleanHtml, docDate, docFileName, DOC_EXPORT_DEFAULTS, floorHeading, htmlDocumentHead, htmlFloor, HTML_DOCUMENT_TAIL, normalizeDocOptions, speakerLabel, textLines, txtFloor } from './documentText.js';
 import { READER_PALETTES } from './readerPalettes.js';
+import { exportRawChat, makeChatKey } from './chatSource.js';
 
 const assert = (value, message = '断言失败') => { if (!value) throw new Error(message); };
 const equal = (a, b, label = '') => assert(JSON.stringify(a) === JSON.stringify(b), `${label}结果不一致：${JSON.stringify(a)} / ${JSON.stringify(b)}`);
@@ -104,6 +105,18 @@ export async function testDocumentTextLogic() {
         assert(doc.includes(`--page:${READER_PALETTES.paper.page}`) && doc.includes(`--page:${READER_PALETTES.night.page}`), '配色不是 readerPalettes');
         assert(!/<script|\bsrc\s*=\s*["']?https?:|@import|url\(/i.test(doc), '有脚本或外链');
         assert(doc.includes('<article class="user"><header><b>user</b><span>第 1 楼</span></header><details class="think"><summary>思考过程</summary><p>想</p></details><div class="text"><p>话</p></div></article>'), doc);
+    });
+    await test('原始 jsonl：和酒馆导出按钮同一接口、同样参数，原文一字不改；单聊 / 群聊；坏响应报错', async () => {
+        const calls = [];
+        const read = async (url, body) => { calls.push([url, body]); return { message: 'ok', result: '{"user_name":"旅人"}\n{"mes":"你好"}\n' }; };
+        const one = await exportRawChat(makeChatKey({ avatarUrl: 'A.png', fileName: '聊天 一' }), { read });
+        equal([one.filename, await one.blob.text()], ['聊天 一.jsonl', '{"user_name":"旅人"}\n{"mes":"你好"}\n']);
+        equal(calls[0], ['/api/chats/export', { is_group: false, avatar_url: 'A.png', file: '聊天 一.jsonl', exportfilename: '聊天 一.jsonl', format: 'jsonl' }]);
+        await exportRawChat(makeChatKey({ groupId: '17', fileName: '2026-11-09@12h00m00s' }), { read });
+        equal(calls[1][1], { is_group: true, avatar_url: undefined, file: '2026-11-09@12h00m00s.jsonl', exportfilename: '2026-11-09@12h00m00s.jsonl', format: 'jsonl' });
+        let failed = null;
+        try { await exportRawChat(makeChatKey({ avatarUrl: 'A.png', fileName: 'x' }), { read: async () => ({}) }); } catch (error) { failed = error.code; }
+        equal(failed, 'INVALID_RESPONSE');
     });
     return results;
 }
