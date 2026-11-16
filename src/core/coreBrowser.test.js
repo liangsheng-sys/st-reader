@@ -2,10 +2,62 @@
 import { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, getCurrentChatKey, makeChatKey, openChat } from './chatSource.js';
 import { cleanStyleText, initFormatter, formatWithStrategy, renderMessage } from './formatter.js';
 import { loadHostRuntime } from './hostRuntime.js';
+import { refreshCssScope } from './cssScope.js';
+import { closeReader, openReader, isReaderOpen } from '../ui/reader.js';
+import { getPrefs, setPrefs } from '../ui/prefs.js';
 import { collectScripts, runDisplayRegex, PLACEMENT } from './regexPipeline.js';
 
 function assert(value, message) { if (!value) throw new Error(message); }
 function asElement(html) { const template = document.createElement('template'); template.innerHTML = html; return template.content; }
+
+async function testSubtitleBackground() {
+    assert(!isReaderOpen(), '请先关闭阅读器');
+    const sheet = document.getElementById('custom-style')?.sheet;
+    assert(sheet, '找不到酒馆的自定义样式表');
+    const injected = [], probes = [];
+    function inject(text) {
+        const rule = sheet.cssRules[sheet.insertRule(text, sheet.cssRules.length)];
+        injected.push(rule);
+        return rule;
+    }
+    function quote(container) {
+        const body = document.querySelector(container + ' .mes_text');
+        assert(body, container + ' 缺少正文楼');
+        const q = document.createElement('q');
+        q.textContent = '合成对白';
+        body.append(q);
+        probes.push(q);
+        return q;
+    }
+    let previousTheme;
+    try {
+        const colors = inject(':root { --xy-sub-bg:#222; --xy-sub-fg:#fff; --xy-sans-bold:sans-serif }');
+        inject('#chat .mes_text q { padding:0.17em 0.45em 0.08em; border-radius:6px; background:var(--xy-sub-bg); color:var(--xy-sub-fg); font-family:var(--xy-sans-bold); font-weight:600; -webkit-box-decoration-break:clone; box-decoration-break:clone }');
+        refreshCssScope();
+        await openReader({ chatKey: makeChatKey({ avatarUrl: 'STCR_T11_Aster.png', fileName: 'STCR-01-正则与多候选' }) });
+        previousTheme = getPrefs().theme;
+        if (previousTheme !== 'host') setPrefs({ theme: 'host' });
+        const deadline = performance.now() + 8000;
+        while (!document.querySelector('#stcr_chat .mes_text') && performance.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        const host = quote('#chat'), reader = quote('#stcr_chat');
+        for (const color of ['rgb(34, 34, 34)', 'rgb(56, 78, 90)']) {
+            colors.style.setProperty('--xy-sub-bg', color);
+            const actual = getComputedStyle(reader).backgroundColor, expected = getComputedStyle(host).backgroundColor;
+            assert(expected === color && actual === expected, `字幕条底色：宿主 ${expected}，阅读器 ${actual}，预期 ${color}`);
+        }
+    } finally {
+        for (const q of probes) q.remove();
+        if (previousTheme && previousTheme !== 'host') setPrefs({ theme: previousTheme });
+        closeReader();
+        for (const rule of injected.reverse()) {
+            const index = Array.from(sheet.cssRules).indexOf(rule);
+            if (index >= 0) sheet.deleteRule(index);
+        }
+        refreshCssScope();
+    }
+}
 function snapshot() {
     const context = SillyTavern.getContext();
     return JSON.stringify({ chat: context.chat, metadata: context.chatMetadata, characterId: context.characterId,
@@ -184,6 +236,7 @@ export async function testCoreBrowser() {
             catch (error) { cancelled = error.name === 'AbortError'; }
             assert(cancelled, '未保留取消信号');
         });
+        await test('T100 跟随酒馆：真实阅读器与宿主对白的字幕底色相同，并随变量改色', testSubtitleBackground);
     } finally { for (const handle of handles) handle.close(); }
     await test('只读终检：当前角色/聊天/元信息/候选/正则设置完全不变', () => {
         assert(snapshot() === before, '宿主状态被改变');

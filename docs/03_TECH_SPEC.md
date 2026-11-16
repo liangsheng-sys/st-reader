@@ -360,6 +360,8 @@ UI 只需满足 `#stcr_root` 内含 `#stcr_chat` 及 D12 类名；样式克隆�
 
 I015 集成约定：UI 的外层负责滚动/翻页；cssScope 副本末尾为 `#stcr_root #stcr_chat` 解除宿主普通 `max-height/overflow` 限制（设为 none/visible），防止双滚动条。此处不加 important，不改变正文主题声明。T21 的 src/ui 未改；后续 UI 继续使用自己的外层滚动容器。
 
+**T100（D46）资源属性里的 `var()`**。克隆 `background`、`border-image`、`mask`、`content`、`filter` 等声明前，先收集本轮所有可读样式表的自定义属性定义，包括导入表、嵌套选择器、条件块及 `#chat.style`。按引用名补读根元素和 `#chat` 的当前计算值。每个引用都须有定义，所有定义及每个回退值都须通过检查，最多四层；循环、缺定义、`attr()`、反斜杠、`image-set()` 或任一不安全地址都会丢弃整条声明，`skippedDeclarations` 加一。地址只许 data:、同源 blob: 和同源 HTTP(S)，排除 `/api/`；相对地址也检查克隆后的基址。通过时保留原来的 `var()`、回退和优先级，主题改色仍走浏览器层叠。不可读的表跳过，每张在 `skippedSheets` 中只计一次。
+
 ### 5.8 T13 接入示例与 I012 设置迁移
 
 ```js

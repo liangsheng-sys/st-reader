@@ -3,7 +3,7 @@
 
 const SHORTHAND_OF = { top: 'inset', right: 'inset', bottom: 'inset', left: 'inset', 'row-gap': 'gap', 'column-gap': 'gap' };
 /** 含 var() 的简写（如宿主气泡的 border: 1px solid var(--…)）展开后各分项读出来是空串，只能整条取简写。 */
-function shorthandOf(style, name) {
+export function shorthandOf(style, name) {
     if (SHORTHAND_OF[name]) return style.getPropertyValue(SHORTHAND_OF[name]) ? SHORTHAND_OF[name] : null;
     if (name.endsWith('-radius')) return style.getPropertyValue('border-radius') ? 'border-radius' : null;
     for (let cut = name.lastIndexOf('-'); cut > 0; cut = name.lastIndexOf('-', cut - 1)) {

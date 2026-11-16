@@ -64,6 +64,57 @@ export async function testPersistenceLogic() {
         const out = collectScopedCss([sheet, foreign, { disabled: true, cssRules: [styleRule('#chat', {})] }], { baseUrl: 'http://localhost:8100/', origin: 'http://localhost:8100' });
         equal(out.rules, 1); equal(out.skippedSheets, 1); assert(out.cssText.includes('@media (min-width: 1px)')); assert(out.cssText.includes('red !important')); assert(!out.cssText.includes('font-face'));
     });
+    const subtitle = value => styleRule('#chat .mes_text q', { background: [value, 'important'] });
+    const rootVars = values => styleRule(':root', values);
+    const origin = 'http://localhost:8100';
+    function checkSubtitle(value, rules, allowed, document) {
+        const out = collectScopedCss([{ cssRules: [subtitle(value)] }, { cssRules: rules }], { origin, baseUrl: origin + '/', document });
+        equal(out.cssText.includes('background:' + value + ' !important;'), allowed);
+        equal(out.skippedDeclarations, allowed ? 0 : 1);
+    }
+    await test('T100 字幕条：后面样式表的纯色定义保留原 var 与 important', () => {
+        checkSubtitle('var(--a)', [rootVars({ '--a': ['#fff'] })], true);
+    });
+    await test('T100 所有定义都要安全：媒体块内的外链使整条背景失效', () => {
+        const alternate = { type: 4, cssText: '@media print {}', cssRules: [rootVars({ '--b': ['url(https://evil.example/x.png)'] })] };
+        checkSubtitle('var(--b)', [rootVars({ '--b': ['#fff'] }), alternate], false);
+    });
+    await test('T100 间接定义、多个引用、层数上限与环', () => {
+        const defs = [rootVars({ '--a': ['#fff'], '--b': ['var(--a)'], '--c': ['var(--b)'], '--d': ['var(--c)'], '--e': ['var(--d)'] })];
+        checkSubtitle('linear-gradient(var(--b), var(--d))', defs, true);
+        checkSubtitle('var(--e)', defs, false);
+        checkSubtitle('var(--a)', [rootVars({ '--a': ['var(--b)'], '--b': ['var(--a)'] })], false);
+    });
+    await test('T100 回退值：无定义拒绝，已有安全定义也逐个检查嵌套回退', () => {
+        const defs = [rootVars({ '--a': ['#fff'], '--b': ['#000'] })];
+        checkSubtitle('var(--nope, url(https://evil.example/y.png))', defs, false);
+        checkSubtitle('var(--nope, #fff)', defs, false);
+        checkSubtitle('var(--a, var(--b, url(https://evil.example/y.png)))', defs, false);
+        checkSubtitle('var(--a, linear-gradient(var(--b), rgb(1, 2, 3)))', defs, true);
+    });
+    await test('T100 变量叶子和同一声明的其他部分都过地址检查', () => {
+        for (const value of ['attr(data-url)', 'image-set("a" 1x)', 'url(/api/chats/get)', 'url(blob:https://evil.example/id)', 'u\\72l(x)']) {
+            checkSubtitle('var(--a)', [rootVars({ '--a': [value] })], false);
+        }
+        for (const value of ['url(data:image/png;base64,AAAA)', 'url(blob:http://localhost:8100/id)', 'url(../local.png)']) {
+            checkSubtitle('var(--a)', [rootVars({ '--a': [value] })], true);
+        }
+        checkSubtitle('var(--a) url(https://evil.example/z)', [rootVars({ '--a': ['#fff'] })], false);
+        checkSubtitle('var(--a)', [rootVars({ '--a': ['"url(" url(https://evil.example/z)'] })], false);
+        checkSubtitle('src(var(--a))', [rootVars({ '--a': ['"https://evil.example/z"'] })], false);
+        checkSubtitle('src(var(--a))', [rootVars({ '--a': ['"/local.png"'] })], true);
+        const imported = { href: origin + '/themes/blue/main.css', cssRules: [rootVars({ '--a': ['url(api/x)'] })] };
+        checkSubtitle('var(--a)', [{ type: 3, styleSheet: imported }], false);
+    });
+    await test('T100 行内变量与根/聊天计算值兜底也参与否决', () => {
+        const chat = { style: cssStyle({ '--inline': ['#222'] }) }, root = {};
+        const computed = new Map([[root, { '--root': '#111' }], [chat, { '--chat': '#333', '--unsafe': 'url(/api/chats/get)' }]]);
+        const document = { documentElement: root, getElementById: () => chat, defaultView: {
+            getComputedStyle: node => ({ getPropertyValue: name => computed.get(node)[name] ?? '' }),
+        } };
+        for (const name of ['--root', '--chat', '--inline']) checkSubtitle('var(' + name + ')', [], true, document);
+        checkSubtitle('var(--unsafe)', [rootVars({ '--unsafe': ['#fff'] })], false, document);
+    });
     await test('锚点：UTF-16 引用、SHA-256、原文变化后仍能唯一重定位', async () => {
         const anchor = await createTextAnchor('甲😀目标乙', 3, 5, TEST_CONTEXT);
         equal(anchor.quote.exact, '目标'); assert(/^sha256:[a-f0-9]{64}$/.test(anchor.rawHash));
