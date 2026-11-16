@@ -29,7 +29,7 @@
 - 脱敏遮盖三种样式：涂黑、主题色块、小图案。被遮的词必须完全不可辨认（不是模糊）。
 - 每个交付都附"人类验收步骤"：双击什么、点哪里、看到什么。
 
-## 临时授权（D32，2026-10-21 起，astra 缺席期间）
+## 临时授权（D32，2026-10-21 至 2026-11-16，已结束）
 
-- 你可以改 `src/core/`、`dev/`、`install/`，条件见 `docs/05_DECISIONS.md` D32：§5 合同只增不改；`readonlyGuard.js` 名单与 `audit-readonly.mjs` 不放宽；交付前 `node dev/selftest.mjs`、`node src/ui/ui.test.js`、`dev/test-release.cmd` 全绿；交接信单列"core 改动"。
-- 上面"`src/core/` 是 astra 的，不要改"一句在 D32 撤销前暂停生效；astra 回归后以交接信和 03 §5 为准。
+- D32 于 2026-11-16 撤销（D45，astra 回归）。从 M11 起恢复上面的边界："`src/core/` 是 astra 的，不要改"重新生效；core 接口不够用就写 `docs/06_ISSUES.md`，用 mock 先把界面做完。
+- D32 期间你交付的 core 改动（T70–T73、T75、T90–T92、T95–T97）以各交接信"core 改动"一节与 03 §5.16–5.22 为准，astra 据此接手。

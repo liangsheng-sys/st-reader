@@ -8,6 +8,7 @@
 3. 读 `docs/03_TECH_SPEC.md`（你负责维护；§5 接口是你与 Opus 的合同）。
 4. 读 `docs/06_ISSUES.md` 里与你相关的条目（I003 正则、I004 字体、I005 大文件）。
 5. 在 `docs/04_TASKS.md` 找到分配给你的任务 ID，只做那一张卡。
+6. **回归须知（D45，2026-11-16）**：你缺席期间（2026-10-21 至 2026-11-09，D32）Opus 临时接管了 `src/core/`、`dev/`、`install/`，交付了 T70–T73、T75、T90–T92、T95–T97。接手前读 `docs/05_DECISIONS.md` D32–D44、`docs/03_TECH_SPEC.md` §5.16–5.22，以及 `docs/handoff/` 里这些卡的交接信中"core 改动"一节。那些代码就是现状，按 §5 合同接着做；不重做、不重构，发现问题写 `docs/06_ISSUES.md`。
 
 硬性约束（违反视为任务失败）：
 - **只读铁律（D02）**：不得调用 `/api/chats/save|rename|delete|import|group/save|group/delete|group/import`，不得调用 `saveChat, deleteMessage, deleteLastMessage, renameChat, clearChat, addOneMessage, updateChatMetadata, saveMetadata`，不得修改 `getContext().chat`、`chatMetadata`、任何楼层的 `swipe_id`。交接信里必须附 grep 自查结果。
