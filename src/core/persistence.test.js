@@ -56,6 +56,14 @@ export async function testPersistenceLogic() {
         equal(scopeDeclarationValue('image-set("https://example.invalid/a" 1x)', 'http://localhost:8100/', 'http://localhost:8100'), null);
         equal(scopeDeclarationValue('"JetBrainsMono"', 'http://localhost:8100/', 'http://localhost:8100'), '"JetBrainsMono"');
         equal(scopeDeclarationValue('var(--remote-image)', 'http://localhost:8100/', 'http://localhost:8100', 'background-image'), null);
+        const origin = 'http://localhost:8100', href = origin + '/css/theme.css', cache = new Map();
+        let reads = 0;
+        const defs = () => { reads++; return [{ value: 'none', href }]; };
+        const check = value => scopeDeclarationValue(value, href, origin, 'background', defs, origin, cache);
+        equal(check('var(--a), url(img.png)'), 'var(--a), url("http://localhost:8100/css/img.png")');
+        equal(check('var(--a)'), 'var(--a)');
+        equal(reads, 1);
+        equal(scopeDeclarationValue('below var(--a)', href, origin, '-webkit-box-reflect', () => [{ href, value: 'url(https://example.invalid/x)' }]), null);
         equal(scopeDeclarationValue('var(--color)', 'http://localhost:8100/', 'http://localhost:8100', 'color'), 'var(--color)');
     });
     await test('CSSOM：保留 important/媒体条件，跳过全局字体、禁用和跨域表', () => {

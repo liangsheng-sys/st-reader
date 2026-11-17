@@ -3,7 +3,7 @@
 import { shorthandOf } from './cssDeclarations.js';
 
 const ownedStyles = new WeakSet();
-const resourceProperty = /^(?:-webkit-)?(?:background(?:-image)?|border-image(?:-source)?|mask(?:-image|-box-image(?:-source)?)?|list-style(?:-image)?|cursor|content|filter|backdrop-filter|clip-path|shape-outside|offset-path)$/i;
+const resourceProperty = /^(?:-webkit-)?(?:background(?:-image)?|border-image(?:-source)?|mask(?:-image|-box-image(?:-source)?)?|list-style(?:-image)?|cursor|content|filter|backdrop-filter|clip-path|shape-outside|offset-path|box-reflect)$/i;
 
 /** CSS 标识符解码；用于识别 #chat 与 #\63 hat 等等价写法。 */
 function decodeIdentifier(value) {
@@ -123,21 +123,25 @@ function safeResourceValue(value, href, context, path, stringUrls = false) {
         }
         const variable = readVariable(value, tokens.lastIndex);
         if (!variable || path.length >= 4 || path.includes(variable.name)) return false;
-        const values = definitions?.(variable.name);
-        if (!values?.length) return false;
         const next = [...path, variable.name];
-        if (!values.every(def => safeResourceValue(def.value, def.href, context, next, stringUrls))) return false;
+        // 祖先链决定环与四层上限；字符串资源上下文的安全结论不能借给普通属性。
+        const key = JSON.stringify([next, stringUrls]);
+        if (!context.cache.has(key)) {
+            const values = definitions?.(variable.name);
+            context.cache.set(key, !!values?.length && values.every(def => safeResourceValue(def.value, def.href, context, next, stringUrls)));
+        }
+        if (!context.cache.get(key)) return false;
         if (variable.fallback !== null && !safeResourceValue(variable.fallback, href, context, next, stringUrls)) return false;
         tokens.lastIndex = variable.end;
     }
     return true;
 }
 
-export function scopeDeclarationValue(value, baseUrl, origin, property = '', definitions, cloneBase = baseUrl) {
+export function scopeDeclarationValue(value, baseUrl, origin, property = '', definitions, cloneBase = baseUrl, cache = new Map()) {
     if (resourceProperty.test(property)) {
         if (/attr\s*\(/i.test(value)) return null;
         if (/var\s*\(/i.test(value)) {
-            return safeResourceValue(value, baseUrl, { origin, definitions, cloneBase }, []) ? value : null;
+            return safeResourceValue(value, baseUrl, { origin, definitions, cloneBase, cache }, []) ? scopeUrls(value, baseUrl, origin) : null;
         }
     }
     return scopeUrls(value, baseUrl, origin);
@@ -192,7 +196,7 @@ export function collectScopedCss(sheets, { baseUrl, origin, document } = {}) {
         }
         return resolved.get(name);
     }
-    const active = new Set();
+    const active = new Set(), cache = new Map();
     function declarations(style, href) {
         const result = [], shorthands = new Set();
         for (let i = 0; i < style.length; i++) {
@@ -207,7 +211,7 @@ export function collectScopedCss(sheets, { baseUrl, origin, document } = {}) {
                     raw = style.getPropertyValue(name);
                 }
             }
-            const value = scopeDeclarationValue(raw, href, origin, name, lookup, baseUrl);
+            const value = scopeDeclarationValue(raw, href, origin, name, lookup, baseUrl, cache);
             if (value === null) { stats.skippedDeclarations++; continue; }
             result.push(`${name}:${value}${style.getPropertyPriority(name) ? ' !important' : ''};`);
         }
