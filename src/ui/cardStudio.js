@@ -8,6 +8,7 @@
 
 import { exportCard, ruleWords, wrapMaskSpans } from '../core/cardExport.js';
 import { store } from '../core/store.js';
+import { cleanStyleText } from '../core/formatter.js';
 import { getVersion } from '../core/updateService.js';
 import { buildPieces, createPieceCache, findThoughts, scrubNote } from './cardPieces.js';
 import { colorPicker, readableOn } from './colorPicker.js';
@@ -16,15 +17,18 @@ import { copyText, h, iconButton } from './dom.js';
 import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
+import { ALIGNS, ANGLES, BUILTIN_TEMPLATES, FONT_FAMILIES, FONT_SIZES, HEADER_ICONS, LETTER_SPACINGS, LINE_HEIGHTS, MAX_HEADER_TITLE, MAX_LEAD_TEXT, MAX_TEMPLATE_NAME,
+    PADDINGS, PALETTES, RADII, TEXTURES, addTemplate, countCardChars, derivePalette, formatCardCount, formatCardDate, optionsEqual, parseTemplateText, removeTemplate,
+    renameTemplate, resolvePalette, scopeTemplateCss, TEMPLATE_SCOPE_ROOT, templateClassName, templateToText, textureLayers, normalizeTemplates, newTemplateId } from './cardTemplates.js';
 
 const PREFS_KEY = 'stcr:ui:card:v1';
 /** 永久屏蔽词各自的遮盖样式（T23a 验收意见①）：{词: {mask, icon|asset|color}}；没有的词跟随默认。随备份导出。 */
 const WORD_STYLES_KEY = 'stcr:ui:card:wordStyles:v1';
+/** 自制模板（T104、D49）：数组，≤ 30 个，每个 ≤ 20 KB；随备份导出。 */
+const TEMPLATES_KEY = 'stcr:ui:card:templates:v1';
 const CONTAINED = ['click', 'dblclick', 'auxclick', 'contextmenu', 'mousedown', 'mouseup', 'pointerdown', 'pointerup',
     'touchstart', 'touchend', 'input', 'change', 'paste', 'focusin', 'focusout', 'keydown', 'keyup', 'keypress', 'wheel'];
-const TEMPLATES = [
-    { id: 'theme', label: '继承主题' }, { id: 'paper', label: '纸张' }, { id: 'dark', label: '深色' }, { id: 'digest', label: '书摘' },
-];
+const TEMPLATES = BUILTIN_TEMPLATES;
 const MASKS = [{ id: 'bar', label: '涂黑' }, { id: 'block', label: '色块' }, { id: 'sticker', label: '小图案' }];
 const PAPER_RED = '#8a3a2e';
 const DIGEST_BLUE = '#1b88ee';
@@ -45,6 +49,20 @@ function cleanWordStyles(raw, assets) {
 
 /** 一个"样式"里的图案 → {kind, value}（小图案可以是内置图标或我导入的图片）。 */
 const patternOf = (style, fallback) => (style?.asset ? { kind: 'asset', value: style.asset } : style?.icon ? { kind: 'icon', value: style.icon } : fallback);
+
+/** 选段第一楼（当前候选）的日期，"2026年11月16日"；没有或认不出返回 null。 */
+function firstFloorDate({ handle, floors }) {
+    try {
+        const first = floors[0];
+        const message = handle.getMessage(first.index);
+        return formatCardDate(message.swipes?.[first.swipe]?.sendDate ?? message.date);
+    } catch { return null; }
+}
+
+/** 一个样式小节的标题 + 分段按钮（选项值可能是 null / 数字，用 JSON 存在 data-val 里）。 */
+const optSeg = (key, items, extra = '') => h('div', { class: `stcr-seg stcr-studio-seg ${extra}`.trim(), role: 'group', 'data-opt-group': key },
+    ...items.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-opt': key, 'data-val': JSON.stringify(item.id), text: item.label })));
+const optRow = (title, ...children) => h('div', { class: 'stcr-studio-row' }, h('span', { class: 'stcr-studio-sec-title', text: title }), ...children);
 
 /**
  * @param {{root:HTMLElement, toast:(msg:string)=>void, confirm:(msg:string, ok:string)=>Promise<boolean>, getDirection:()=>string, onClose?:()=>void}} deps
@@ -73,6 +91,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             permanent: [], temp: [], cache: createPieceCache(), pieces: [], mappings: [], thoughts: [], card: null,
             token: 0, exporting: false, urls: [], words: [], suppressClick: false, saveTimer: 0, resize: null,
             wordStyles: {}, tempStyles: {}, menu: null, rules: [], assets: [], scopes: null, rulesPage: null,
+            templates: [], dateText: firstFloorDate(source),
         };
         st = mine;
         root.append(els.studio);
@@ -80,10 +99,12 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         wire(mine);
         els.sub.textContent = subtitle(source);
         try {
-            const [prefs, words, styles, rules, assets] = await Promise.all([store.settings.get(PREFS_KEY, null), store.maskWords.list(),
-                store.settings.get(WORD_STYLES_KEY, {}), store.replaceRules.list(), store.assets.list()]);
+            const [prefs, words, styles, rules, assets, templates] = await Promise.all([store.settings.get(PREFS_KEY, null), store.maskWords.list(),
+                store.settings.get(WORD_STYLES_KEY, {}), store.replaceRules.list(), store.assets.list(), store.settings.get(TEMPLATES_KEY, [])]);
             if (st !== mine) return;
             mine.prefs = normalizeCardPrefs(prefs);
+            mine.templates = normalizeTemplates(templates);
+            settleTemplate(mine);
             mine.permanent = words;
             mine.rules = rules;
             setAssets(mine, assets);
@@ -133,10 +154,12 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     function buildDom() {
         const exportBtn = h('button', { type: 'button', class: 'stcr-btn stcr-studio-export', 'data-studio': 'export' },
             h('i', { class: 'fa-solid fa-download', 'aria-hidden': 'true' }), h('span', { class: 'stcr-studio-export-label', text: '导出 PNG' }));
+        const saveBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-studio-save', 'data-studio': 'save-as', title: '把现在这套外观存成自己的模板' },
+            h('i', { class: 'fa-solid fa-bookmark', 'aria-hidden': 'true' }), h('span', { text: ' 另存为模板…' }));
         const sub = h('span', { class: 'stcr-studio-sub' });
         const head = h('header', { class: 'stcr-studio-head' },
             iconButton('fa-xmark', '关闭（Esc）', { 'data-studio': 'close' }),
-            h('h2', { class: 'stcr-studio-title', text: '分享卡片' }), sub, exportBtn);
+            h('h2', { class: 'stcr-studio-title', text: '分享卡片' }), sub, saveBtn, exportBtn);
 
         const scaler = h('div', { class: 'stcr-card-scaler' });
         const slot = h('div', { class: 'stcr-card-slot' }, scaler);
@@ -153,10 +176,59 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                 h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'copy-diag' },
                     h('i', { class: 'fa-solid fa-stethoscope', 'aria-hidden': 'true' }), ' 复制诊断信息')));
 
-        const tpl = h('div', { class: 'stcr-studio-tpls', role: 'group', 'aria-label': '模板' },
-            ...TEMPLATES.map(item => h('button', { type: 'button', class: 'stcr-btn stcr-tpl-btn', 'data-tpl': item.id },
-                h('span', { class: `stcr-tpl-swatch stcr-tpl-swatch--${item.id}`, 'aria-hidden': 'true' }, h('i'), h('i')), h('span', { text: item.label }))));
+        // ── 组 1：模板（内置四套 + 自制）、尺寸、书摘设置
+        const tpl = h('div', { class: 'stcr-studio-tpls', role: 'group', 'aria-label': '模板' }); // syncTemplates 里重画（自制模板会增减）
+        const tplState = h('p', { class: 'stcr-tpl-state', hidden: true });
+        const tplActions = h('div', { class: 'stcr-tpl-actions' },
+            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'import-tpl', title: '从模板文件或粘贴的文字导入别人做的模板' },
+                h('i', { class: 'fa-solid fa-file-import', 'aria-hidden': 'true' }), ' 导入模板…'));
         const sizes = seg(Object.entries(CARD_SIZES).map(([id, size]) => ({ id, label: size.label })), 'size');
+        const accent = seg([{ id: 'blue', label: '蓝' }, { id: 'theme', label: '跟随主题' }], 'accent');
+        const digestSource = switchRow('显示出处');
+        const digestTitle = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', 'aria-label': '书摘标题', placeholder: '一段故事' });
+        const cover = h('div', { class: 'stcr-studio-icons stcr-cover-picker', role: 'group', 'aria-label': '封面' });
+        const digest = section('书摘', digestSource.el,
+            h('label', { class: 'stcr-studio-field' }, h('span', { text: '标题' }), digestTitle),
+            h('div', { class: 'stcr-studio-field' }, h('span', { text: '强调色' }), accent),
+            h('div', { class: 'stcr-studio-field stcr-studio-field--top' }, h('span', { text: '封面' }), cover),
+            h('p', { class: 'stcr-studio-hint', text: '书摘不显示名字行；这段文字上若有你写的批注，会放在下方"我的想法"里。' }));
+
+        // ── 组 2：配色 + 纹理
+        const palGrid = h('div', { class: 'stcr-pal-grid', role: 'group', 'aria-label': '配色' });
+        const palName = h('p', { class: 'stcr-pal-name' });
+        const palCustom = h('div', { class: 'stcr-pal-custom', hidden: true });
+        const texture = optSeg('texture', TEXTURES);
+
+        // ── 组 3：排版
+        const typo = [
+            optRow('字号', optSeg('fontSize', FONT_SIZES)),
+            optRow('行距', optSeg('lineHeight', LINE_HEIGHTS)),
+            optRow('字距', optSeg('letterSpacing', LETTER_SPACINGS)),
+            optRow('对齐', optSeg('align', ALIGNS)),
+            optRow('内边距', optSeg('padding', PADDINGS)),
+            optRow('圆角', optSeg('radius', RADII)),
+            optRow('字体', optSeg('fontFamily', FONT_FAMILIES), h('p', { class: 'stcr-studio-hint', text: '只写字体名，不下载字体；这台电脑没装的字体会回退成系统默认。' })),
+        ];
+        const showNames = switchRow('显示名字行');
+        const reasoning = switchRow('包含思维链');
+
+        // ── 组 4：页眉页脚
+        const headerOn = switchRow('页眉');
+        const headerIcons = h('div', { class: 'stcr-studio-icons', role: 'group', 'aria-label': '页眉图标' },
+            ...HEADER_ICONS.map(icon => h('button', { type: 'button', class: 'stcr-btn stcr-icon-pick', 'data-opt': 'headerIcon', 'data-val': JSON.stringify(icon.id), title: icon.label, 'aria-label': icon.label },
+                h('i', { class: `fa-solid ${icon.id}`, 'aria-hidden': 'true' }))));
+        const headerTitle = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: String(MAX_HEADER_TITLE), 'aria-label': '页眉标题', placeholder: '一段故事' });
+        const headerDate = switchRow('页眉显示日期', { hint: '用选段第一楼的日期' });
+        const headerBox = h('div', { class: 'stcr-studio-hdr-box' }, headerIcons,
+            h('label', { class: 'stcr-studio-field' }, h('span', { text: '标题' }), headerTitle), headerDate.el);
+        const leadOn = switchRow('按语', { hint: '页眉下面的一句话，像书的题记' });
+        const leadText = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: String(MAX_LEAD_TEXT), 'aria-label': '按语', placeholder: '写一句话放在正文前面' });
+        const footDate = switchRow('页脚显示日期');
+        const footCount = switchRow('页脚显示字数', { hint: '正文字数，被遮住的不算' });
+        const signOn = switchRow('底部署名');
+        const signText = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', 'aria-label': '署名文字', placeholder: '留空则不显示' });
+
+        // ── 组 5：遮盖与名字
         const masks = seg(MASKS, 'mask');
         const maskColor = h('div', { class: 'stcr-studio-color-box' }); // 色块 / 图标颜色，syncControls 里重画
         const icons = h('div', { class: 'stcr-studio-icon-box' }); // 图案选择条，syncControls 里按当前图片重画
@@ -166,19 +238,6 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const mapList = h('ul', { class: 'stcr-studio-maps', 'aria-label': '这张卡上的名字替换' });
         const rulesBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-studio-rules', 'data-studio': 'rules', title: '自己定"某个词总是换成什么"，也能管理导入的图片' },
             h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理替换规则…');
-        const showNames = switchRow('显示名字行');
-        const reasoning = switchRow('包含思维链');
-        const signOn = switchRow('底部署名');
-        const signText = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', 'aria-label': '署名文字', placeholder: 'ST Reader' });
-        const digestSource = switchRow('显示出处');
-        const digestTitle = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: '40', 'aria-label': '书摘标题', placeholder: '一段故事' });
-        const accent = seg([{ id: 'blue', label: '蓝' }, { id: 'theme', label: '跟随主题' }], 'accent');
-        const cover = h('div', { class: 'stcr-studio-icons stcr-cover-picker', role: 'group', 'aria-label': '封面' });
-        const digest = section('书摘', digestSource.el,
-            h('label', { class: 'stcr-studio-field' }, h('span', { text: '标题' }), digestTitle),
-            h('div', { class: 'stcr-studio-field' }, h('span', { text: '强调色' }), accent),
-            h('div', { class: 'stcr-studio-field stcr-studio-field--top' }, h('span', { text: '封面' }), cover),
-            h('p', { class: 'stcr-studio-hint', text: '书摘不显示名字行；这段文字上若有你写的批注，会放在下方"我的想法"里。' }));
         const wordCount = h('span', { class: 'stcr-studio-count' });
         const wordToggle = h('button', { type: 'button', class: 'stcr-btn stcr-studio-fold', 'aria-expanded': 'true', 'data-studio': 'fold-words' },
             h('span', { text: '屏蔽词（永久）' }), wordCount, h('i', { class: 'fa-solid fa-chevron-down', 'aria-hidden': 'true' }));
@@ -192,24 +251,29 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const tempSec = section('临时遮住（只这张卡）', tempChips);
         const note = h('div', { class: 'stcr-studio-note', role: 'status', 'aria-live': 'polite' });
 
+        const group = (key, title, open, ...children) => h('details', { class: 'stcr-studio-grp', 'data-grp': key, open }, h('summary', {}, title), h('div', { class: 'stcr-studio-grp-body' }, ...children));
         const sideMain = h('div', { class: 'stcr-studio-side-main' },
-            section('模板', tpl),
-            section('尺寸', sizes),
-            section('遮盖样式', masks, maskColor, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
-            section('名字替换', autoNames.el, myRules.el, mapList,
-                h('p', { class: 'stcr-studio-hint', text: '优先级：我的规则 > 自动 > 屏蔽词；长词先换，但不会把一个名字拆开。点一行右边的笔可以改它。' }), rulesBtn),
-            section('显示', showNames.el, reasoning.el, signOn.el, signText),
-            digest,
-            h('section', { class: 'stcr-studio-sec' }, wordToggle, wordBox),
-            tempSec,
+            group('template', '模板', true, tpl, tplState, tplActions, section('尺寸', sizes), digest),
+            group('palette', '配色', false, h('section', { class: 'stcr-studio-sec' }, palGrid, palName, palCustom), section('纹理', texture)),
+            group('typo', '排版', false, ...typo, showNames.el, reasoning.el),
+            group('frame', '页眉页脚', false,
+                section('页眉', headerOn.el, headerBox),
+                section('按语', leadOn.el, leadText),
+                section('页脚', footDate.el, footCount.el, signOn.el, signText, h('p', { class: 'stcr-studio-hint', text: '"ST Reader"字样就是署名：留空或关掉，卡片上就没有它。' }))),
+            group('mask', '遮盖与名字', true,
+                section('遮盖样式', masks, maskColor, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
+                section('名字替换', autoNames.el, myRules.el, mapList,
+                    h('p', { class: 'stcr-studio-hint', text: '优先级：我的规则 > 自动 > 屏蔽词；长词先换，但不会把一个名字拆开。点一行右边的笔可以改它。' }), rulesBtn),
+                h('section', { class: 'stcr-studio-sec' }, wordToggle, wordBox),
+                tempSec),
             note);
         const rulesHost = h('div', { class: 'stcr-studio-side-rules', hidden: true });
         const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '卡片设置' }, sideMain, rulesHost);
         const studio = h('div', { class: 'stcr-studio', role: 'dialog', 'aria-modal': 'true', 'aria-label': '分享卡片', tabindex: '-1' },
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
-        return { studio, head, exportBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
+        return { studio, head, exportBtn, saveBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, tplState, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
-            tempSec, tempChips, note };
+            tempSec, tempChips, note, palGrid, palName, palCustom, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
     }
 
     // ───────────── 事件 ─────────────
@@ -229,7 +293,19 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         for (const type of CONTAINED) els.studio.addEventListener(type, event => event.stopPropagation());
 
         const prefChange = patch => changePrefs(mine, patch);
-        els.tpl.addEventListener('click', event => { const id = event.target.closest('[data-tpl]')?.dataset.tpl; if (id) prefChange({ template: id }); });
+        wireTemplates(mine);
+        els.sideMain.addEventListener('click', event => {
+            const btn = event.target.closest('[data-opt]');
+            if (!btn || !alive() || mine.exporting) return;
+            patchOpts(mine, { [btn.dataset.opt]: JSON.parse(btn.dataset.val) });
+        });
+        els.headerOn.input.addEventListener('change', () => patchOpts(mine, { headerOn: els.headerOn.input.checked }));
+        els.headerDate.input.addEventListener('change', () => patchOpts(mine, { headerDate: els.headerDate.input.checked }));
+        els.leadOn.input.addEventListener('change', () => patchOpts(mine, { leadOn: els.leadOn.input.checked }));
+        els.footDate.input.addEventListener('change', () => patchOpts(mine, { footDate: els.footDate.input.checked }));
+        els.footCount.input.addEventListener('change', () => patchOpts(mine, { footCount: els.footCount.input.checked }));
+        els.headerTitle.addEventListener('input', () => patchOpts(mine, { headerTitle: els.headerTitle.value }));
+        els.leadText.addEventListener('input', () => patchOpts(mine, { leadText: els.leadText.value }));
         els.sizes.addEventListener('click', event => { const id = event.target.closest('[data-size]')?.dataset.size; if (id) prefChange({ size: id }); });
         els.masks.addEventListener('click', event => { const id = event.target.closest('[data-mask]')?.dataset.mask; if (id) prefChange({ mask: id }); });
         els.accent.addEventListener('click', event => { const id = event.target.closest('[data-accent]')?.dataset.accent; if (id) prefChange({ digestAccent: id }); });
@@ -287,11 +363,25 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         }
         const styleBtn = target.closest('[data-word-style]');
         if (styleBtn) { openMenu(mine, styleBtn.dataset.wordStyle, styleBtn); return; }
+        const tplBtn = target.closest('.stcr-tpl-btn');
+        if (tplBtn && mine.els.tpl.contains(tplBtn)) {
+            if (performance.now() - (mine.tplLong ?? -1e9) > 700) chooseTemplate(mine, tplBtn.dataset.tpl);
+            return;
+        }
+        const palBtn = target.closest('[data-pal]');
+        if (palBtn) { patchOpts(mine, { palette: palBtn.dataset.pal === '' ? null : palBtn.dataset.pal }); return; }
+        const angleBtn = target.closest('[data-angle]');
+        if (angleBtn) { patchOpts(mine, { customAngle: Number(angleBtn.dataset.angle) }); return; }
+        if (target.closest('[data-studio="revert-tpl"]')) { applyTemplate(mine, templateDef(mine), !!customRecord(mine)); return; }
+        const tplMore = target.closest('[data-tpl-more]');
+        if (tplMore) { openTemplateMenu(mine, tplMore.dataset.tplMore, tplMore); return; }
         const act = target.closest('[data-studio]')?.dataset.studio;
         if (act === 'close') { close(); return; }
         if (act === 'export') { doExport(mine); return; }
         if (act === 'rules') { showRules(mine); return; }
         if (act === 'copy-diag') { copyDiagnostics(mine); return; }
+        if (act === 'save-as') { openSaveAs(mine, target.closest('[data-studio]')); return; }
+        if (act === 'import-tpl') { openImport(mine, target.closest('[data-studio]')); return; }
         const mapEdit = target.closest('[data-map-edit]');
         if (mapEdit) { editMapping(mine, Number(mapEdit.dataset.mapEdit), mapEdit); return; }
         if (act === 'fold-words') {
@@ -351,21 +441,78 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     }
 
     const template = mine => mine.prefs.template ?? (getDirection() === 'a' ? 'paper' : 'theme');
+    /** 当前用的自制模板记录；没用自制模板（内置四套）= null。 */
+    const customRecord = mine => (mine.prefs.tplId ? mine.templates.find(t => t.id === mine.prefs.tplId) ?? null : null);
+    /** 当前这套模板的定义（底子 + 选项值），用来判断"改动过没有"。 */
+    const templateDef = mine => customRecord(mine) ?? BUILTIN_TEMPLATES.find(item => item.id === template(mine)) ?? BUILTIN_TEMPLATES[0];
+
+    /**
+     * 自制模板的附加 CSS：先加前缀（只管这张卡里面），再交给 core 的 cleanStyleText 逐条清洗（T75）。导入时已验过，这里只是再保险一次。
+     * 清洗后为空（不该发生）就当没有。
+     */
+    function customCss(record) {
+        if (!record?.css) return '';
+        const scoped = scopeTemplateCss(record.css, record.id);
+        if (!scoped) return '';
+        try { return cleanStyleText(scoped, false, { scope: TEMPLATE_SCOPE_ROOT }); } catch { return ''; }
+    }
+
+    /** 背景：配色的渐变垫底，纹理压在上面（纹理颜色 = 正文色的 8–10% 透明度）。 */
+    function paintBackground(el, layers) {
+        if (!layers.length) return;
+        el.style.setProperty('background-image', layers.map(layer => layer.image).join(', '));
+        el.style.setProperty('background-size', layers.map(layer => layer.size).join(', '));
+    }
 
     /** 按当前选项拼卡片、上遮盖、放进预览。同步完成，切模板/开关时立刻看到。 */
     function compose(mine) {
         const { els, prefs } = mine;
+        const opts = prefs.opts;
         const tpl = template(mine);
         const size = CARD_SIZES[prefs.size];
-        const colors = templateColors(mine, tpl);
-        const card = h('div', { class: `stcr-card stcr-card--${tpl} stcr-card--${prefs.size}` });
-        card.style.setProperty('--stcr-card-w', `${size.width}px`);
-        card.style.setProperty('--stcr-card-h', `${size.minHeight}px`);
-        card.style.setProperty('--stcr-card-accent', colors.accent);
-        if (tpl !== 'theme') card.style.setProperty('--stcr-card-font', readerFont());
+        const pal = resolvePalette(opts);
+        const colors = templateColors(mine, tpl, pal);
+        const record = customRecord(mine);
+        const family = FONT_FAMILIES.find(item => item.id === opts.fontFamily)?.css ?? null;
+        const classes = ['stcr-card', `stcr-card--${tpl}`, `stcr-card--${prefs.size}`];
+        if (tpl !== 'theme' || pal) classes.push('stcr-card--flat'); // 压平成"小名字 + 正文"（继承主题 + 自选配色时也是）
+        if (pal) classes.push('stcr-card--pal');
+        if (opts.lineHeight !== null) classes.push('stcr-card--lh');
+        if (opts.letterSpacing) classes.push('stcr-card--ls');
+        if (opts.align === 'justify') classes.push('stcr-card--justify');
+        if (family) classes.push('stcr-card--ff');
+        if (record) classes.push(templateClassName(record.id)); // 导出副本不抄 data-*，附加 CSS 靠这个 class 命中
+        const card = h('div', { class: classes.join(' '), 'data-tpl': record?.id ?? tpl });
+        const set = (name, value) => card.style.setProperty(name, value);
+        set('--stcr-card-w', `${size.width}px`);
+        set('--stcr-card-h', `${size.minHeight}px`);
+        set('--stcr-card-accent', colors.accent);
+        if (classes.includes('stcr-card--flat')) set('--stcr-card-font', family ?? readerFont());
+        const fontScale = FONT_SIZES.find(item => item.id === opts.fontSize)?.scale ?? 1;
+        if (fontScale !== 1) set('--stcr-fs', String(fontScale));
+        const padScale = PADDINGS.find(item => item.id === opts.padding)?.scale ?? 1;
+        if (padScale !== 1) set('--stcr-pad', String(padScale));
+        if (opts.lineHeight !== null) set('--stcr-lh', String(opts.lineHeight));
+        if (opts.letterSpacing) set('--stcr-ls', `${opts.letterSpacing}em`);
+        if (family) set('--stcr-ff', family);
+        if (opts.radius) set('border-radius', `${opts.radius}px`);
+        const layers = textureLayers(opts.texture, colors.text);
+        if (pal) {
+            set('background-color', pal.stops.length > 1 ? pal.mid : pal.stops[0]);
+            set('--stcr-c-text', pal.text); set('--stcr-c-name', pal.name); set('--stcr-c-quote', pal.quote); set('--stcr-c-em', pal.em);
+            set('--stcr-c-sign', pal.sign); set('--stcr-c-line', pal.line); set('--stcr-c-soft', pal.soft); set('--stcr-c-page', pal.page);
+        }
+        const cardLayers = [...(tpl === 'digest' ? [] : layers), ...(pal?.background ? [{ image: pal.background, size: 'auto' }] : [])];
+        paintBackground(card, cardLayers);
+        const css = customCss(record);
+        if (css) card.append(h('style', { 'data-stcr-tplcss': '' }, css));
 
         const page = h('div', { class: 'stcr-card-page' });
+        if (tpl === 'digest') paintBackground(page, layers); // 书摘的白色卡面上才看得见纹理
+        const head = header(mine, colors);
+        if (head) page.append(head);
         if (tpl === 'digest') page.append(h('div', { class: 'stcr-card-mark', 'aria-hidden': 'true', text: '“' }));
+        if (opts.leadOn && opts.leadText.trim()) page.append(h('p', { class: 'stcr-card-lead', text: opts.leadText.trim() }));
         // 继承主题：用正文容器的 id，让 ST 主题 / 美化 CSS / Ny 字体规则（#chat → #stcr_chat 的克隆）原样命中。
         const chat = h('div', { class: 'stcr-card-chat', id: tpl === 'theme' ? 'stcr_chat' : null });
         const names = tpl !== 'digest' && prefs.showNames;
@@ -396,12 +543,15 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         // 这一段是同步的，浏览器不会在中间画出未缩放的样子。
         els.scaler.style.transform = 'none';
         els.scaler.replaceChildren(card);
+        // 继承主题的字体由 ST 主题自己的规则决定，改不动 calc：量出现在的像素，按字号档放大后写在每个正文上
+        if (fontScale !== 1 && !classes.includes('stcr-card--flat')) scaleThemeFonts(card, fontScale);
         mine.colors = colors;
         mine.card = applyMasks(mine, card, colors);
         fitMaskHeights(mine.card);
         fitStickerCounts(mine);
         contrastReplacements(mine.card);
         rasterizeReplacementIcons(mine);
+        fillFooterMeta(mine);
         els.hover.hidden = true;
         closeMenu(mine);
         els.exportBtn.disabled = empty || mine.exporting;
@@ -416,20 +566,58 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         }
     }
 
+    function scaleThemeFonts(card, scale) {
+        const sizes = [...card.querySelectorAll('.mes_text, .mes_reasoning')].map(el => parseFloat(getComputedStyle(el).fontSize));
+        [...card.querySelectorAll('.mes_text, .mes_reasoning')].forEach((el, i) => {
+            if (Number.isFinite(sizes[i]) && sizes[i] > 0) el.style.setProperty('font-size', `${(sizes[i] * scale).toFixed(2)}px`);
+        });
+    }
+
+    /** 页眉：小图标（用 Font Awesome 实心字形画成图片，导出原样复制）+ 标题 + 日期，各自可空。 */
+    function header(mine, colors) {
+        const opts = mine.prefs.opts;
+        if (!opts.headerOn) return null;
+        const title = opts.headerTitle.trim();
+        const src = iconImage(opts.headerIcon, colors.accent);
+        const date = opts.headerDate ? mine.dateText : null;
+        if (!src && !title && !date) return null;
+        return h('div', { class: 'stcr-card-head' },
+            src ? h('img', { class: 'stcr-card-head-icon', src, alt: '' }) : null,
+            title ? h('span', { class: 'stcr-card-head-title', text: title }) : null,
+            date ? h('span', { class: 'stcr-card-head-date', text: date }) : null);
+    }
+
     function footer(mine, tpl) {
         const { prefs } = mine;
-        const signature = prefs.signature.trim() || 'ST Reader';
+        const opts = prefs.opts;
+        // "ST Reader" 字样就是署名：关掉或清空就没有它（T104）
+        const signature = prefs.signatureOn ? prefs.signature.trim() : '';
+        const meta = (opts.footDate && mine.dateText) || opts.footCount ? h('span', { class: 'stcr-card-meta' }) : null; // 文字在遮盖完成后填（字数不含被遮的字）
         if (tpl === 'digest') {
             const title = prefs.digestTitle.trim() || '一段故事';
             const speaker = mine.pieces.find(p => !p.isUser && !p.isSystem)?.name.textContent.trim() ?? '';
-            if (!prefs.digestSourceOn && !prefs.signatureOn) return null;
+            if (!prefs.digestSourceOn && !signature && !meta) return null;
             return h('div', { class: 'stcr-card-foot stcr-card-foot--digest' },
                 prefs.digestSourceOn ? coverEl(mine, title) : null,
                 prefs.digestSourceOn ? h('span', { class: 'stcr-card-source', text: `摘自《${title}》${speaker ? ` · ${speaker}` : ''}` }) : null,
-                prefs.signatureOn ? h('span', { class: 'stcr-card-sign', text: `${signature} 书摘` }) : null);
+                meta,
+                signature ? h('span', { class: 'stcr-card-sign', text: `${signature} 书摘` }) : null);
         }
-        if (!prefs.signatureOn) return null;
-        return h('div', { class: 'stcr-card-foot' }, h('span', { class: 'stcr-card-sign', text: tpl === 'paper' ? `— ${signature}` : signature }));
+        if (!signature && !meta) return null;
+        return h('div', { class: 'stcr-card-foot' }, meta, signature ? h('span', { class: 'stcr-card-sign', text: tpl === 'paper' ? `— ${signature}` : signature }) : null);
+    }
+
+    /** 页脚的日期与字数：遮盖已经上好，被遮的字不在卡片里，所以数出来的就是"去遮盖"的字数。 */
+    function fillFooterMeta(mine) {
+        const meta = mine.card.querySelector('.stcr-card-meta');
+        if (!meta) return;
+        const opts = mine.prefs.opts;
+        const body = [...mine.card.querySelectorAll('.mes_text')].map(el => {
+            const copy = el.cloneNode(true);
+            copy.querySelectorAll('.stcr-mask, style, script').forEach(node => node.remove());
+            return copy.textContent;
+        }).join('');
+        meta.textContent = [opts.footDate ? mine.dateText : null, opts.footCount ? formatCardCount(countCardChars(body)) : null].filter(Boolean).join(' · ');
     }
 
     /** 书摘封面：我选的图片，或强调色方块写标题前两个字。 */
@@ -463,12 +651,16 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     }
 
     /** 每个模板的强调色（遮盖的色块/图案也用它）。必须是不透明的 #RRGGBB（03 §5.9）。 */
-    function templateColors(mine, tpl) {
+    function templateColors(mine, tpl, pal = null) {
+        // 自选配色：整套颜色（强调色、遮盖条、纹理色）都来自它
+        if (pal) return { accent: pal.accent, bar: pal.dark ? '#ffffff' : '#000000', text: pal.text };
         const quote = solidColor('var(--SmartThemeQuoteColor, #e18a24)');
         const accent = tpl === 'paper' ? PAPER_RED
             : tpl === 'dark' ? solidColor('color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 60%, #a39d93)')
                 : tpl === 'digest' ? (mine.prefs.digestAccent === 'theme' ? quote : DIGEST_BLUE) : quote;
-        return { accent, bar: tpl === 'dark' ? '#ffffff' : '#000000' };
+        // 正文色只有画纹理时才用得上（量主题色要走一次画布，别每次都量）
+        const text = mine.prefs.opts.texture === 'none' ? '#000000' : tpl === 'paper' ? '#2a2521' : tpl === 'dark' ? '#e4e0d8' : tpl === 'digest' ? '#1f2329' : solidColor('var(--SmartThemeBodyColor, #dcdcd2)');
+        return { accent, bar: tpl === 'dark' ? '#ffffff' : '#000000', text };
     }
 
     /** 一个词实际用的遮盖：它自己的设置优先（临时词看本卡、永久词看记住的），否则默认。 */
@@ -613,12 +805,306 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`;
     }
 
+    // ───────────── 模板：选择、另存、菜单、导入导出（T104） ─────────────
+
+    /** 调一项或几项设计选项（页眉、排版、配色……）：存进 prefs，重画控件和卡片。 */
+    function patchOpts(mine, patch) {
+        changePrefs(mine, { opts: { ...mine.prefs.opts, ...patch } });
+    }
+
+    /** 套用一套模板（底子 + 选项值）。选项被整组替换；"当前用的自制模板"跟着变。 */
+    function applyTemplate(mine, def, custom) {
+        if (st !== mine || mine.exporting) return;
+        mine.prefs.template = def.base;
+        mine.prefs.tplId = custom ? def.id : null;
+        mine.prefs.opts = { ...def.options };
+        savePrefs(mine);
+        syncControls(mine);
+        compose(mine);
+    }
+
+    function chooseTemplate(mine, id) {
+        const custom = mine.templates.find(t => t.id === id);
+        const def = custom ?? BUILTIN_TEMPLATES.find(item => item.id === id);
+        if (def) applyTemplate(mine, def, !!custom);
+    }
+
+    /** 打开时：丢掉指向已删模板的记录；有"设为默认"就直接用它。 */
+    function settleTemplate(mine) {
+        const p = mine.prefs;
+        if (p.tplId && !mine.templates.some(t => t.id === p.tplId)) p.tplId = null;
+        if (!p.defaultTpl) return;
+        const custom = mine.templates.find(t => t.id === p.defaultTpl);
+        const def = custom ?? BUILTIN_TEMPLATES.find(item => item.id === p.defaultTpl);
+        if (!def) { p.defaultTpl = null; return; }
+        p.template = def.base;
+        p.tplId = custom ? def.id : null;
+        p.opts = { ...def.options };
+    }
+
+    function saveTemplates(mine) {
+        return store.settings.set(TEMPLATES_KEY, mine.templates).catch(error => { toast(`模板没保存上：${error.message ?? error}`); });
+    }
+
+    /** 模板的缩略色块：有自选配色就按它的底色画，否则沿用该底子自带的样子。 */
+    function templateSwatch(def) {
+        const pal = resolvePalette(def.options);
+        if (!pal) return h('span', { class: `stcr-tpl-swatch stcr-tpl-swatch--${def.base}`, 'aria-hidden': 'true' }, h('i'), h('i'));
+        const swatch = h('span', { class: 'stcr-tpl-swatch stcr-tpl-swatch--custom', 'aria-hidden': 'true',
+            style: `background-color:${pal.stops[0]};${pal.background ? `background-image:${pal.background};` : ''}color:${pal.text}` }, h('i'), h('i'));
+        swatch.lastChild.style.background = pal.accent;
+        return swatch;
+    }
+
+    function syncTemplates(mine) {
+        const { els, prefs } = mine;
+        const current = prefs.tplId && mine.templates.some(t => t.id === prefs.tplId) ? prefs.tplId : template(mine);
+        const cell = (def, label, custom) => h('div', { class: 'stcr-tpl-cell', 'data-tpl-custom': custom ? def.id : null },
+            h('button', { type: 'button', class: `stcr-btn stcr-tpl-btn${def.id === current ? ' stcr-on' : ''}`, 'data-tpl': def.id,
+                title: custom ? `${label}（自制；右键或点右上角的 ⋯ 管理）` : label, 'aria-pressed': String(def.id === current) },
+            templateSwatch(def), h('span', { text: label })),
+            custom ? iconButton('fa-ellipsis', `管理模板：${label}`, { class: 'stcr-tpl-more', 'data-tpl-more': def.id }) : null,
+            custom && prefs.defaultTpl === def.id ? h('i', { class: 'fa-solid fa-star stcr-tpl-default', title: '打开工作台默认用这一套', 'aria-hidden': 'true' }) : null);
+        els.tpl.replaceChildren(...BUILTIN_TEMPLATES.map(def => cell(def, def.label, false)), ...mine.templates.map(def => cell(def, def.name, true)));
+        const def = templateDef(mine);
+        const dirty = !optionsEqual(prefs.opts, def.options);
+        els.tplState.hidden = !dirty;
+        els.tplState.replaceChildren(...(dirty ? [h('span', { text: '现在的设置和这套模板不一样了' }),
+            h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'revert-tpl', text: '还原' })] : []));
+    }
+
+    /** 配色格子：第一格"模板自带"，18 组预设，最后"自定义"（两色 + 角度）。 */
+    function syncPalette(mine) {
+        const { els } = mine;
+        const o = mine.prefs.opts;
+        const btn = (id, title, attrs, ...kids) => h('button', { type: 'button', class: `stcr-btn stcr-pal-btn${o.palette === id ? ' stcr-on' : ''}${attrs.class ? ` ${attrs.class}` : ''}`,
+            'data-pal': id ?? '', title, 'aria-label': title, 'aria-pressed': String(o.palette === id), style: attrs.style }, ...kids);
+        els.palGrid.replaceChildren(
+            btn(null, '模板自带的配色', { class: 'stcr-pal-btn--none' }),
+            ...PALETTES.map(p => btn(p.id, `${p.label}（${p.tone === 'dark' ? '深' : '浅'}）`,
+                { style: `background-color:${p.stops[0]};${p.stops[1] ? `background-image:linear-gradient(${p.angle}deg, ${p.stops[0]}, ${p.stops[1]});` : ''}` },
+                h('i', { style: `color:${p.text}` }))),
+            btn('custom', '自定义两种颜色', { class: 'stcr-pal-btn--custom' }));
+        const pal = resolvePalette(o);
+        els.palName.textContent = o.palette === null ? '模板自带的配色（跟着模板走）' : o.palette === 'custom' ? '自定义' : `${pal?.label ?? ''} · ${pal?.tone === 'dark' ? '深色' : '浅色'}`;
+        els.palCustom.hidden = o.palette !== 'custom';
+        if (o.palette !== 'custom') { els.palCustom.replaceChildren(); return; }
+        const derived = derivePalette({ a: o.customA, b: o.customB, angle: o.customAngle });
+        els.palCustom.replaceChildren(
+            h('div', { class: 'stcr-studio-field stcr-studio-field--top' }, h('span', { text: '颜色一' }),
+                colorPicker({ value: o.customA, label: '自定义颜色一', onPick: color => { if (color) patchOpts(mine, { customA: color }); } })),
+            h('div', { class: 'stcr-studio-field stcr-studio-field--top' }, h('span', { text: '颜色二' }),
+                colorPicker({ value: o.customB, noneLabel: '不用（纯色）', noneSwatch: o.customA, label: '自定义颜色二', onPick: color => patchOpts(mine, { customB: color }) })),
+            o.customB ? h('div', { class: 'stcr-studio-field stcr-studio-field--top' }, h('span', { text: '角度' }),
+                h('div', { class: 'stcr-pal-angles', role: 'group', 'aria-label': '渐变角度' }, ...ANGLES.map(angle => h('button', { type: 'button',
+                    class: `stcr-btn stcr-pal-angle${o.customAngle === angle ? ' stcr-on' : ''}`, 'data-angle': angle, title: `${angle}°`, 'aria-label': `角度 ${angle} 度` },
+                h('i', { class: 'fa-solid fa-arrow-up', style: `transform:rotate(${angle}deg)`, 'aria-hidden': 'true' }))))) : null,
+            h('p', { class: 'stcr-studio-hint', text: derived.adjusted ? '字色按底色自动选深或浅；两种颜色差得太远，为了字看得清，已自动把它们压深（或提亮）了一点。' : '字色、名字色、引号色按底色自动选深或浅，保证看得清（对比度 ≥ 4.5:1）。' }));
+    }
+
+    /** 排版、页眉、按语、页脚这些选项的控件状态。 */
+    function syncOptions(mine) {
+        const { els } = mine;
+        const o = mine.prefs.opts;
+        for (const b of els.sideMain.querySelectorAll('[data-opt]')) b.classList.toggle('stcr-on', JSON.stringify(o[b.dataset.opt]) === b.dataset.val);
+        els.headerOn.input.checked = o.headerOn;
+        els.headerBox.hidden = !o.headerOn;
+        els.headerDate.input.checked = o.headerDate && !!mine.dateText;
+        els.headerDate.input.disabled = !mine.dateText;
+        els.headerDate.el.title = mine.dateText ? '' : '这段文字没有日期可用';
+        if (document.activeElement !== els.headerTitle) els.headerTitle.value = o.headerTitle;
+        els.leadOn.input.checked = o.leadOn;
+        els.leadText.hidden = !o.leadOn;
+        if (document.activeElement !== els.leadText) els.leadText.value = o.leadText;
+        els.footDate.input.checked = o.footDate && !!mine.dateText;
+        els.footDate.input.disabled = !mine.dateText;
+        els.footDate.el.title = mine.dateText ? '' : '这段文字没有日期可用';
+        els.footCount.input.checked = o.footCount;
+    }
+
+    // 自制模板：右键 / 点 ⋯ / 手机上长按弹出管理菜单
+    function wireTemplates(mine) {
+        const { els } = mine;
+        els.tpl.addEventListener('contextmenu', event => {
+            const cell = event.target.closest('[data-tpl-custom]');
+            if (!cell || st !== mine) return;
+            event.preventDefault();
+            openTemplateMenu(mine, cell.dataset.tplCustom, cell);
+        });
+        let timer = 0;
+        const cancel = () => { clearTimeout(timer); timer = 0; };
+        els.tpl.addEventListener('pointerdown', event => {
+            const cell = event.target.closest('[data-tpl-custom]');
+            if (event.pointerType === 'mouse' || !cell) return;
+            cancel();
+            timer = setTimeout(() => { timer = 0; mine.tplLong = performance.now(); openTemplateMenu(mine, cell.dataset.tplCustom, cell); }, 550);
+        });
+        for (const type of ['pointerup', 'pointercancel', 'pointerleave']) els.tpl.addEventListener(type, cancel);
+    }
+
+    /** 另存为模板：起名（≤ 20 字），存进 stcr:ui:card:templates:v1，并选中它。 */
+    function openSaveAs(mine, anchor) {
+        if (st !== mine || mine.exporting) return;
+        closeMenu(mine);
+        const input = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: String(MAX_TEMPLATE_NAME), placeholder: '给这套模板起个名字', 'aria-label': '模板名字' });
+        const err = h('p', { class: 'stcr-tpl-pop-err', role: 'alert', hidden: true });
+        const save = () => {
+            const added = addTemplate(mine.templates, { name: input.value, base: template(mine), options: mine.prefs.opts, css: customRecord(mine)?.css ?? '' });
+            if (!added.ok) { err.textContent = added.error; err.hidden = false; return; }
+            mine.templates = added.list;
+            mine.prefs.tplId = added.template.id;
+            closeMenu(mine);
+            saveTemplates(mine);
+            savePrefs(mine);
+            toast(`已存为模板：${added.template.name}`);
+            syncControls(mine);
+            compose(mine);
+        };
+        input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); save(); } });
+        const menu = h('div', { class: 'stcr-popover stcr-mask-menu stcr-tpl-pop', role: 'dialog', 'aria-label': '另存为模板' },
+            h('div', { class: 'stcr-mask-menu-title', text: '另存为模板（配色、排版、页眉页脚都会存进去）' }),
+            h('div', { class: 'stcr-tpl-pop-row' }, input,
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '保存', onclick: save }),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '取消', onclick: () => closeMenu(mine) })),
+            err);
+        placeMenu(mine, menu, anchor);
+        input.focus();
+    }
+
+    /** 自制模板的管理菜单：重命名 / 设为默认 / 导出（文件、复制文字）/ 删除。 */
+    function openTemplateMenu(mine, id, anchor) {
+        const record = mine.templates.find(t => t.id === id);
+        if (!record || st !== mine || mine.exporting) return;
+        closeMenu(mine);
+        const isDefault = mine.prefs.defaultTpl === id;
+        const item = (icon, label, act, extra = '') => h('button', { type: 'button', class: `stcr-btn ${extra}`.trim(), 'data-tpl-act': act },
+            h('i', { class: `fa-solid ${icon}`, 'aria-hidden': 'true' }), h('span', { text: label }));
+        const menu = h('div', { class: 'stcr-popover stcr-mask-menu stcr-tpl-menu', role: 'menu', 'aria-label': `模板：${record.name}` },
+            item('fa-pen', '重命名', 'rename'),
+            item(isDefault ? 'fa-star-half-stroke' : 'fa-star', isDefault ? '取消默认' : '设为默认', 'default'),
+            item('fa-file-arrow-down', '导出为文件', 'file'),
+            item('fa-copy', '复制为文本', 'copy'),
+            item('fa-trash-can', '删除', 'delete', 'stcr-danger'));
+        menu.addEventListener('click', async event => {
+            const act = event.target.closest('[data-tpl-act]')?.dataset.tplAct;
+            if (!act) return;
+            if (act === 'rename') { renameInMenu(mine, menu, record); return; }
+            closeMenu(mine);
+            if (act === 'default') {
+                mine.prefs.defaultTpl = isDefault ? null : id;
+                savePrefs(mine);
+                toast(isDefault ? '已取消默认：下次打开用上次的设置' : `已设为默认：下次打开工作台用“${record.name}”`);
+                syncTemplates(mine);
+            } else if (act === 'file') {
+                downloadText(mine, `st-reader-template-${record.name.replace(/[\\/:*?"<>|\s]+/g, '-')}.json`, templateToText(record));
+                toast('已导出模板文件（在浏览器的下载文件夹里）');
+            } else if (act === 'copy') {
+                toast(await copyText(templateToText(record)) ? '已复制模板文字，可以发给别人，对方用"导入模板…"粘贴' : '复制失败，请改用"导出为文件"');
+            } else if (act === 'delete') {
+                if (!await confirm(`删除模板“${record.name}”？删掉就找不回来了（可以先导出备份）。`, '删除')) return;
+                if (st !== mine) return;
+                mine.templates = removeTemplate(mine.templates, id);
+                if (mine.prefs.tplId === id) mine.prefs.tplId = null;
+                if (mine.prefs.defaultTpl === id) mine.prefs.defaultTpl = null;
+                saveTemplates(mine);
+                savePrefs(mine);
+                toast(`已删除模板：${record.name}`);
+                syncControls(mine);
+                compose(mine);
+            }
+        });
+        placeMenu(mine, menu, anchor);
+        menu.querySelector('button')?.focus();
+    }
+
+    function renameInMenu(mine, menu, record) {
+        const input = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: String(MAX_TEMPLATE_NAME), value: record.name, 'aria-label': '新名字' });
+        const commit = () => {
+            const next = renameTemplate(mine.templates, record.id, input.value);
+            if (!next) { input.focus(); return; }
+            mine.templates = next;
+            closeMenu(mine);
+            saveTemplates(mine);
+            syncTemplates(mine);
+        };
+        input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(); } });
+        menu.classList.add('stcr-tpl-pop');
+        menu.replaceChildren(h('div', { class: 'stcr-mask-menu-title', text: '重命名（最多 20 个字）' }),
+            h('div', { class: 'stcr-tpl-pop-row' }, input, h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '确定', onclick: commit })));
+        input.focus();
+        input.select();
+    }
+
+    /** 浏览器里再验一遍 CSS：加前缀 + core 的清洗器过完不能是空的。 */
+    function cssProblem(css, id) {
+        const scoped = scopeTemplateCss(css, id);
+        if (!scoped) return '没有一条能用的规则';
+        let clean = '';
+        try { clean = cleanStyleText(scoped, false, { scope: TEMPLATE_SCOPE_ROOT }); } catch { clean = ''; }
+        return clean ? null : '清洗后是空的，没有可用的规则';
+    }
+
+    /** 导入模板：选文件或粘贴文字。不合法整份拒绝，并说明是哪一项。 */
+    function openImport(mine, anchor) {
+        if (st !== mine || mine.exporting) return;
+        closeMenu(mine);
+        const area = h('textarea', { class: 'text_pole stcr-studio-textarea', rows: '6', spellcheck: 'false', placeholder: '把别人发给你的模板文字粘贴在这里，或点“选择文件…”', 'aria-label': '模板文字' });
+        const err = h('p', { class: 'stcr-tpl-pop-err', role: 'alert', hidden: true });
+        const fail = message => { err.textContent = `没有导入：${message}`; err.hidden = false; };
+        const run = text => {
+            const parsed = parseTemplateText(text);
+            if (!parsed.ok) { fail(parsed.error); return; }
+            const id = newTemplateId();
+            if (parsed.template.css) {
+                const problem = cssProblem(parsed.template.css, id);
+                if (problem) { fail(`css：${problem}`); return; }
+            }
+            const added = addTemplate(mine.templates, parsed.template, { id });
+            if (!added.ok) { fail(added.error); return; }
+            mine.templates = added.list;
+            closeMenu(mine);
+            saveTemplates(mine);
+            toast(`已导入模板：${added.template.name}`);
+            applyTemplate(mine, added.template, true);
+        };
+        const file = h('input', { type: 'file', accept: '.json,application/json,text/plain', hidden: true, 'aria-label': '选择模板文件' });
+        file.addEventListener('change', async () => {
+            const picked = file.files?.[0];
+            file.value = '';
+            if (!picked) return;
+            if (picked.size > 64 * 1024) { fail('这个文件太大了，模板文件一般只有几 KB'); return; }
+            area.value = await picked.text();
+            run(area.value);
+        });
+        const menu = h('div', { class: 'stcr-popover stcr-mask-menu stcr-tpl-pop', role: 'dialog', 'aria-label': '导入模板' },
+            h('div', { class: 'stcr-mask-menu-title', text: '导入模板' }), area,
+            h('div', { class: 'stcr-tpl-pop-row' },
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '导入', onclick: () => run(area.value) }),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '选择文件…', onclick: () => file.click() }),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', text: '取消', onclick: () => closeMenu(mine) }), file),
+            err,
+            h('p', { class: 'stcr-studio-hint', text: '只认本阅读器导出的模板文件。里面如果有外链图片、@import 这类写法，会被整份拒绝。' }));
+        placeMenu(mine, menu, anchor);
+        area.focus();
+    }
+
+    function downloadText(mine, name, text) {
+        const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+        mine.urls.push(url);
+        const link = h('a', { href: url, download: name, class: 'stcr-offscreen' });
+        mine.els.studio.append(link);
+        link.click();
+        link.remove();
+    }
+
     // ───────────── 右侧控件 ─────────────
 
     function syncControls(mine) {
         const { els, prefs } = mine;
         const tpl = template(mine);
-        for (const b of els.tpl.children) b.classList.toggle('stcr-on', b.dataset.tpl === tpl);
+        syncTemplates(mine);
+        syncPalette(mine);
+        syncOptions(mine);
         for (const b of els.sizes.children) b.classList.toggle('stcr-on', b.dataset.size === prefs.size);
         for (const b of els.masks.children) b.classList.toggle('stcr-on', b.dataset.mask === prefs.mask);
         for (const b of els.accent.children) b.classList.toggle('stcr-on', b.dataset.accent === prefs.digestAccent);

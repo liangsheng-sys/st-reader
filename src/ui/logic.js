@@ -3,6 +3,7 @@
 
 import { DOC_EXPORT_DEFAULTS, normalizeDocOptions } from '../core/documentText.js';
 import { isStHiddenFloor, isSystemLikeFloor } from '../core/messageModel.js';
+import { DEFAULT_OPTIONS, normalizeOptions } from './cardTemplates.js';
 
 /** 设置项的取值范围。null 表示"跟随主题 / 跟随排版方向的默认值"。 */
 export const PREF_LIMITS = Object.freeze({
@@ -319,6 +320,9 @@ export const DEFAULT_CARD_PREFS = Object.freeze({
     maskAsset: null,       // 小图案默认用我导入的图片（store.assets 的 id）；null = 用 icon
     digestCover: null,     // 书摘封面用我导入的图片；null = 强调色方块写标题
     maskColor: null,       // 色块 / 小图案的颜色（T42）；null = 跟随模板强调色
+    opts: DEFAULT_OPTIONS, // T104：页眉 / 按语 / 页脚 / 排版 / 配色 / 纹理 / 字体（cardTemplates.js），模板 = 底子 template + 这一组
+    tplId: null,           // T104：当前用的自制模板 id；null = 内置四套（底子由 template 决定）
+    defaultTpl: null,      // T104："设为默认"的模板（内置 id 或自制模板 id）；打开工作台时优先用它
 });
 
 /**
@@ -353,6 +357,8 @@ export function normalizeCardPrefs(raw) {
     // 图片 id 是否还在由工作台对照 store.assets 再查一遍
     for (const key of ['maskAsset', 'digestCover']) if (typeof input[key] === 'string' && input[key] && input[key].length <= 300) out[key] = input[key];
     if (typeof input.maskColor === 'string') out.maskColor = cleanHexColor(input.maskColor);
+    out.opts = normalizeOptions(input.opts);
+    for (const key of ['tplId', 'defaultTpl']) if (typeof input[key] === 'string' && /^[\w-]{1,40}$/.test(input[key])) out[key] = input[key];
     return out;
 }
 

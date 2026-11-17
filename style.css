@@ -1262,11 +1262,11 @@
 #stcr_root .stcr-card-sign { font-size: 12px; letter-spacing: .08em; }
 
 /* 三套固定配色的模板：楼层压平成"文字 + 小名字"，不带聊天气泡；字体用阅读器正文此刻的字体（含 Ny） */
-#stcr_root .stcr-card:not(.stcr-card--theme) { font-family: var(--stcr-card-font, inherit); text-shadow: none; }
+#stcr_root .stcr-card.stcr-card--flat { font-family: var(--stcr-card-font, inherit); text-shadow: none; }
 /* ST 自己给 .mes 上了主题字色、给所有元素上了文字阴影：固定配色的模板里全部改回模板自己的 */
-#stcr_root .stcr-card:not(.stcr-card--theme) :is(.mes, .mes_block, .ch_name, .mes_text, .mes_reasoning) { color: inherit; }
-#stcr_root .stcr-card:not(.stcr-card--theme) * { text-shadow: none; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes {
+#stcr_root .stcr-card.stcr-card--flat :is(.mes, .mes_block, .ch_name, .mes_text, .mes_reasoning) { color: inherit; }
+#stcr_root .stcr-card.stcr-card--flat * { text-shadow: none; }
+#stcr_root .stcr-card.stcr-card--flat .mes {
     display: block;
     margin: 0 0 1.15em;
     padding: 0;
@@ -1277,12 +1277,12 @@
     backdrop-filter: none;
     width: auto;
 }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes:last-child { margin-bottom: 0; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_block { padding: 0; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .ch_name { display: block; margin: 0 0 .3em; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .name_text { font-size: .78em; font-weight: 600; letter-spacing: .18em; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text,
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_reasoning {
+#stcr_root .stcr-card.stcr-card--flat .mes:last-child { margin-bottom: 0; }
+#stcr_root .stcr-card.stcr-card--flat .mes_block { padding: 0; }
+#stcr_root .stcr-card.stcr-card--flat .ch_name { display: block; margin: 0 0 .3em; }
+#stcr_root .stcr-card.stcr-card--flat .name_text { font-size: .78em; font-weight: 600; letter-spacing: .18em; }
+#stcr_root .stcr-card.stcr-card--flat .mes_text,
+#stcr_root .stcr-card.stcr-card--flat .mes_reasoning {
     padding: 0;
     color: inherit;
     font-family: inherit;
@@ -1290,22 +1290,23 @@
     line-height: 1.85;
     text-shadow: none;
 }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text p { margin: 0 0 .6em; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text p:last-child { margin-bottom: 0; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text pre,
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text code { font-size: .86em; }
-#stcr_root .stcr-card:not(.stcr-card--theme) .mes_text pre { padding: .7em .9em; border-radius: 6px; overflow: hidden; white-space: pre-wrap; }
+#stcr_root .stcr-card.stcr-card--flat .mes_text p { margin: 0 0 .6em; }
+#stcr_root .stcr-card.stcr-card--flat .mes_text p:last-child { margin-bottom: 0; }
+#stcr_root .stcr-card.stcr-card--flat .mes_text pre,
+#stcr_root .stcr-card.stcr-card--flat .mes_text code { font-size: .86em; }
+#stcr_root .stcr-card.stcr-card--flat .mes_text pre { padding: .7em .9em; border-radius: 6px; overflow: hidden; white-space: pre-wrap; }
 
 /* 继承主题：用户在 ST 里看到的样子被"裱"起来 */
 #stcr_root .stcr-card--theme {
-    padding: 26px;
+    padding: calc(26px * var(--stcr-pad, 1));
+    font-size: calc(1em * var(--stcr-fs, 1));
     background-color: #171717;
     background-color: rgb(from var(--SmartThemeBlurTintColor, #171717) r g b / 1);
     color: var(--SmartThemeBodyColor, #dcdcd2);
     font-family: var(--mainFontFamily, inherit);
 }
 #stcr_root .stcr-card--theme .stcr-card-page {
-    padding: 22px 22px 18px;
+    padding: calc(22px * var(--stcr-pad, 1)) calc(22px * var(--stcr-pad, 1)) calc(18px * var(--stcr-pad, 1));
     border-width: 1px;
     border-style: solid;
     border-color: var(--SmartThemeBorderColor, rgba(255, 255, 255, .2));
@@ -1322,8 +1323,8 @@
 }
 
 /* 纸张：一页从书里撕下的纸 */
-#stcr_root .stcr-card--paper { padding: 40px 44px 34px; background: #f5f0e6; color: #2a2521; font-size: 17px; }
-#stcr_root .stcr-card--paper .stcr-card-page { padding: 26px 0 22px; border-top: 1px solid rgba(42, 37, 33, .6); border-bottom: 1px solid rgba(42, 37, 33, .6); }
+#stcr_root .stcr-card--paper { padding: calc(40px * var(--stcr-pad, 1)) calc(44px * var(--stcr-pad, 1)) calc(34px * var(--stcr-pad, 1)); background: #f5f0e6; color: #2a2521; font-size: calc(17px * var(--stcr-fs, 1)); }
+#stcr_root .stcr-card--paper .stcr-card-page { padding: calc(26px * var(--stcr-pad, 1)) 0 calc(22px * var(--stcr-pad, 1)); border-top: 1px solid rgba(42, 37, 33, .6); border-bottom: 1px solid rgba(42, 37, 33, .6); }
 #stcr_root .stcr-card--paper .name_text { color: #8b7f72; }
 #stcr_root .stcr-card--paper .mes_text p { text-indent: 2em; margin-bottom: .9em; }
 #stcr_root .stcr-card--paper .mes_text q, #stcr_root .stcr-card--paper .mes_text q * { color: #8a3a2e; }
@@ -1335,7 +1336,7 @@
 #stcr_root .stcr-card--paper .stcr-card-sign { color: #7a6f64; font-style: italic; }
 
 /* 深色：夜读截图 */
-#stcr_root .stcr-card--dark { padding: 56px 52px 40px; background: #141518; color: #e4e0d8; font-size: 16.5px; }
+#stcr_root .stcr-card--dark { padding: calc(56px * var(--stcr-pad, 1)) calc(52px * var(--stcr-pad, 1)) calc(40px * var(--stcr-pad, 1)); background: #141518; color: #e4e0d8; font-size: calc(16.5px * var(--stcr-fs, 1)); }
 #stcr_root .stcr-card--dark .name_text { color: #a9a39a; }
 #stcr_root .stcr-card--dark .name_text::before {
     content: '';
@@ -1356,9 +1357,9 @@
 #stcr_root .stcr-card--dark .stcr-card-sign { color: #77726b; }
 
 /* 书摘：读书 App 的书摘分享图（只仿版式，不用任何它家的名称和素材） */
-#stcr_root .stcr-card--digest { padding: 34px 30px; background: #f2f3f5; color: #1f2329; font-size: 17.5px; }
+#stcr_root .stcr-card--digest { padding: calc(34px * var(--stcr-pad, 1)) calc(30px * var(--stcr-pad, 1)); background: #f2f3f5; color: #1f2329; font-size: calc(17.5px * var(--stcr-fs, 1)); }
 #stcr_root .stcr-card--digest .stcr-card-page {
-    padding: 30px 32px 24px;
+    padding: calc(30px * var(--stcr-pad, 1)) calc(32px * var(--stcr-pad, 1)) calc(24px * var(--stcr-pad, 1));
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 2px 14px rgba(31, 35, 41, .06);
@@ -1400,6 +1401,137 @@
 }
 #stcr_root .stcr-card-source { min-width: 0; color: #86909c; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #stcr_root .stcr-card-foot--digest .stcr-card-sign { margin-left: auto; color: #a9aeb8; font-size: 11.5px; white-space: nowrap; }
+
+/* ── 卡片的页眉 / 按语 / 页脚与可调选项（T104、F22）。选项没动时下面的规则都不生效，外观与改造前一致 ── */
+#stcr_root .stcr-card-head { display: flex; align-items: center; gap: .55em; margin: 0 0 .9em; font-size: .86em; line-height: 1.3; }
+#stcr_root .stcr-card-head-icon { flex: none; width: 1.25em; height: 1.25em; }
+#stcr_root .stcr-card-head-title { min-width: 0; font-weight: 600; letter-spacing: .12em; }
+#stcr_root .stcr-card-head-date { margin-left: auto; flex: none; font-size: .86em; letter-spacing: .06em; opacity: .62; white-space: nowrap; }
+#stcr_root .stcr-card-lead {
+    margin: 0 0 1.1em;
+    padding: .1em 0 .1em .85em;
+    border-left-width: 2px;
+    border-left-style: solid;
+    border-left-color: var(--stcr-card-accent);
+    font-size: .9em;
+    font-style: italic;
+    line-height: 1.7;
+    opacity: .85;
+}
+#stcr_root .stcr-card-meta { margin-right: auto; font-size: 12px; letter-spacing: .06em; opacity: .62; white-space: nowrap; }
+#stcr_root .stcr-card-foot--digest { flex-wrap: wrap; }
+#stcr_root .stcr-card-foot--digest .stcr-card-meta { flex: 1 0 100%; order: 3; margin: 10px 0 0; color: #86909c; opacity: 1; }
+
+/* 可调选项：只在用户动过它时才加对应的类 */
+#stcr_root .stcr-card.stcr-card--lh .mes_block :is(.mes_text, .mes_reasoning) { line-height: var(--stcr-lh); }
+#stcr_root .stcr-card.stcr-card--ls .mes_block :is(.mes_text, .mes_reasoning, .name_text) { letter-spacing: var(--stcr-ls); }
+#stcr_root .stcr-card.stcr-card--justify .mes_block :is(.mes_text, .mes_reasoning) { text-align: justify; }
+#stcr_root .stcr-card.stcr-card--ff, #stcr_root .stcr-card.stcr-card--ff .mes_block :is(.mes_text, .mes_reasoning, .name_text, .ch_name) { font-family: var(--stcr-ff); }
+
+/* 配色（palette 选项）：把底子里写死的颜色换成这一组；继承主题底子也改成不透明的平面卡 */
+#stcr_root .stcr-card.stcr-card--pal { color: var(--stcr-c-text); }
+#stcr_root .stcr-card.stcr-card--pal .mes_block :is(.name_text) { color: var(--stcr-c-name); }
+#stcr_root .stcr-card.stcr-card--pal .mes_text :is(q, q *) { color: var(--stcr-c-quote); }
+#stcr_root .stcr-card.stcr-card--pal .mes_text :is(em, i) { color: var(--stcr-c-em); }
+#stcr_root .stcr-card.stcr-card--pal .mes_text :is(strong, b) { color: var(--stcr-c-text); }
+#stcr_root .stcr-card.stcr-card--pal .mes_text :is(pre, code) { background-color: var(--stcr-c-soft); color: var(--stcr-c-text); }
+#stcr_root .stcr-card.stcr-card--pal .mes_text a { color: var(--stcr-c-quote); }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-sign, #stcr_root .stcr-card.stcr-card--pal .stcr-card-source { color: var(--stcr-c-sign); }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-foot--digest .stcr-card-meta { color: var(--stcr-c-sign); }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-page { border-top-color: var(--stcr-c-line); border-bottom-color: var(--stcr-c-line); border-left-color: var(--stcr-c-line); border-right-color: var(--stcr-c-line); }
+#stcr_root .stcr-card.stcr-card--pal.stcr-card--theme .stcr-card-page { background-image: none; }
+#stcr_root .stcr-card.stcr-card--pal.stcr-card--digest .stcr-card-page { background-color: var(--stcr-c-page); box-shadow: none; }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-foot { border-top-color: var(--stcr-c-line); opacity: 1; }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-thoughts { border-top-color: var(--stcr-c-line); }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-thought { background-color: var(--stcr-c-soft); color: var(--stcr-c-em); }
+#stcr_root .stcr-card.stcr-card--pal .stcr-card-reasoning { color: var(--stcr-c-em); }
+
+/* ── 工作台右栏：五组可折叠区（T104） ── */
+#stcr_root .stcr-studio-side-main { gap: 4px; }
+#stcr_root .stcr-studio-grp { border-bottom: 1px solid color-mix(in srgb, var(--stcr-border) 45%, transparent); }
+#stcr_root .stcr-studio-grp > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 2px;
+    color: var(--stcr-text);
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+#stcr_root .stcr-studio-grp > summary::-webkit-details-marker { display: none; }
+#stcr_root .stcr-studio-grp > summary::after {
+    content: '\f078';
+    margin-left: auto;
+    color: var(--stcr-faint);
+    font: 900 11px/1 'Font Awesome 6 Free';
+    transition: transform .15s;
+}
+#stcr_root .stcr-studio-grp[open] > summary::after { transform: rotate(180deg); }
+#stcr_root .stcr-studio-grp > summary:hover { color: var(--stcr-accent); }
+#stcr_root .stcr-studio-grp-sub { margin-left: 2px; color: var(--stcr-faint); font-size: 11.5px; font-weight: 400; letter-spacing: 0; }
+#stcr_root .stcr-studio-grp-body { display: flex; flex-direction: column; gap: 18px; padding: 2px 0 20px; }
+#stcr_root .stcr-studio-grp .stcr-studio-sec-title { font-weight: 500; }
+
+/* 模板行：内置四套 + 自制，每个一个缩略色块；自制的右上角有 ⋯ */
+#stcr_root .stcr-tpl-cell { position: relative; display: flex; }
+#stcr_root .stcr-tpl-cell > .stcr-tpl-btn { flex: 1; min-width: 0; }
+#stcr_root .stcr-tpl-btn > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stcr_root .stcr-tpl-more { position: absolute; top: 1px; right: 1px; width: 22px; height: 22px; font-size: 11px; border-radius: 50%; background: color-mix(in srgb, var(--stcr-panel) 80%, transparent); }
+#stcr_root .stcr-tpl-swatch--custom i { background: currentColor; opacity: .75; }
+#stcr_root .stcr-tpl-default { position: absolute; top: 4px; left: 4px; font-size: 10px; color: var(--stcr-accent); }
+#stcr_root .stcr-tpl-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#stcr_root .stcr-tpl-actions .stcr-text-btn { padding: 5px 12px; font-size: 12.5px; }
+#stcr_root .stcr-tpl-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; color: var(--stcr-faint); font-size: 12px; }
+#stcr_root .stcr-tpl-state .stcr-text-btn { padding: 2px 9px; font-size: 12px; }
+#stcr_root .stcr-studio-save { white-space: nowrap; }
+#stcr_root .stcr-studio-hdr-box { display: flex; flex-direction: column; gap: 10px; }
+
+/* 配色：色块网格 */
+#stcr_root .stcr-pal-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+#stcr_root .stcr-pal-btn {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--stcr-border) 70%, transparent);
+    overflow: hidden;
+}
+#stcr_root .stcr-pal-btn.stcr-on { outline: 2px solid var(--stcr-accent); outline-offset: 2px; }
+#stcr_root .stcr-pal-btn:hover { transform: scale(1.06); }
+#stcr_root .stcr-pal-btn i { position: absolute; left: 50%; top: 50%; width: 38%; height: 3px; transform: translate(-50%, -50%); border-radius: 2px; background: currentColor; opacity: .7; }
+#stcr_root .stcr-pal-btn--none { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--stcr-faint) 55%, transparent) 6px 7px); }
+#stcr_root .stcr-pal-btn--custom { background: conic-gradient(#f5b8c8, #f3dd7a, #9bd8bf, #93c8ec, #c3b1e6, #f5b8c8); }
+#stcr_root .stcr-pal-name { margin: -2px 0 0; color: var(--stcr-faint); font-size: 12px; }
+#stcr_root .stcr-pal-custom { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--stcr-hover); }
+#stcr_root .stcr-pal-custom .stcr-studio-field { flex-wrap: wrap; }
+#stcr_root .stcr-pal-angles { display: flex; flex-wrap: wrap; gap: 4px; }
+#stcr_root .stcr-pal-angle { width: 30px; height: 30px; font-size: 12px; border: 1px solid transparent; }
+#stcr_root .stcr-pal-angle.stcr-on { border-color: var(--stcr-accent); }
+#stcr_root .stcr-pal-angle i { display: inline-block; transition: transform .12s; }
+
+/* 排版：一行一项，分段按钮 */
+#stcr_root .stcr-studio-row { display: flex; flex-direction: column; gap: 6px; }
+#stcr_root .stcr-studio-row > .stcr-studio-sec-title { margin-bottom: 0; }
+#stcr_root .stcr-studio-textarea { width: 100%; min-height: 110px; padding: 8px 10px; font: 12px/1.5 ui-monospace, Consolas, monospace; resize: vertical; box-sizing: border-box; }
+#stcr_root .stcr-tpl-pop { width: min(340px, calc(100% - 16px)); max-width: none; }
+#stcr_root .stcr-tpl-pop-err { margin: 0; color: #e06c5a; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; }
+#stcr_root .stcr-tpl-pop-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#stcr_root .stcr-tpl-pop .text_pole { flex: 1; min-width: 0; }
+#stcr_root .stcr-tpl-menu { gap: 2px; padding: 6px; min-width: 150px; }
+#stcr_root .stcr-tpl-menu button { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; text-align: left; font-size: 13px; }
+#stcr_root .stcr-tpl-menu button:hover { background: var(--stcr-hover); }
+#stcr_root .stcr-tpl-menu button.stcr-danger { color: #e06c5a; }
+@media (max-width: 599px) {
+    #stcr_root .stcr-pal-grid { grid-template-columns: repeat(6, 1fr); }
+    #stcr_root .stcr-studio-head { gap: 4px; }
+    #stcr_root .stcr-studio-save span { display: none; }
+}
 
 @media (max-width: 999px) {
     #stcr_root .stcr-studio-body { grid-template-columns: minmax(0, 1fr) 280px; }
