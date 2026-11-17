@@ -103,7 +103,7 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
                 || c.style.backgroundImage || c.style.borderRadius) plain.push(`${name}：${c.className} ${odd} ${vars}`);
         }
         check('内置四套模板默认选项下：没有配色 / 排版类名与变量，没有页眉、按语、页脚日期字数', plain.length === 0, plain.join('；'));
-        check('右栏五组：模板 / 配色 / 排版 / 页眉页脚 / 遮盖与名字', [...studio().querySelectorAll('.stcr-studio-grp > summary')].map(s => s.textContent.trim()).join('/') === '模板/配色/排版/页眉页脚/遮盖与名字');
+        check('右栏六组：模板 / 配色 / 排版 / 页眉页脚 / 自定义样式 / 遮盖与名字', [...studio().querySelectorAll('.stcr-studio-grp > summary')].map(s => s.textContent.trim()).join('/') === '模板/配色/排版/页眉页脚/自定义样式（写 CSS）/遮盖与名字');
         check('配色格子 ≥ 16 组预设 + 模板自带 + 自定义', studio().querySelectorAll('.stcr-pal-btn').length >= 18, studio().querySelectorAll('.stcr-pal-btn').length);
 
         // ── 2. 调一套：纸张底子 + 天青渐变 + 页眉（图标 + 标题）+ 格纹 + 圆角
@@ -243,6 +243,48 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
         renameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
         await until(() => tplButton('改过名'), '重命名');
         check('重命名：模板行与存储都改了', (await savedList()).some(t => t.id === idCss && t.name === '改过名'));
+
+        // ── 12. 自定义样式框（写 CSS）：输入马上生效、坏的不生效并说原因、能覆盖已存模板、示例能一键填入
+        const cssArea = () => studio().querySelector('.stcr-studio-css');
+        await typeInto(cssArea(), '.mes_text { color: #0a7a3c; }');
+        await wait(700);
+        check('自定义样式：输入后预览里正文变成 rgb(10, 122, 60)，状态写"样式已生效"，阅读器正文不受影响', getComputedStyle(card().querySelector('.mes_text')).color === 'rgb(10, 122, 60)'
+            && /样式已生效/.test(studio().querySelector('.stcr-studio-css-state').textContent) && getComputedStyle(document.querySelector('#stcr_chat .mes_text')).color !== 'rgb(10, 122, 60)');
+        check('自定义样式：卡片带 stcr-tpl-<id> 类（导出副本靠它命中）', [...card().classList].some(name => name.startsWith('stcr-tpl-')));
+        const green = await exportPng();
+        let greenPx = 0;
+        for (let i = 0; i < green.pixels.data.length; i += 4) if (green.pixels.data[i] < 60 && green.pixels.data[i + 1] > 90 && green.pixels.data[i + 2] < 90) greenPx++;
+        check('自定义样式带进了导出的 PNG（图里有 #0a7a3c 的字）', greenPx > 200, `绿色像素 ${greenPx}`);
+        await typeInto(cssArea(), '@import url(https://example.invalid/a.css); .mes_text { color: #0a7a3c; }');
+        await wait(700);
+        check('坏样式（@import）：状态点名原因，预览里不套这份样式', /没有生效/.test(studio().querySelector('.stcr-studio-css-state').textContent) && /@import/.test(studio().querySelector('.stcr-studio-css-state').textContent)
+            && !card().querySelector('style[data-stcr-tplcss]'));
+        await typeInto(cssArea(), '.mes_text { color: #0a7a3c; }');
+        await wait(700);
+        await click(`[data-tpl-more="${idCss}"]`, 250);
+        await click('.stcr-tpl-menu [data-tpl-act="update"]', 400);
+        check('"用现在的设置覆盖它"：存储里该模板的 css 换成新的', (await savedList()).find(t => t.id === idCss)?.css === '.mes_text { color: #0a7a3c; }');
+        await click('.stcr-tpl-btn[data-tpl="paper"]', 400);
+        check('换成内置模板：自定义样式清空，预览不带这份样式', cssArea().value === '' && !card().querySelector('style[data-stcr-tplcss]'));
+
+        // ── 13. 新选项：气泡 / 对白 / 名字 / 边框；默认不加类
+        const classes = () => [...card().classList];
+        check('默认状态卡片不带任何新选项类（内置外观不变的保证）', !classes().some(name => /--(bubble|q-|n-|frame-)/.test(name)), classes().join(' '));
+        const choose = (key, value) => click(`[data-opt="${key}"][data-val='${JSON.stringify(value)}']`);
+        await choose('layout', 'bubble'); await choose('quoteStyle', 'highlight');
+        await choose('nameStyle', 'chip'); await choose('frame', 'thin');
+        check('选了气泡 / 荧光笔 / 标签 / 细框：卡片根带对应的类', ['stcr-card--bubble', 'stcr-card--q-highlight', 'stcr-card--n-chip', 'stcr-card--frame-thin'].every(name => classes().includes(name)), classes().join(' '));
+        check('气泡：正文有圆角底色；每楼带 --user / --char 类', parseFloat(getComputedStyle(card().querySelector('.mes_text')).borderTopLeftRadius) > 4
+            && !!card().querySelector('.stcr-card-mes--user, .stcr-card-mes--char'));
+        await click('[data-studio="revert-tpl"]', 400);
+        check('点"还原"：新选项回到默认，类都没了', !classes().some(name => /--(bubble|q-|n-|frame-)/.test(name)), classes().join(' '));
+
+        // ── 14. 示例与 AI 说明
+        await click('[data-studio="css-example"]', 900);
+        check('填入示例（推文版式）：页眉标题加粗到 800，状态"样式已生效"', getComputedStyle(card().querySelector('.stcr-card-head-title')).fontWeight === '800'
+            && /样式已生效/.test(studio().querySelector('.stcr-studio-css-state').textContent), studio().querySelector('.stcr-studio-css-state').textContent);
+        await click('[data-studio="copy-guide"]', 500);
+        check('"复制给 AI 的说明"有反馈（成功或提示失败）', toastText().length > 0, toastText());
     } catch (error) {
         popupFailure = error;
         check('卡片模板浏览器回归没有中途出错', false, error?.stack ?? error);

@@ -37,6 +37,12 @@ export const PADDINGS = Object.freeze([{ id: 'tight', label: '紧', scale: 0.7 }
 export const RADII = Object.freeze([{ id: 0, label: '直角' }, { id: 12, label: '小圆角' }, { id: 24, label: '大圆角' }]);
 export const ANGLES = Object.freeze([0, 45, 90, 135, 180, 225, 270, 315]);
 export const TEXTURES = Object.freeze([{ id: 'none', label: '无' }, { id: 'grid', label: '格纹' }, { id: 'dots', label: '点阵' }, { id: 'lines', label: '横线' }]);
+/** 版式：flow = 原样一段一段排；bubble = 聊天气泡（你的话靠右、对方的话靠左）。 */
+export const LAYOUTS = Object.freeze([{ id: 'flow', label: '正文' }, { id: 'bubble', label: '气泡' }]);
+/** 对白（引号里的话）怎么突出：color = 各模板原有的变色。 */
+export const QUOTE_STYLES = Object.freeze([{ id: 'color', label: '变色' }, { id: 'plain', label: '不突出' }, { id: 'underline', label: '下划线' }, { id: 'highlight', label: '荧光笔' }]);
+export const NAME_STYLES = Object.freeze([{ id: 'plain', label: '小字' }, { id: 'chip', label: '标签' }, { id: 'rule', label: '带横线' }]);
+export const FRAMES = Object.freeze([{ id: 'none', label: '无' }, { id: 'thin', label: '细框' }, { id: 'bold', label: '粗框' }, { id: 'dashed', label: '虚线框' }]);
 /** 只写族名，本机没装就回退到后面的，不下载任何字体。 */
 export const FONT_FAMILIES = Object.freeze([
     { id: 'follow', label: '跟随正文', css: null },
@@ -56,6 +62,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
     fontSize: 's', lineHeight: null, letterSpacing: 0, align: 'left', padding: 'normal', radius: 0,
     palette: null, customA: '#f3e9dc', customB: null, customAngle: 135,
     texture: 'none', fontFamily: 'follow',
+    layout: 'flow', quoteStyle: 'color', nameStyle: 'plain', frame: 'none',
 });
 
 const ids = list => list.map(item => item.id);
@@ -81,6 +88,10 @@ const SPEC = {
     customAngle: { label: '自定义配色·角度', kind: 'enum', values: [...ANGLES] },
     texture: { label: '纹理', kind: 'enum', values: ids(TEXTURES) },
     fontFamily: { label: '字体', kind: 'enum', values: ids(FONT_FAMILIES) },
+    layout: { label: '版式', kind: 'enum', values: ids(LAYOUTS) },
+    quoteStyle: { label: '对白样式', kind: 'enum', values: ids(QUOTE_STYLES) },
+    nameStyle: { label: '名字样式', kind: 'enum', values: ids(NAME_STYLES) },
+    frame: { label: '边框', kind: 'enum', values: ids(FRAMES) },
 };
 export const OPTION_KEYS = Object.freeze(Object.keys(SPEC));
 

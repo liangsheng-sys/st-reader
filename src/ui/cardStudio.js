@@ -17,6 +17,8 @@ import { copyText, h, iconButton } from './dom.js';
 import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
+import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
+import { checkTemplateCss, DEFAULT_OPTIONS, FRAMES, LAYOUTS, MAX_TEMPLATE_BYTES, NAME_STYLES, QUOTE_STYLES } from './cardTemplates.js';
 import { ALIGNS, ANGLES, BUILTIN_TEMPLATES, FONT_FAMILIES, FONT_SIZES, HEADER_ICONS, LETTER_SPACINGS, LINE_HEIGHTS, MAX_HEADER_TITLE, MAX_LEAD_TEXT, MAX_TEMPLATE_NAME,
     PADDINGS, PALETTES, RADII, TEXTURES, addTemplate, countCardChars, derivePalette, formatCardCount, formatCardDate, optionsEqual, parseTemplateText, removeTemplate,
     renameTemplate, resolvePalette, scopeTemplateCss, TEMPLATE_SCOPE_ROOT, templateClassName, templateToText, textureLayers, normalizeTemplates, newTemplateId } from './cardTemplates.js';
@@ -207,6 +209,10 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             optRow('对齐', optSeg('align', ALIGNS)),
             optRow('内边距', optSeg('padding', PADDINGS)),
             optRow('圆角', optSeg('radius', RADII)),
+            optRow('版式', optSeg('layout', LAYOUTS)),
+            optRow('对白', optSeg('quoteStyle', QUOTE_STYLES)),
+            optRow('名字', optSeg('nameStyle', NAME_STYLES)),
+            optRow('边框', optSeg('frame', FRAMES)),
             optRow('字体', optSeg('fontFamily', FONT_FAMILIES), h('p', { class: 'stcr-studio-hint', text: '只写字体名，不下载字体；这台电脑没装的字体会回退成系统默认。' })),
         ];
         const showNames = switchRow('显示名字行');
@@ -251,6 +257,16 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const tempSec = section('临时遮住（只这张卡）', tempChips);
         const note = h('div', { class: 'stcr-studio-note', role: 'status', 'aria-live': 'polite' });
 
+        const cssArea = h('textarea', { class: 'text_pole stcr-studio-textarea stcr-studio-css', rows: '8', spellcheck: 'false', 'aria-label': '自定义样式', placeholder: '.mes_text q { color: #1d9bf0; }' });
+        const cssState = h('p', { class: 'stcr-studio-hint stcr-studio-css-state', role: 'status' });
+        const cssBox = h('div', { class: 'stcr-studio-css-box' },
+            h('p', { class: 'stcr-studio-hint', text: '给会写 CSS 的人：直接写，卡片里面的样式会马上生效，只影响这张卡。想让 AI 帮你写？点下面的按钮，把复制出来的说明发给它，再说你想要什么样。写好后点上面的“另存为模板…”。' }),
+            cssArea, cssState,
+            h('div', { class: 'stcr-tpl-actions' },
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'copy-guide', title: '复制一份写给 AI 的说明：卡片结构、类名、变量、规则、例子' },
+                    h('i', { class: 'fa-solid fa-robot', 'aria-hidden': 'true' }), ' 复制给 AI 的说明'),
+                h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'css-example', title: '把一份“推文版式”示例填进来看效果' },
+                    h('i', { class: 'fa-solid fa-wand-magic-sparkles', 'aria-hidden': 'true' }), ' 填入示例（推文版式）')));
         const group = (key, title, open, ...children) => h('details', { class: 'stcr-studio-grp', 'data-grp': key, open }, h('summary', {}, title), h('div', { class: 'stcr-studio-grp-body' }, ...children));
         const sideMain = h('div', { class: 'stcr-studio-side-main' },
             group('template', '模板', true, tpl, tplState, tplActions, section('尺寸', sizes), digest),
@@ -260,6 +276,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                 section('页眉', headerOn.el, headerBox),
                 section('按语', leadOn.el, leadText),
                 section('页脚', footDate.el, footCount.el, signOn.el, signText, h('p', { class: 'stcr-studio-hint', text: '"ST Reader"字样就是署名：留空或关掉，卡片上就没有它。' }))),
+            group('css', '自定义样式（写 CSS）', false, cssBox),
             group('mask', '遮盖与名字', true,
                 section('遮盖样式', masks, maskColor, icons, uniform.el, h('p', { class: 'stcr-studio-hint', text: '这是默认样式。想让某个词不一样：点预览里它的遮盖，或点下面词条左边的小方块。' })),
                 section('名字替换', autoNames.el, myRules.el, mapList,
@@ -273,7 +290,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
         return { studio, head, exportBtn, saveBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, tplState, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
-            tempSec, tempChips, note, palGrid, palName, palCustom, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
+            cssArea, cssState, tempSec, tempChips, note, palGrid, palName, palCustom, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
     }
 
     // ───────────── 事件 ─────────────
@@ -305,6 +322,11 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         els.footDate.input.addEventListener('change', () => patchOpts(mine, { footDate: els.footDate.input.checked }));
         els.footCount.input.addEventListener('change', () => patchOpts(mine, { footCount: els.footCount.input.checked }));
         els.headerTitle.addEventListener('input', () => patchOpts(mine, { headerTitle: els.headerTitle.value }));
+        let cssTimer = 0;
+        els.cssArea.addEventListener('input', () => {
+            clearTimeout(cssTimer);
+            cssTimer = setTimeout(() => { if (alive() && !mine.exporting) changePrefs(mine, { css: els.cssArea.value }); }, 350);
+        });
         els.leadText.addEventListener('input', () => patchOpts(mine, { leadText: els.leadText.value }));
         els.sizes.addEventListener('click', event => { const id = event.target.closest('[data-size]')?.dataset.size; if (id) prefChange({ size: id }); });
         els.masks.addEventListener('click', event => { const id = event.target.closest('[data-mask]')?.dataset.mask; if (id) prefChange({ mask: id }); });
@@ -380,6 +402,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         if (act === 'export') { doExport(mine); return; }
         if (act === 'rules') { showRules(mine); return; }
         if (act === 'copy-diag') { copyDiagnostics(mine); return; }
+        if (act === 'copy-guide') { copyText(buildCssGuide()).then(ok => toast(ok ? '已复制。整段发给 AI，再告诉它你想要什么样的卡片；它给出的 JSON 用“导入模板…”导入。' : '复制失败，指南也在 docs/卡片模板CSS指南.md 里')); return; }
+        if (act === 'css-example') { changePrefs(mine, { css: EXAMPLE_TWEET.css, tplId: null, template: EXAMPLE_TWEET.base, opts: { ...DEFAULT_OPTIONS, ...EXAMPLE_TWEET.options } }); mine.els.cssArea.value = EXAMPLE_TWEET.css; return; }
         if (act === 'save-as') { openSaveAs(mine, target.closest('[data-studio]')); return; }
         if (act === 'import-tpl') { openImport(mine, target.closest('[data-studio]')); return; }
         const mapEdit = target.closest('[data-map-edit]');
@@ -450,9 +474,9 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
      * 自制模板的附加 CSS：先加前缀（只管这张卡里面），再交给 core 的 cleanStyleText 逐条清洗（T75）。导入时已验过，这里只是再保险一次。
      * 清洗后为空（不该发生）就当没有。
      */
-    function customCss(record) {
-        if (!record?.css) return '';
-        const scoped = scopeTemplateCss(record.css, record.id);
+    function customCss(css, scopeId) {
+        if (!css) return '';
+        const scoped = scopeTemplateCss(css, scopeId);
         if (!scoped) return '';
         try { return cleanStyleText(scoped, false, { scope: TEMPLATE_SCOPE_ROOT }); } catch { return ''; }
     }
@@ -465,6 +489,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     }
 
     /** 按当前选项拼卡片、上遮盖、放进预览。同步完成，切模板/开关时立刻看到。 */
+    // 以下类名是拼出来的，写在这里方便 grep、也让 ui.test.js 能核对 docs/卡片模板CSS指南.md：
+    // stcr-card-mes--user stcr-card-mes--char stcr-card--portrait stcr-card--square stcr-card--wide
     function compose(mine) {
         const { els, prefs } = mine;
         const opts = prefs.opts;
@@ -475,14 +501,20 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const record = customRecord(mine);
         const family = FONT_FAMILIES.find(item => item.id === opts.fontFamily)?.css ?? null;
         const classes = ['stcr-card', `stcr-card--${tpl}`, `stcr-card--${prefs.size}`];
-        if (tpl !== 'theme' || pal) classes.push('stcr-card--flat'); // 压平成"小名字 + 正文"（继承主题 + 自选配色时也是）
+        if (tpl !== 'theme' || pal || opts.layout === 'bubble') classes.push('stcr-card--flat'); // 压平成"小名字 + 正文"（继承主题 + 自选配色时也是）
         if (pal) classes.push('stcr-card--pal');
         if (opts.lineHeight !== null) classes.push('stcr-card--lh');
         if (opts.letterSpacing) classes.push('stcr-card--ls');
         if (opts.align === 'justify') classes.push('stcr-card--justify');
         if (family) classes.push('stcr-card--ff');
-        if (record) classes.push(templateClassName(record.id)); // 导出副本不抄 data-*，附加 CSS 靠这个 class 命中
-        const card = h('div', { class: classes.join(' '), 'data-tpl': record?.id ?? tpl });
+        if (opts.layout === 'bubble') classes.push('stcr-card--bubble');
+        if (opts.quoteStyle !== 'color') classes.push(`stcr-card--q-${opts.quoteStyle}`);
+        if (opts.nameStyle !== 'plain') classes.push(`stcr-card--n-${opts.nameStyle === 'chip' ? 'chip' : 'rule'}`);
+        if (opts.frame !== 'none') classes.push(`stcr-card--frame-${opts.frame}`);
+        const scopeId = record?.id ?? tpl;
+        const css = customCss(prefs.css ?? '', scopeId);
+        if (record || css) classes.push(templateClassName(scopeId)); // 导出副本不抄 data-*，附加 CSS 靠这个 class 命中
+        const card = h('div', { class: classes.join(' '), 'data-tpl': scopeId });
         const set = (name, value) => card.style.setProperty(name, value);
         set('--stcr-card-w', `${size.width}px`);
         set('--stcr-card-h', `${size.minHeight}px`);
@@ -504,7 +536,6 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         }
         const cardLayers = [...(tpl === 'digest' ? [] : layers), ...(pal?.background ? [{ image: pal.background, size: 'auto' }] : [])];
         paintBackground(card, cardLayers);
-        const css = customCss(record);
         if (css) card.append(h('style', { 'data-stcr-tplcss': '' }, css));
 
         const page = h('div', { class: 'stcr-card-page' });
@@ -519,7 +550,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         for (const piece of mine.pieces) {
             const reasoning = mine.includeReasoning && piece.reasoning;
             if (!piece.body && !reasoning) continue;
-            chat.append(h('div', { class: `mes stcr-card-mes${piece.isSystem ? ' stcr-card-mes--system' : ''}`, is_user: String(piece.isUser), is_system: String(piece.isSystem) },
+            chat.append(h('div', { class: `mes stcr-card-mes stcr-card-mes--${piece.isUser ? 'user' : 'char'}${piece.isSystem ? ' stcr-card-mes--system' : ''}`, is_user: String(piece.isUser), is_system: String(piece.isSystem) },
                 h('div', { class: 'mes_block' },
                     names ? h('div', { class: 'ch_name' }, h('span', { class: 'name_text' }, piece.name.cloneNode(true))) : null,
                     reasoning ? h('div', { class: 'stcr-card-reasoning' }, h('div', { class: 'stcr-card-reasoning-title', text: '思考过程' }),
@@ -818,6 +849,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         mine.prefs.template = def.base;
         mine.prefs.tplId = custom ? def.id : null;
         mine.prefs.opts = { ...def.options };
+        mine.prefs.css = def.css ?? '';
         savePrefs(mine);
         syncControls(mine);
         compose(mine);
@@ -833,6 +865,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     function settleTemplate(mine) {
         const p = mine.prefs;
         if (p.tplId && !mine.templates.some(t => t.id === p.tplId)) p.tplId = null;
+        if (p.css === null || p.css === undefined) p.css = mine.templates.find(t => t.id === p.tplId)?.css ?? '';
         if (!p.defaultTpl) return;
         const custom = mine.templates.find(t => t.id === p.defaultTpl);
         const def = custom ?? BUILTIN_TEMPLATES.find(item => item.id === p.defaultTpl);
@@ -840,6 +873,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         p.template = def.base;
         p.tplId = custom ? def.id : null;
         p.opts = { ...def.options };
+        p.css = def.css ?? '';
     }
 
     function saveTemplates(mine) {
@@ -867,7 +901,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             custom && prefs.defaultTpl === def.id ? h('i', { class: 'fa-solid fa-star stcr-tpl-default', title: '打开工作台默认用这一套', 'aria-hidden': 'true' }) : null);
         els.tpl.replaceChildren(...BUILTIN_TEMPLATES.map(def => cell(def, def.label, false)), ...mine.templates.map(def => cell(def, def.name, true)));
         const def = templateDef(mine);
-        const dirty = !optionsEqual(prefs.opts, def.options);
+        const dirty = !optionsEqual(prefs.opts, def.options) || (prefs.css ?? '') !== (def.css ?? '');
         els.tplState.hidden = !dirty;
         els.tplState.replaceChildren(...(dirty ? [h('span', { text: '现在的设置和这套模板不一样了' }),
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'revert-tpl', text: '还原' })] : []));
@@ -920,6 +954,17 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         els.footDate.input.disabled = !mine.dateText;
         els.footDate.el.title = mine.dateText ? '' : '这段文字没有日期可用';
         els.footCount.input.checked = o.footCount;
+        syncCss(mine);
+    }
+
+    /** 自定义样式框：正在输入时不覆盖；有问题就写出来（预览里这时不套这份样式）。 */
+    function syncCss(mine) {
+        const { els, prefs } = mine;
+        const css = prefs.css ?? '';
+        if (document.activeElement !== els.cssArea && els.cssArea.value !== css) els.cssArea.value = css;
+        const problem = css.trim() ? (checkTemplateCss(css).error ?? cssProblem(css, 'preview')) : null;
+        els.cssState.textContent = !css.trim() ? '' : problem ? `这份样式现在没有生效：${problem}` : '样式已生效。';
+        els.cssState.classList.toggle('stcr-bad', !!problem);
     }
 
     // 自制模板：右键 / 点 ⋯ / 手机上长按弹出管理菜单
@@ -949,7 +994,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const input = h('input', { type: 'text', class: 'text_pole stcr-studio-input', maxlength: String(MAX_TEMPLATE_NAME), placeholder: '给这套模板起个名字', 'aria-label': '模板名字' });
         const err = h('p', { class: 'stcr-tpl-pop-err', role: 'alert', hidden: true });
         const save = () => {
-            const added = addTemplate(mine.templates, { name: input.value, base: template(mine), options: mine.prefs.opts, css: customRecord(mine)?.css ?? '' });
+            const added = addTemplate(mine.templates, { name: input.value, base: template(mine), options: mine.prefs.opts, css: mine.prefs.css ?? '' });
             if (!added.ok) { err.textContent = added.error; err.hidden = false; return; }
             mine.templates = added.list;
             mine.prefs.tplId = added.template.id;
@@ -981,6 +1026,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             h('i', { class: `fa-solid ${icon}`, 'aria-hidden': 'true' }), h('span', { text: label }));
         const menu = h('div', { class: 'stcr-popover stcr-mask-menu stcr-tpl-menu', role: 'menu', 'aria-label': `模板：${record.name}` },
             item('fa-pen', '重命名', 'rename'),
+            item('fa-floppy-disk', '用现在的设置覆盖它', 'update'),
             item(isDefault ? 'fa-star-half-stroke' : 'fa-star', isDefault ? '取消默认' : '设为默认', 'default'),
             item('fa-file-arrow-down', '导出为文件', 'file'),
             item('fa-copy', '复制为文本', 'copy'),
@@ -990,7 +1036,14 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             if (!act) return;
             if (act === 'rename') { renameInMenu(mine, menu, record); return; }
             closeMenu(mine);
-            if (act === 'default') {
+            if (act === 'update') {
+                const next = { ...record, base: template(mine), options: { ...mine.prefs.opts }, css: mine.prefs.css ?? '' };
+                if (normalizeTemplates([next]).length !== 1) { toast(`没存上：这套模板超过 ${MAX_TEMPLATE_BYTES / 1024} KB 了`); return; }
+                mine.templates = mine.templates.map(t => (t.id === id ? next : t));
+                saveTemplates(mine);
+                toast(`已用现在的设置覆盖“${record.name}”`);
+                syncControls(mine);
+            } else if (act === 'default') {
                 mine.prefs.defaultTpl = isDefault ? null : id;
                 savePrefs(mine);
                 toast(isDefault ? '已取消默认：下次打开用上次的设置' : `已设为默认：下次打开工作台用“${record.name}”`);

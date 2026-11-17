@@ -1446,6 +1446,32 @@
 #stcr_root .stcr-card.stcr-card--pal .stcr-card-thought { background-color: var(--stcr-c-soft); color: var(--stcr-c-em); }
 #stcr_root .stcr-card.stcr-card--pal .stcr-card-reasoning { color: var(--stcr-c-em); }
 
+/* ── 版式与细节（T104 追加）：气泡 / 对白样式 / 名字样式 / 边框。选项为默认时不加这些类，所以内置四套外观不变。── */
+#stcr_root .stcr-card.stcr-card--q-plain .mes_text :is(q, q *),
+#stcr_root .stcr-card.stcr-card--q-underline .mes_text :is(q, q *),
+#stcr_root .stcr-card.stcr-card--q-highlight .mes_text :is(q, q *) { color: inherit; }
+#stcr_root .stcr-card.stcr-card--q-underline .mes_text q { text-decoration-line: underline; text-decoration-style: solid; text-decoration-color: var(--stcr-card-accent); text-decoration-thickness: .09em; text-underline-offset: .22em; }
+#stcr_root .stcr-card.stcr-card--q-highlight .mes_text q { background-image: linear-gradient(transparent 56%, color-mix(in srgb, var(--stcr-card-accent) 32%, transparent) 56%); }
+
+#stcr_root .stcr-card.stcr-card--n-chip .ch_name { margin-bottom: .55em; }
+#stcr_root .stcr-card.stcr-card--n-chip .name_text { display: inline-block; padding: .1em .75em; border-radius: 999px; background-color: color-mix(in srgb, var(--stcr-card-accent) 16%, transparent); }
+#stcr_root .stcr-card.stcr-card--n-rule .ch_name { display: flex; align-items: center; gap: .7em; }
+#stcr_root .stcr-card.stcr-card--n-rule .ch_name::after { content: ''; flex: 1 1 auto; height: 1px; background-color: color-mix(in srgb, currentColor 28%, transparent); }
+
+#stcr_root .stcr-card.stcr-card--frame-thin,
+#stcr_root .stcr-card.stcr-card--frame-bold,
+#stcr_root .stcr-card.stcr-card--frame-dashed { outline-color: color-mix(in srgb, currentColor 45%, transparent); outline-style: solid; outline-width: 1px; outline-offset: -16px; }
+#stcr_root .stcr-card.stcr-card--frame-bold { outline-width: 3px; outline-offset: -18px; }
+#stcr_root .stcr-card.stcr-card--frame-dashed { outline-style: dashed; outline-width: 2px; }
+
+#stcr_root .stcr-card.stcr-card--bubble .mes { display: flex; flex-direction: column; align-items: flex-start; }
+#stcr_root .stcr-card.stcr-card--bubble .stcr-card-mes--user { align-items: flex-end; }
+#stcr_root .stcr-card.stcr-card--bubble .mes_block { display: flex; flex-direction: column; align-items: flex-start; max-width: 84%; }
+#stcr_root .stcr-card.stcr-card--bubble .stcr-card-mes--user .mes_block { align-items: flex-end; }
+#stcr_root .stcr-card.stcr-card--bubble .mes_text { padding: .7em 1em; border-top-left-radius: 1.1em; border-top-right-radius: 1.1em; border-bottom-right-radius: 1.1em; border-bottom-left-radius: .3em; background-color: var(--stcr-c-soft, color-mix(in srgb, currentColor 8%, transparent)); text-indent: 0; }
+#stcr_root .stcr-card.stcr-card--bubble .stcr-card-mes--user .mes_text { border-bottom-right-radius: .3em; border-bottom-left-radius: 1.1em; background-color: color-mix(in srgb, var(--stcr-card-accent) 22%, transparent); }
+#stcr_root .stcr-card.stcr-card--bubble .mes_text p { text-indent: 0; }
+
 /* ── 工作台右栏：五组可折叠区（T104） ── */
 #stcr_root .stcr-studio-side-main { gap: 4px; }
 #stcr_root .stcr-studio-grp { border-bottom: 1px solid color-mix(in srgb, var(--stcr-border) 45%, transparent); }
@@ -1992,3 +2018,7 @@ body.stcr-reader-open {
     #stcr_root .stcr-dx-hint { margin-left: 0 !important; }
     #stcr_root .stcr-dx-bar { width: 56px; }
 }
+
+#stcr_root .stcr-studio-css { font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; width: 100%; box-sizing: border-box; }
+#stcr_root .stcr-studio-css-box { display: flex; flex-direction: column; gap: 8px; }
+#stcr_root .stcr-studio-css-state.stcr-bad { color: var(--stcr-danger, #c0392b); }

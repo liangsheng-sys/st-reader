@@ -9,6 +9,7 @@ import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortO
 import { BUILTIN_TEMPLATES, DEFAULT_OPTIONS, FONT_SIZES, MAX_TEMPLATES, OPTION_KEYS, PADDINGS, PALETTES, addTemplate, checkTemplateCss, countCardChars, derivePalette, formatCardCount, formatCardDate,
     isDefaultOptions, luminance, minContrast, normalizeOptions, normalizeTemplates, parseTemplateText, removeTemplate, renameTemplate, resolvePalette, scopeTemplateCss, templateClassScope, templateScope, templateToText, textureLayers, toHex } from './cardTemplates.js';
 import { CARD_TEMPLATES } from './logic.js';
+import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
 import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, recordOpen } from './diagnostics.js';
 
@@ -581,6 +582,34 @@ export async function testUiLogic() {
         equal(back.ok, true); equal(back.template, { name: '我的', base: 'dark', options: t.options, css: t.css });
         equal(JSON.stringify(Object.keys(file.options).sort()), JSON.stringify([...OPTION_KEYS].sort()), 'options 键齐全：');
     });
+    // ───────── T104 追加：写 CSS 的便利（类名指南、示例、新选项、自定义样式偏好） ─────────
+    check('T104 新选项：版式 / 对白 / 名字 / 边框 默认不加类（内置四套外观不变）、坏值回默认、旧模板文件照样能读', () => {
+        equal([DEFAULT_OPTIONS.layout, DEFAULT_OPTIONS.quoteStyle, DEFAULT_OPTIONS.nameStyle, DEFAULT_OPTIONS.frame], ['flow', 'color', 'plain', 'none']);
+        const messy = normalizeOptions({ layout: 'bubble', quoteStyle: 'neon', nameStyle: 'chip', frame: 'thin' });
+        equal([messy.layout, messy.quoteStyle, messy.nameStyle, messy.frame], ['bubble', 'color', 'chip', 'thin']);
+        // 不带新键的老文件（T104 第一版导出的）：读进来新选项取默认
+        const old = JSON.stringify({ format: 'stcr-card-template', version: 1, name: '老的', base: 'paper', options: { palette: 'sky' } });
+        const parsed = parseTemplateText(old);
+        equal(parsed.ok, true); equal(parsed.template.options.layout, 'flow');
+        const bad = parseTemplateText(JSON.stringify({ format: 'stcr-card-template', version: 1, name: 'x', base: 'paper', options: { layout: 'grid' } }));
+        equal(bad.ok, false); equal(/layout/.test(bad.error), true, '错误里点名 layout：');
+    });
+    check('T104 自定义样式偏好：prefs.css 只收字符串，过长回空；没记过 = null', () => {
+        equal(normalizeCardPrefs({}).css, null);
+        equal(normalizeCardPrefs({ css: '.mes_text q { color: red; }' }).css, '.mes_text q { color: red; }');
+        equal(normalizeCardPrefs({ css: 'x'.repeat(9001) }).css, '');
+        equal(normalizeCardPrefs({ css: 5 }).css, null);
+    });
+    check('T104 CSS 指南：示例是一份合法模板（推文版式）；指南里的选项取值就是代码里的真实取值', () => {
+        const text = templateToText({ id: 'x', name: EXAMPLE_TWEET.name, base: EXAMPLE_TWEET.base, options: normalizeOptions(EXAMPLE_TWEET.options), css: EXAMPLE_TWEET.css });
+        const back = parseTemplateText(text);
+        equal(back.ok, true, back.error);
+        equal(checkTemplateCss(EXAMPLE_TWEET.css).ok, true);
+        const guide = buildCssGuide();
+        for (const palette of PALETTES) equal(guide.includes(palette.id), true, `指南里有配色 ${palette.id}：`);
+        for (const word of ['stcr-card-template', 'bubble', 'highlight', 'frame', '4.5:1', '!important', '--stcr-c-name']) equal(guide.includes(word), true, `指南里有 ${word}：`);
+        equal(guide.length < 12000, true, '指南不要长到贴给 AI 嫌多：');
+    });
     return [...results];
 }
 
@@ -647,6 +676,16 @@ export async function testUiStatic() {
             if (p.quoteMix && !card.includes(`60%, ${p.quoteMix})`)) wrong.push('卡片深色强调色');
         }
         out.push({ name: 'T96 阅读器主题与卡片模板同一套颜色（readerPalettes.js）', passed: wrong.length === 0, detail: wrong.length ? wrong.join('；') : '纸张、夜读各项与配色表一致' });
+    }
+    {
+        const { readFileSync } = await import('node:fs');
+        const docText = readFileSync(path.join(dir, '..', '..', 'docs', '卡片模板CSS指南.md'), 'utf8').replaceAll('\r\n', '\n');
+        const guide = buildCssGuide();
+        const source = readFileSync(path.join(dir, '..', '..', 'style.css'), 'utf8') + readFileSync(path.join(dir, 'cardStudio.js'), 'utf8');
+        const missing = [...new Set([...guide.matchAll(/(stcr-card[\w-]*)/g)].map(m => m[1]))].filter(name => !name.endsWith('-') && name !== 'stcr-card-template' && !source.includes(name));
+        out.push({ name: 'T104 CSS 指南：docs/卡片模板CSS指南.md 与代码生成的一字不差；指南点名的类名在 style.css / cardStudio.js 里都存在',
+            passed: docText === guide && missing.length === 0,
+            detail: docText !== guide ? '文档与生成的指南不一致（重新生成：node dev/make-css-guide.mjs）' : missing.length ? `不存在的类名：${missing.join('、')}` : '一致' });
     }
     out.push({ name: '界面文件数', passed: sources.length >= 8, detail: sources.map(s => s.file).join(', ') });
     return out;

@@ -321,6 +321,7 @@ export const DEFAULT_CARD_PREFS = Object.freeze({
     digestCover: null,     // 书摘封面用我导入的图片；null = 强调色方块写标题
     maskColor: null,       // 色块 / 小图案的颜色（T42）；null = 跟随模板强调色
     opts: DEFAULT_OPTIONS, // T104：页眉 / 按语 / 页脚 / 排版 / 配色 / 纹理 / 字体（cardTemplates.js），模板 = 底子 template + 这一组
+    css: null,             // T104：附加样式（写 CSS）；null = 还没记过，打开时取当前自制模板自带的
     tplId: null,           // T104：当前用的自制模板 id；null = 内置四套（底子由 template 决定）
     defaultTpl: null,      // T104："设为默认"的模板（内置 id 或自制模板 id）；打开工作台时优先用它
 });
@@ -358,6 +359,7 @@ export function normalizeCardPrefs(raw) {
     for (const key of ['maskAsset', 'digestCover']) if (typeof input[key] === 'string' && input[key] && input[key].length <= 300) out[key] = input[key];
     if (typeof input.maskColor === 'string') out.maskColor = cleanHexColor(input.maskColor);
     out.opts = normalizeOptions(input.opts);
+    if (typeof input.css === 'string') out.css = input.css.length <= 9000 ? input.css : '';
     for (const key of ['tplId', 'defaultTpl']) if (typeof input[key] === 'string' && /^[\w-]{1,40}$/.test(input[key])) out[key] = input[key];
     return out;
 }
