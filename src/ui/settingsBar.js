@@ -99,10 +99,20 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const topbarIcon = switchInput('在 ST 顶栏显示阅读器图标');
     topbarIcon.el.title = '关掉后顶栏不再有书本图标；仍可从魔杖菜单「阅读器」或输入 /reader 打开';
     topbarIcon.input.addEventListener('change', () => setTopbarIcon(topbarIcon.input.checked));
+    // T99：T80 之前的键位。开着时 [ ] 换鼠标所在楼的候选，, . 上一楼 / 下一楼
+    const legacyKeys = switchInput('[ ] 换候选（旧习惯）');
+    legacyKeys.el.title = '开着：[ ] 换鼠标所在那一楼的候选，, . 上一楼 / 下一楼（早期版本的键位）。关着：[ ] 上一楼 / 下一楼，, . 换候选';
+    legacyKeys.input.addEventListener('change', () => setPrefs({ legacyBrackets: legacyKeys.input.checked }));
+    // T99：T95 确认框里勾过"不再提示"的人，在这里重新打开（同一个偏好键 openInStConfirm）
+    const openConfirm = switchInput('在酒馆里打开前先确认');
+    openConfirm.el.title = '按 O 或顶栏 ↗ 时，先弹一个确认框说明酒馆会切到这个聊天。确认框里勾过"不再提示"的，在这里重新打开';
+    openConfirm.input.addEventListener('change', () => setPrefs({ openInStConfirm: openConfirm.input.checked }));
     const more = h('div', { class: 'stcr-set-more', hidden: true },
         versionRow?.el ?? null,
         h('div', { class: 'stcr-set-item stcr-set-topbar' }, h('span', { class: 'stcr-set-label', text: '显示' }),
-            h('div', { class: 'stcr-set-ctl' }, topbarIcon.el, h('span', { class: 'stcr-set-hint', text: '隐藏后可从魔杖菜单「阅读器」或 /reader 打开' }))),
+            h('div', { class: 'stcr-set-ctl' }, topbarIcon.el, h('span', { class: 'stcr-set-hint', text: '隐藏后可从魔杖菜单「阅读器」或 /reader 打开' }), legacyKeys.el)),
+        h('div', { class: 'stcr-set-item stcr-set-confirm' }, h('span', { class: 'stcr-set-label', text: '回酒馆' }),
+            h('div', { class: 'stcr-set-ctl' }, openConfirm.el)),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: 'HTML' }),
             h('div', { class: 'stcr-set-ctl' }, htmlSeg, htmlNet.el)),
         h('div', { class: 'stcr-set-item' }, h('span', { class: 'stcr-set-label', text: '排版' }),
@@ -222,6 +232,8 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
         followOpen.input.checked = prefs.followOpen;
         for (const button of sideSeg.querySelectorAll('[data-side]')) button.classList.toggle('stcr-on', button.dataset.side === prefs.followSide);
         autoNames.input.checked = prefs.autoNames;
+        legacyKeys.input.checked = prefs.legacyBrackets;
+        openConfirm.input.checked = prefs.openInStConfirm;
         const reasoning = prefs.hideReasoning ? 'hide' : prefs.expandAllReasoning ? 'open' : 'fold';
         for (const button of reasoningSeg.children) button.classList.toggle('stcr-on', button.dataset.reasoning === reasoning);
         versionRow?.sync();

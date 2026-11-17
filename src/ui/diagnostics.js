@@ -36,10 +36,23 @@ export function diagnosticsLine(open = last) {
     return `上次打开 ${open.totalMs !== undefined ? `${(open.totalMs / 1000).toFixed(open.totalMs < 10000 ? 2 : 1)} 秒` : '—'} · ${open.floors ?? '?'} 楼${open.cacheHit ? ' · 缓存' : ''}`;
 }
 
-/** 复制给作者的纯文本。env：{version, ua, width, height, dpr, backupBytes, mirrorMs, mirrorState}。 */
+/**
+ * 宿主那一行（T99，I065）：分辨截图来自原版酒馆还是 TauriTavern。
+ * tauri：`window.__TAURI__` 存在；ua 含 Tauri 也算。versionText：ST 页面上已经显示的版本文字（#version_display，
+ * 形如"SillyTavern 1.14.0 'release' (abc123)"），只取版本号；不为此发请求，拿不到写"未知"。
+ * @param {{tauri?:boolean, ua?:string, versionText?:string|null}} env
+ */
+export function hostLine({ tauri = false, ua = '', versionText = '' } = {}) {
+    const isTauri = !!tauri || /tauri/i.test(String(ua ?? ''));
+    const version = /(\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?)/.exec(String(versionText ?? ''))?.[1] ?? null;
+    if (isTauri) return `宿主：TauriTavern${version ? `（酒馆 ${version}）` : ''}`;
+    return `宿主：SillyTavern ${version ?? '未知'}`;
+}
+
+/** 复制给作者的纯文本。env：{version, host, ua, width, height, dpr, backupBytes, mirrorMs, mirrorState}；host 为 hostLine() 的结果。 */
 export function diagnosticsText(open = last, env = {}) {
     const lines = ['ST Reader 诊断信息（只有数字，不含聊天正文、名字和文件名）',
-        `阅读器版本：${env.version ?? '未知'}`, `浏览器：${env.ua ?? '未知'}`,
+        `阅读器版本：${env.version ?? '未知'}`, env.host ?? hostLine(), `浏览器：${env.ua ?? '未知'}`,
         `窗口：${env.width ?? '?'}×${env.height ?? '?'}（缩放 ${env.dpr ?? 1}）`];
     if (!open) lines.push('最近一次打开：本页还没打开过聊天');
     else {

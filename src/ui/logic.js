@@ -2,6 +2,7 @@
 // 阅读器界面的纯逻辑：不碰 DOM、不碰宿主，Node 与浏览器共用（ui.test.js）。
 
 import { DOC_EXPORT_DEFAULTS, normalizeDocOptions } from '../core/documentText.js';
+import { isStHiddenFloor, isSystemLikeFloor } from '../core/messageModel.js';
 
 /** 设置项的取值范围。null 表示"跟随主题 / 跟随排版方向的默认值"。 */
 export const PREF_LIMITS = Object.freeze({
@@ -34,7 +35,8 @@ export const DEFAULT_PREFS = Object.freeze({
     drawerPinned: false,
     panelPinned: false,
     updateNotice: true,    // T54b：更新后第一次打开弹"本次更新了什么"；面板里勾"不再提醒"就关
-    openInStConfirm: true, // T95："在酒馆里打开"前先确认；确认框里勾"不再提示"就关
+    openInStConfirm: true, // T95："在酒馆里打开"前先确认；确认框里勾"不再提示"就关（T99 起 Aa → ⋯ 也能重新打开）
+    legacyBrackets: false, // T99：[ ] 换候选、, . 上下楼（T80 之前的键位）；默认 T80 的 [ ] 上下楼、, . 换候选
     docExport: DOC_EXPORT_DEFAULTS, // T97 / D43：导出为文档上次选的格式 / 候选 / 说话人 / 包含项（范围和脱敏不记）
 });
 
@@ -64,7 +66,7 @@ export function normalizePrefs(raw) {
     else if (out.width !== null) out.widthMode = 'custom';
     if (['host', 'paper', 'night'].includes(input.theme)) out.theme = input.theme;
     out.docExport = normalizeDocOptions(input.docExport);
-    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'autoNames', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice', 'openInStConfirm']) {
+    for (const key of ['hideUser', 'hideStHidden', 'expandAllReasoning', 'hideReasoning', 'redact', 'autoNames', 'htmlNetwork', 'htmlBarHidden', 'followOpen', 'drawerPinned', 'panelPinned', 'updateNotice', 'openInStConfirm', 'legacyBrackets']) {
         if (typeof input[key] === 'boolean') out[key] = input[key];
     }
     return out;
@@ -80,6 +82,34 @@ export function effectivePrefs(prefs) {
     const widthMode = prefs.widthMode ?? (prefs.width !== null && prefs.width !== undefined ? 'custom' : 'host');
     const width = widthMode === 'custom' ? prefs.width ?? defaults.width ?? 800 : widthMode === 'full' ? null : defaults.width;
     return { ...prefs, mode: prefs.mode ?? defaults.mode, widthMode, width, full: widthMode === 'full' };
+}
+
+/**
+ * 换楼 / 换候选的键位（T80 / T99）。legacy = "[ ] 换候选（旧习惯）"开着：两组键对调。
+ * < > 是 , . 按住 Shift，跟 , . 走；{ } 不认。
+ * @param {boolean} legacy
+ * @returns {{floorPrev:string, floorNext:string, swipePrev:string, swipeNext:string}} 提示里写的键名
+ */
+export function navKeys(legacy) {
+    return legacy
+        ? { floorPrev: ',', floorNext: '.', swipePrev: '[', swipeNext: ']' }
+        : { floorPrev: '[', floorNext: ']', swipePrev: ',', swipeNext: '.' };
+}
+
+/**
+ * 按下的键对应哪个换楼 / 换候选命令；不是这几个键返回 null。
+ * @param {string} key KeyboardEvent.key
+ * @param {boolean} legacy
+ * @returns {'floor-prev'|'floor-next'|'swipe-prev'|'swipe-next'|null}
+ */
+export function navCommand(key, legacy) {
+    const bracket = key === '[' ? -1 : key === ']' ? 1 : 0;
+    const comma = key === ',' || key === '<' ? -1 : key === '.' || key === '>' ? 1 : 0;
+    if (!bracket && !comma) return null;
+    const floor = legacy ? comma : bracket;
+    if (floor) return floor < 0 ? 'floor-prev' : 'floor-next';
+    const swipe = legacy ? bracket : comma;
+    return swipe < 0 ? 'swipe-prev' : 'swipe-next';
 }
 
 /** "思考了 12 秒" / "思考了 1 分 5 秒" / 无时长时"思考过程"。0 秒有效（03 §5.2）。 */
@@ -152,31 +182,15 @@ export function swipePreviews(texts, max = 36) {
     });
 }
 
-/** 宿主自己发的系统行用的名字（script.js 的 systemUserName 与 /sys 的默认名）。 */
-const SYSTEM_NAMES = new Set(['System', 'SillyTavern System']);
-
 /**
  * 这一楼要不要按"系统提示"的样子显示：居中小字、不显示头像 / 工具条 / 候选切换 / 收藏。
- *
- * ST 的**隐藏消息**（楼层菜单的隐藏、/hide，常配合总结插件）只是把 `is_system` 置 true，
- * 名字、swipes、extra 全都不变，ST 自己照常排版、只把这一楼变灰（script.js 里
- * `if (isSystem && ch_name !== systemUserName) isSystem = false` 就是为此）。阅读器以前只看
- * `isSystem`，于是把真实聊天里大量被隐藏过的普通楼当成了旁白（I050 / T62）。
- * 真正的系统楼只有两类：旁白（`extra.type === 'narrator'`），以及没有名字（或叫 System）且没有候选的宿主提示行。
- * @param {{isSystem?:boolean,isNarrator?:boolean,name?:string,swipes?:readonly unknown[]}} model
- * @returns {boolean}
+ * ST 用小眼睛隐藏的普通楼只是 `is_system` 置 true，不算系统楼（I050 / T62）。
+ * T101 起判定搬进 core（messageModel.isSystemLikeFloor / isStHiddenFloor），阅读器与导出共用同一条；这里只是别名。
  */
-export function isSystemLike(model) {
-    if (!model) return false;
-    if (model.isNarrator) return true;
-    if (!model.isSystem) return false;
-    if ((model.swipes?.length ?? 0) > 1) return false;
-    const name = String(model.name ?? '').trim();
-    return name === '' || SYSTEM_NAMES.has(name);
-}
+export const isSystemLike = isSystemLikeFloor;
 
 /** 在 ST 里点过小眼睛（不发给模型）的普通楼：用户楼、角色楼都算；真正的系统楼不算。 */
-export const isStHidden = model => !!model?.isSystem && !isSystemLike(model);
+export const isStHidden = isStHiddenFloor;
 
 /**
  * 这一楼按当前设置要不要收起来。两个开关有交集但不重合（T62 验收后）：
@@ -585,4 +599,68 @@ export function cardExportReport(info = {}, { now = new Date(), userAgent = glob
         `浏览器：${userAgent || '未知'}`,
         warnings.length ? `上次导出提示：\n${warnings.map(text => `- ${text}`).join('\n')}` : '上次导出提示：（无，或还没导出过）',
     ].join('\n');
+}
+
+// ───────────────────────── 导出为文档：楼数预览（T99 ⑤ / D47） ─────────────────────────
+
+/** 每楼的种类位：系统提示与旁白 / 酒馆小眼睛隐藏过的普通楼 / 用户楼（可与"隐藏"同时出现）。 */
+export const FLOOR_KIND = Object.freeze({ system: 1, hidden: 2, user: 4 });
+
+/**
+ * 整个聊天每楼的种类，打开导出对话框时算一次（只读模型字段，不渲染）；之后范围、勾选怎么变都只扫这个数组。
+ * 判定与 core 的 exportDocument 同一套（messageModel.isSystemLikeFloor / isStHiddenFloor）。
+ * @param {(index:number)=>object} getMessage
+ * @param {number} total
+ * @returns {Uint8Array}
+ */
+export function floorKinds(getMessage, total) {
+    const kinds = new Uint8Array(Math.max(0, total | 0));
+    for (let index = 0; index < kinds.length; index++) {
+        const model = getMessage(index);
+        if (isSystemLikeFloor(model)) kinds[index] = FLOOR_KIND.system;
+        else kinds[index] = (isStHiddenFloor(model) ? FLOOR_KIND.hidden : 0) | (model?.isUser ? FLOOR_KIND.user : 0);
+    }
+    return kinds;
+}
+
+/**
+ * 范围（零基闭区间）里按勾选会导出几楼、跳过几楼。跳楼顺序与 exportDocument 一致：系统 → 隐藏 → 用户。
+ * 正文为空的楼导出时也会省略，这里不算（要渲染才知道），所以 floors 是上限，通常就是实数。
+ * @param {Uint8Array} kinds floorKinds 的结果
+ * @param {number} from
+ * @param {number} to
+ * @param {{hidden?:boolean, stHidden?:boolean, user?:boolean}} include
+ */
+export function exportCount(kinds, from, to, include) {
+    const out = { floors: 0, system: 0, hidden: 0, user: 0, skipped: 0 };
+    const start = Math.max(0, from), end = Math.min(kinds.length - 1, to);
+    for (let index = start; index <= end; index++) {
+        const kind = kinds[index];
+        if (kind & FLOOR_KIND.system) { if (!include.hidden) { out.system++; continue; } }
+        else if (kind & FLOOR_KIND.hidden && include.stHidden === false) { out.hidden++; continue; }
+        if (kind & FLOOR_KIND.user && include.user === false) { out.user++; continue; }
+        out.floors++;
+    }
+    out.skipped = out.system + out.hidden + out.user;
+    return out;
+}
+
+const skipParts = ({ hidden, system, user }) => [hidden ? `隐藏 ${hidden}` : '', system ? `系统 ${system}` : '', user ? `用户 ${user}` : ''].filter(Boolean).join('、');
+
+/** 对话框下方的实时预览："将导出 120 楼（跳过 3 楼：系统 3）"。 */
+export function exportCountText(count) {
+    if (!count.skipped) return `将导出 ${count.floors} 楼`;
+    return `将导出 ${count.floors} 楼（跳过 ${count.skipped} 楼：${skipParts(count)}）`;
+}
+
+/**
+ * 导出完成的提示（不含文件名）："已导出 N 楼，跳过 M 楼（隐藏 a、系统 b）"。
+ * 隐藏、系统两项用 core 的 stats.skippedHidden / skippedSystem；没勾"我说的话"时跳过的用户楼 core 不计，由预览数 userSkipped 补上。
+ * @param {{floors:number, skippedHidden?:number, skippedSystem?:number}} stats
+ * @param {number} [userSkipped]
+ */
+export function exportDoneText(stats, userSkipped = 0) {
+    const parts = { hidden: stats.skippedHidden ?? 0, system: stats.skippedSystem ?? 0, user: userSkipped || 0 };
+    const skipped = parts.hidden + parts.system + parts.user;
+    return skipped ? `已导出 ${stats.floors} 楼，跳过 ${skipped} 楼（${skipParts(parts)}）` : `已导出 ${stats.floors} 楼`;
 }

@@ -4,9 +4,10 @@
 
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, followPlacement, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
-    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport } from './logic.js';
+    reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport,
+    navCommand, navKeys, FLOOR_KIND, floorKinds, exportCount, exportCountText, exportDoneText } from './logic.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
-import { diagnosticsLine, diagnosticsText, lastOpen, recordOpen } from './diagnostics.js';
+import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, recordOpen } from './diagnostics.js';
 
 const results = [];
 function check(name, fn) {
@@ -103,6 +104,70 @@ export async function testUiLogic() {
         equal(normalizePrefs({ htmlBarHidden: true }).htmlBarHidden, true);
         equal([normalizePrefs(null).openInStConfirm, normalizePrefs({ openInStConfirm: false }).openInStConfirm, normalizePrefs({ openInStConfirm: 0 }).openInStConfirm], [true, false, true]);
         equal([normalizePrefs({ htmlBarHidden: 1, followSide: 'top' }).htmlBarHidden, normalizePrefs({ followSide: 'top' }).followSide], [false, 'right']);
+    });
+    check('T99 "[ ] 换候选（旧习惯）"：键位对调，提示里的键名跟着换', () => {
+        equal(DEFAULT_PREFS.legacyBrackets, false, '默认关：');
+        equal([normalizePrefs({ legacyBrackets: true }).legacyBrackets, normalizePrefs({ legacyBrackets: 'yes' }).legacyBrackets], [true, false]);
+        const keys = ['[', ']', ',', '.', '<', '>', '{', 'a'];
+        equal(keys.map(key => navCommand(key, false)), ['floor-prev', 'floor-next', 'swipe-prev', 'swipe-next', 'swipe-prev', 'swipe-next', null, null], '默认（T80）：');
+        equal(keys.map(key => navCommand(key, true)), ['swipe-prev', 'swipe-next', 'floor-prev', 'floor-next', 'floor-prev', 'floor-next', null, null], '旧习惯：');
+        equal(navKeys(false), { floorPrev: '[', floorNext: ']', swipePrev: ',', swipeNext: '.' });
+        equal(navKeys(true), { floorPrev: ',', floorNext: '.', swipePrev: '[', swipeNext: ']' });
+        // 提示里写的键与按键真正做的事一致
+        for (const legacy of [false, true]) {
+            const k = navKeys(legacy);
+            equal([navCommand(k.floorPrev, legacy), navCommand(k.floorNext, legacy), navCommand(k.swipePrev, legacy), navCommand(k.swipeNext, legacy)],
+                ['floor-prev', 'floor-next', 'swipe-prev', 'swipe-next'], `legacy=${legacy}：`);
+        }
+        // T95 的"不再提示"与 T99 的开关是同一个键：关掉后能再打开
+        equal(normalizePrefs({ ...normalizePrefs({ openInStConfirm: false }), openInStConfirm: true }).openInStConfirm, true);
+    });
+    check('T99 诊断里的宿主一行：TauriTavern / SillyTavern 版本 / 未知', () => {
+        equal(hostLine({ versionText: "SillyTavern 1.14.0 'release' (abc1234)" }), '宿主：SillyTavern 1.14.0');
+        equal(hostLine({ versionText: '' }), '宿主：SillyTavern 未知');
+        equal(hostLine({}), '宿主：SillyTavern 未知');
+        equal(hostLine({ tauri: true, versionText: 'SillyTavern 1.13.5' }), '宿主：TauriTavern（酒馆 1.13.5）');
+        equal(hostLine({ ua: 'Mozilla/5.0 (Windows NT 10.0) Tauri/2.0', versionText: null }), '宿主：TauriTavern');
+        equal(hostLine({ versionText: 'SillyTavern 1.15.0-beta.2' }), '宿主：SillyTavern 1.15.0-beta.2');
+        const text = diagnosticsText(null, { version: '0.4.0', host: hostLine({ versionText: 'SillyTavern 1.14.0' }), ua: 'X' });
+        equal(text.split('\n').slice(1, 4), ['阅读器版本：0.4.0', '宿主：SillyTavern 1.14.0', '浏览器：X']);
+        equal(diagnosticsText(null, {}).split('\n')[2], '宿主：SillyTavern 未知', '没给 host：');
+    });
+    check('T99 导出楼数预览：隐藏楼默认导出、系统楼默认跳过、与 core 同序', () => {
+        // 0 用户、1 角色、2 小眼睛隐藏的角色楼、3 小眼睛隐藏的用户楼、4 系统提示（/sys）、5 旁白、6 名叫 System 但有两个候选（算普通隐藏楼）
+        const models = [
+            { isUser: true, isSystem: false, name: 'U', swipes: ['a'] },
+            { isUser: false, isSystem: false, name: 'C', swipes: ['a'] },
+            { isUser: false, isSystem: true, name: 'C', swipes: ['a'] },
+            { isUser: true, isSystem: true, name: 'U', swipes: ['a'] },
+            { isUser: false, isSystem: true, name: 'System', swipes: ['a'] },
+            { isUser: false, isSystem: true, isNarrator: true, name: 'C', swipes: ['a'] },
+            { isUser: false, isSystem: true, name: 'System', swipes: ['a', 'b'] },
+        ];
+        const kinds = floorKinds(index => models[index], models.length);
+        const { system: S, hidden: H, user: U } = FLOOR_KIND;
+        equal([...kinds], [U, 0, H, H | U, S, S, H]);
+        const all = { user: true, hidden: false, stHidden: true };
+        equal(exportCount(kinds, 0, 6, all), { floors: 5, system: 2, hidden: 0, user: 0, skipped: 2 }, '默认：');
+        equal(exportCount(kinds, 0, 6, { ...all, stHidden: false }), { floors: 2, system: 2, hidden: 3, user: 0, skipped: 5 }, '不要隐藏楼：');
+        equal(exportCount(kinds, 0, 6, { ...all, hidden: true }), { floors: 7, system: 0, hidden: 0, user: 0, skipped: 0 }, '要系统楼：');
+        equal(exportCount(kinds, 0, 6, { ...all, user: false }), { floors: 3, system: 2, hidden: 0, user: 2, skipped: 4 }, '不要用户楼：');
+        equal(exportCount(kinds, 0, 6, { user: false, hidden: false, stHidden: false }), { floors: 1, system: 2, hidden: 3, user: 1, skipped: 6 }, '隐藏的用户楼先算隐藏：');
+        equal(exportCount(kinds, 2, 3, all), { floors: 2, system: 0, hidden: 0, user: 0, skipped: 0 }, '部分范围：');
+        equal(exportCount(kinds, -5, 99, all).floors, 5, '越界夹住：');
+        equal(exportCountText(exportCount(kinds, 0, 6, all)), '将导出 5 楼（跳过 2 楼：系统 2）');
+        equal(exportCountText(exportCount(kinds, 0, 6, { ...all, user: false, stHidden: false })), '将导出 1 楼（跳过 6 楼：隐藏 3、系统 2、用户 1）');
+        equal(exportCountText(exportCount(kinds, 1, 2, all)), '将导出 2 楼');
+        equal(exportDoneText({ floors: 120, skippedHidden: 2, skippedSystem: 1 }), '已导出 120 楼，跳过 3 楼（隐藏 2、系统 1）');
+        equal(exportDoneText({ floors: 120, skippedHidden: 0, skippedSystem: 0 }), '已导出 120 楼');
+        equal(exportDoneText({ floors: 60, skippedHidden: 0, skippedSystem: 1 }, 59), '已导出 60 楼，跳过 60 楼（系统 1、用户 59）');
+        // 4000 楼：只扫数组，远低于一帧
+        const big = new Uint8Array(4000).map((_, i) => (i % 7 === 0 ? H : i % 2 ? U : 0));
+        const started = performance.now();
+        for (let round = 0; round < 100; round++) exportCount(big, 0, 3999, all);
+        const each = (performance.now() - started) / 100;
+        if (each > 2) throw new Error(`4000 楼一次 ${each.toFixed(2)} ms，太慢`);
+        return `4000 楼一次 ${each.toFixed(3)} ms`;
     });
     check('T80 楼层胶囊位置：列外空白够就停在列旁不压字，不够贴边', () => {
         // 1366 宽、正文列 683 居中：右侧空白 341，停在列右 16px 处

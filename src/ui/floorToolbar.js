@@ -6,7 +6,8 @@
 import { renderMessage } from '../core/formatter.js';
 import { isDevInstance } from '../core/readonlyGuard.js';
 import { h, iconButton } from './dom.js';
-import { formatStamp, isSystemLike, reasoningTitle, RENDER_FAULT_MARK } from './logic.js';
+import { formatStamp, isSystemLike, navKeys, reasoningTitle, RENDER_FAULT_MARK } from './logic.js';
+import { getPrefs } from './prefs.js';
 import { findHtmlBlocks } from './htmlBlocks.js';
 import { redactElement, visibleText } from './redact.js';
 
@@ -191,13 +192,13 @@ export function buildSwipeControl(model, shown, { compact = false } = {}) {
     const count = model.swipes.length;
     const isStCurrent = shown === model.swipeId;
     return h('div', { class: `stcr-swipes${compact ? ' stcr-swipes--compact' : ''}`, role: 'group', 'aria-label': '切换候选', 'data-index': model.index },
-        iconButton('fa-chevron-left', '上一个候选（, 键）', { class: 'stcr-swipe-prev', 'data-act': 'swipe-prev', 'data-index': model.index, disabled: shown === 0 }),
+        iconButton('fa-chevron-left', swipeKeyTitle(-1), { class: 'stcr-swipe-prev', 'data-act': 'swipe-prev', 'data-index': model.index, disabled: shown === 0 }),
         h('button', { type: 'button', class: 'stcr-btn stcr-swipe-count', 'data-act': 'swipe-list', 'data-index': model.index, title: '选择候选',
             'aria-label': `第 ${shown + 1} 个候选，共 ${count} 个${isStCurrent ? '，ST 当前采用' : ''}` },
         h('span', { class: 'stcr-swipe-num', text: `${shown + 1} / ${count}` }),
         h('i', { class: 'fa-solid fa-star stcr-swipe-star', 'aria-hidden': 'true' }),
         isStCurrent ? h('span', { class: 'stcr-swipe-dot', title: 'ST 里现在采用的是这个候选' }) : null),
-        iconButton('fa-chevron-right', '下一个候选（. 键）', { class: 'stcr-swipe-next', 'data-act': 'swipe-next', 'data-index': model.index, disabled: shown === count - 1 }));
+        iconButton('fa-chevron-right', swipeKeyTitle(1), { class: 'stcr-swipe-next', 'data-act': 'swipe-next', 'data-index': model.index, disabled: shown === count - 1 }));
 }
 
 /** 楼层工具：收藏楼 / 收藏此候选 / 思维链 / 复制 / 生成卡片（T23a）。 */
@@ -233,4 +234,10 @@ function addCodeCopyButtons(container) {
 export function floorPlainText(el) {
     const text = el.querySelector(':scope > .mes_block > .mes_text');
     return text ? visibleText(text).trim() : '';
+}
+
+/** 换候选按钮的提示（T99：键名跟"[ ] 换候选（旧习惯）"开关走）。 */
+export function swipeKeyTitle(delta) {
+    const keys = navKeys(getPrefs().legacyBrackets);
+    return delta < 0 ? `上一个候选（${keys.swipePrev} 键）` : `下一个候选（${keys.swipeNext} 键）`;
 }
