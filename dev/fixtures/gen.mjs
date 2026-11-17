@@ -7,7 +7,7 @@ import { assertDevPath, ensureDevDirectory, writeDevFile, requireServerStopped, 
 import { makeCharacterPng } from './png.mjs';
 import {
     FIXTURE_ID, CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, DISPLAY_REGEX, THEME, THEME_NAME, GROUP_ID, GROUP_CHAT, BIG_CHAT,
-    makeCard, makeHeader, makeSmallChats, makeGroup, makeGroupMessages, makeLargeMessages,
+    makeCard, makeHeader, makeSideChat, makeSmallChats, makeGroup, makeGroupMessages, makeLargeMessages,
 } from './data.mjs';
 import { writeHeavyChat } from './heavy.mjs';
 
@@ -36,7 +36,7 @@ export async function generateFixtures() {
     }
 
     for (const character of CHARACTERS) record(`characters/${character.avatar}`, makeCharacterPng(makeCard(character), character.color));
-    for (const chat of makeSmallChats()) {
+    for (const chat of [...makeSmallChats(), makeSideChat()]) {
         record(`chats/${path.parse(chat.character.avatar).name}/${chat.file}.jsonl`, [makeHeader(chat.character), ...chat.messages]);
     }
     record(`groups/${GROUP_ID}.json`, [makeGroup()]);
@@ -64,7 +64,7 @@ export async function generateFixtures() {
 
     const manifest = { fixtureId: FIXTURE_ID, synthetic: true, generatedAt: '2026-09-28', characters: CHARACTERS, groupId: GROUP_ID, groupChat: GROUP_CHAT, bigChat: BIG_CHAT, files };
     writeDevFile(path.join(DEV_ROOT, 'fixtures', 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log(`[st-reader] 已生成 ${CHARACTERS.length} 位虚构角色、1 个群聊、4 份单聊、主题及正则。`);
+    console.log(`[st-reader] 已生成 ${CHARACTERS.length} 位虚构角色、1 个群聊、6 份单聊、主题及正则。`);
     console.log(`[st-reader] 大文件：${(large.bytes / 1024 / 1024).toFixed(2)} MiB，位置 ${path.join(USER_ROOT, largeRelative)}`);
     console.log('[st-reader] 仅替换 STCR_T11 / STCR T11 命名空间的测试样本；其他开发文件保留。');
     return manifest;

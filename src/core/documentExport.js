@@ -8,6 +8,7 @@ import { parseChatKey } from './chatSource.js';
 import { isStHiddenFloor, isSystemLikeFloor } from './messageModel.js';
 import { maskCodeText, maskHtmlString } from './codeTransforms.js';
 import { cleanHtml, docDate, docFileName, escapeHtml, HTML_DOCUMENT_TAIL, htmlDocumentHead, htmlFloor, normalizeDocOptions, speakerLabel, textLines, txtFloor } from './documentText.js';
+import { classifySideStory, displayInterval, locateSegments, normalizeSideStoryRules, tagMatcher } from './sideStory.js';
 import { renderMessage } from './formatter.js';
 import { findHtmlBlocks } from './htmlBlockLocate.js';
 import { createResourceLoader } from './htmlExternalResources.js';
@@ -63,11 +64,17 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
 
     const warnings = [];
     const warn = message => { if (!warnings.includes(message)) warnings.push(message); };
-    const stats = { floors: 0, skippedSystem: 0, skippedHidden: 0, htmlBlocks: 0, images: 0, imagePlaceholders: 0, fallbacks: 0 };
+    const stats = { floors: 0, skippedByView: 0, skippedSystem: 0, skippedHidden: 0, htmlBlocks: 0, images: 0, imagePlaceholders: 0, fallbacks: 0 };
     const html = o.format === 'html';
     const loader = html ? createResourceLoader({ fetchFn: sameOriginFetch, signal, onWarning: warn }) : null;
     const scratch = document.implementation.createHTMLDocument(''); // 惰性文档：图片不加载、脚本不跑
 
+    const view = ['main', 'side'].includes(options.view) ? options.view : 'all';
+    const rules = normalizeSideStoryRules(options.sideStory);
+    const match = tagMatcher(rules.tag);
+    // 关键词要从聊天开头扫描，选择导出范围不能截断上一用户楼的指令。
+    const whole = view === 'all' ? null : classifySideStory(handle, { ...rules, tag: { on: false } },
+        { swipeOf: o.swipes === 'host' ? undefined : options.swipeOf }).floors;
     const chunks = [];
     let last = performance.now();
     for (let index = from; index <= to; index++) {
@@ -80,9 +87,21 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
         const chosen = pickSwipes(model, o.swipes, options.swipeOf);
         const parts = [];
         for (const swipeIndex of chosen) {
-            const label = chosen.length > 1 ? `候选 ${swipeIndex + 1}/${model.swipes.length}` : null;
-            parts.push({ label, ...await renderPart(handle, model, swipeIndex, { o, html, mask, maskOpts, scratch, loader, signal, stats, warn }) });
+            const entire = whole?.has(index);
+            if (view === 'main' && entire) continue;
+            let partial = null, rendered;
+            if (whole && !entire) {
+                const raw = model.swipes[swipeIndex].text;
+                if (rules.tag.on && rules.tag.scanRendered) rendered = renderMessage(handle, index, swipeIndex);
+                const hit = match(rendered?.displayText ?? raw, swipeIndex);
+                if (view === 'side' && !hit.ranges.length || view === 'main' && hit.whole) continue;
+                if (!hit.whole && hit.ranges.length) partial = hit.ranges;
+            }
+            const label = partial && view === 'side' ? `第 ${index + 1} 楼 · 候选 ${swipeIndex + 1}`
+                : chosen.length > 1 ? `候选 ${swipeIndex + 1}/${model.swipes.length}` : null;
+            parts.push({ label, ...await renderPart(handle, model, swipeIndex, { o, html, mask, maskOpts, scratch, loader, signal, stats, warn, partial, view, rendered }) });
         }
+        if (!parts.length) { stats.skippedByView++; continue; }
         const speakerName = mask ? mask(String(model.name ?? '')) : model.name;
         const floor = { number: index + 1, date: model.swipes[chosen[0]]?.sendDate ?? model.date, speaker: speakerLabel(o.speaker, { name: speakerName, isUser: model.isUser }), isUser: model.isUser, parts };
         const out = html ? htmlFloor(floor, o.include) : txtFloor(floor, o.include);
@@ -126,18 +145,45 @@ function pickSwipes(model, mode, swipeOf) {
 async function renderPart(handle, model, swipeIndex, ctx) {
     const { o, html, mask, scratch } = ctx;
     let rendered;
-    try { rendered = renderMessage(handle, model.index, swipeIndex); } catch (error) {
+    try { rendered = ctx.rendered ?? renderMessage(handle, model.index, swipeIndex); } catch (error) {
         ctx.stats.fallbacks++;
         ctx.warn('有楼层排版失败，按原文导出');
         console.warn('[st-reader] 导出文档：排版失败，按原文', model.index, error);
-        const lines = String(model.swipes[swipeIndex]?.text ?? '').split(/\r?\n/).map(line => (mask ? mask(line) : line).trim()).filter(Boolean);
+        let raw = model.swipes[swipeIndex].text;
+        if (ctx.partial) {
+            let end = 0;
+            const pieces = ctx.partial.map(r => {
+                const piece = ctx.view === 'side' ? raw.slice(r.start,r.end) : raw.slice(end,r.start);
+                end = r.end; return piece;
+            });
+            if (ctx.view === 'main') pieces.push(raw.slice(end));
+            raw = pieces.join('\n');
+        }
+        const lines = raw.split(/\r?\n/).map(line => (mask ? mask(line) : line).trim()).filter(Boolean);
         return { reasoning: null, body: html ? lines.map(line => `<p>${escapeHtml(line)}</p>`).join('') : lines };
     }
     const box = scratch.createElement('div');
     box.innerHTML = rendered.html; // core 已清洗；惰性文档里不加载任何资源
     const blocks = new Map();
     const swipe = model.swipes[swipeIndex];
-    for (const found of findHtmlBlocks(box, swipe.text, rendered.displayText ?? swipe.text)) {
+    let display = rendered.displayText ?? swipe.text;
+    if (ctx.partial) {
+        const ranges = locateSegments(box, rendered.displayText, ctx.partial);
+        if (ranges.missed) throw new Error(`第 ${model.index + 1} 楼番外无法定位；请检查规则或导出全部`);
+        // 后续 HTML 快照也只能读取筛选过的源文本，不能把删除的片段重新带回文档。
+        const parts = [];
+        let cursor = 0;
+        for (const r of ctx.partial) {
+            const [a,b] = displayInterval(display, r);
+            parts.push(ctx.view === 'main' ? display.slice(cursor, a) : display.slice(a, b));
+            cursor = b;
+        }
+        if (ctx.view === 'main') parts.push(display.slice(cursor));
+        display = parts.join('\n');
+        if (ctx.view === 'main') for (const r of ranges.reverse()) r.deleteContents();
+        else box.replaceChildren(...ranges.map(r => r.cloneContents()));
+    }
+    for (const found of findHtmlBlocks(box, ctx.partial ? display : swipe.text, display)) {
         // 对不上位置（nodes 为 null）的整楼 HTML：当普通正文导出，至少文字还在
         if (found.kind === 'fenced' && found.pre) blocks.set(found.pre, { first: found.pre, source: found.html });
         else if (found.nodes) {
@@ -153,7 +199,7 @@ async function renderPart(handle, model, swipeIndex, ctx) {
         }
     }
     let reasoning = null;
-    if (o.include.reasoning && rendered.reasoningHtml) {
+    if (!(ctx.partial && ctx.view === 'side') && o.include.reasoning && rendered.reasoningHtml) {
         const think = scratch.createElement('div');
         think.innerHTML = rendered.reasoningHtml;
         reasoning = html ? cleanHtml(think, { include: o.include, mask, image: await imagesFor(think, ctx, new Map()) }) : textLines(think, { include: o.include, mask });

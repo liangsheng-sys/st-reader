@@ -8,13 +8,20 @@ import { inflateSync } from 'node:zlib';
 import { assertDevPath, DEV_ROOT, USER_ROOT } from './paths.mjs';
 import { crc32, makeCharacterPng } from './png.mjs';
 import { assertCharacterFixture } from './cardCheck.mjs';
-import { CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, DISPLAY_REGEX, SCOPED_REGEX, THEME, BIG_COUNT, makeCard, makeSmallChats, makeGroup, makeGroupMessages } from './data.mjs';
+import { CHARACTERS, GLOBAL_REGEX, BEAUTY_REGEX, DISPLAY_REGEX, SCOPED_REGEX, THEME, BIG_COUNT, makeCard, makeSideChat, makeHeader, makeSmallChats, makeGroup, makeGroupMessages } from './data.mjs';
 
 /** 既验证 PNG 文件格式，也验证数据覆盖范围；已生成样本时流式复核所有文件。 */
 export async function testFixtures() {
     const results = [];
     async function test(name, run) { await run(); results.push({ name, passed: true }); }
     const chats = makeSmallChats();
+    const { testSideStory } = await import('./sideStory.test.mjs');
+    results.push(...await testSideStory());
+    await test('T103 番外样本 48 楼的完整 JSONL 哈希', () => {
+        const { character, messages } = makeSideChat();
+        const hash = createHash('sha256').update([makeHeader(character), ...messages].map(r => JSON.stringify(r) + '\n').join('')).digest('hex');
+        assert.equal(hash, '153ff064122cc4b28691f27503cdeb59a09c70b36809b2e10a9fe3c4bfd3739b');
+    });
     await test('T44a 纸舟追加两楼虚构 HTML：裸手机聊天、围栏交互游戏与外链反例', () => {
         assert.equal(chats[1].messages.length, 15);
         assert.match(chats[1].messages[6].mes, /^<!doctype html>/);

@@ -1,6 +1,7 @@
 // ST Reader — AGPL-3.0
 // T11 开发样本验收。只读请求与只读 IndexedDB 事务，不依赖后续阅读器模块。
-export async function testBrowserFixtures({ font = false, rendered = false } = {}) {
+export async function testBrowserFixtures({ font = false, rendered = false, sideStory = false } = {}) {
+    if (sideStory) return (await import('./sideStoryBrowser.test.js')).testSideStoryBrowser();
     const results = [];
     const context = SillyTavern.getContext();
     function assert(value, message) { if (!value) throw new Error(message); }

@@ -144,6 +144,27 @@ export function makeCard(character) {
     };
 }
 
+export const SIDE_CHAT = 'STCR-97-番外-48楼';
+export function makeSideChat() {
+    const character = CHARACTERS[2];
+    const messages = Array.from({ length: 48 }, (_, i) => {
+        const isUser = [0, 12, 15, 22, 24, 40].includes(i);
+        const hidden = i >= 30 && i < 35;
+        const text = ({
+            3: '正文：潮汐初涨。\n\n<小剧场>幕外：**纸鸟**起飞。\n轻轻落下。\n\n云上再会。</小剧场>\n\n正文：船已靠岸。',
+            5: '<小剧场>幕外：猫读星图。</小剧场>正文：灯塔亮起。',
+            7: '<小剧场>幕外：倒转沙漏。</小剧场>',
+            9: '正文：打开航海日志。\n\n<details><summary>番外</summary>幕外：月下灯会。</details>',
+            12: '请暂停正文，写一个小剧场', 22: '请暂停正文，写一个小剧场',
+            13: '幕外：寄信给海。', 14: '幕外：海写回信。', 23: '幕外：山茶开花。',
+            38: '旁白：虚构的冬夜降临。',
+        })[i] ?? (hidden ? `幕外：藏起的船票 ${i}。` : `正文：第 ${i + 1} 日航海记录。`);
+        return makeMessage(isUser ? USER_NAME : character.name, text, i, { isUser, isSystem: hidden || i === 38,
+            swipeCount: hidden || i === 13 ? 2 : 0, extra: i === 38 ? { type: 'narrator' } : {} });
+    });
+    return { character, file: SIDE_CHAT, messages };
+}
+
 export function makeSmallChats() {
     const [aster, paper, mist] = CHARACTERS;
     const first = Array.from({ length: 12 }, (_, index) => makeMessage(

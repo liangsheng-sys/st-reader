@@ -88,6 +88,7 @@ export async function testCoreBrowser() {
             assert(recent.length >= 4 && single[0].messageCount === 12 && group[0].messageCount === 4, '聊天摘要计数错误');
             assert(group[0].chatKey === 'group:stcr-t11-island/stcr-t11-island-chat', '群组/聊天 ID 混用');
         });
+        results.push(...await (await import('./sideStoryBrowser.test.js')).testSideStoryBrowser());
         const aster = await open('STCR_T11_Aster.png', 'STCR-01-正则与多候选');
         await test('T101 星灯整本 TXT：旧调用包含隐藏的三条正文，楼号连续，排版成功', async () => {
             const { blob, stats } = await exportDocument(aster, { include: { hidden: false } });

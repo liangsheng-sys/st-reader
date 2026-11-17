@@ -132,10 +132,10 @@ async function testHiddenExports() {
     });
     const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
     Object.defineProperty(globalThis, 'document', { configurable: true, value: { implementation: { createHTMLDocument: () => ({}) } } });
-    async function exportRows(rows, include) {
+    async function exportRows(rows, include, options = {}) {
         const models = rows.map(toMessageModel);
         const handle = { total: models.length, chatKey: 'A.png/test', getMessage: index => models[index] };
-        const { blob, stats } = await exportDocument(handle, { include });
+        const { blob, stats } = await exportDocument(handle, { include, ...options });
         const text = await blob.text();
         const numbers = [...text.matchAll(/^第 (\d+) 楼\r?$/gm)].map(match => Number(match[1]));
         equal(stats.floors, numbers.length);
@@ -163,6 +163,12 @@ async function testHiddenExports() {
         equal([userOff.numbers, userOff.stats.skipped], [[1, 5], 3]);
         equal([isSystemLikeFloor(null), isStHiddenFloor(null)], [false, false]);
 
+        const mixed = [{name:'角色', mes:'灯亮了<小剧场>幕外</小剧场>船到了'}, {name:'旅人', mes:'正文'}];
+        const sideStory = { tag: { on:true } };
+        const main = await exportRows(mixed, {}, { view:'main', sideStory });
+        const side = await exportRows(mixed, {}, { view:'side', sideStory });
+        assert(main.text.includes('灯亮了') && main.text.includes('船到了') && !main.text.includes('幕外'), '正文导出错误');
+        assert(side.text.includes('第 1 楼 · 候选 1') && side.text.includes('幕外') && !side.text.includes('灯亮了') && side.stats.skippedByView === 1, '番外导出错误');
         const aster = makeSmallChats()[0].messages;
         equal(aster.map(toMessageModel).filter(isStHiddenFloor).map(m => m.index), [1, 2, 3]);
         const book = await exportRows(aster);
@@ -175,6 +181,7 @@ async function testHiddenExports() {
         warn.mock.restore();
     }
     return [
+        { name: 'T103 正文与番外导出、候选标记及跳过数', passed: true },
         { name: 'T101 系统与隐藏两项独立：四种组合、旧调用与跳过计数', passed: true },
         { name: 'T101 星灯整本 TXT：三条隐藏正文在内，标题从第 1 楼连续到第 12 楼', passed: true },
     ];
