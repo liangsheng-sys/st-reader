@@ -157,3 +157,7 @@
 
 - Fable 做 T102 复查时，可以顺手看 I066 要不要在 0.4.1 之前排给 astra；我的判断是不必。
 - 楼数预览的判定只依赖 core 的 `isSystemLikeFloor` / `isStHiddenFloor`。以后 core 改了跳楼规则，`exportCount` 里"系统 → 隐藏 → 用户"的顺序也要同步。`docExportBrowser.test.js` 有一项拿预览和真实导出逐个比对，规则不一致时会报出来。
+
+## 验收结果
+
+- 2026-11-17 人类验收：**通过**。样本角色卡核对过，与开工前备份一致，无需还原。
