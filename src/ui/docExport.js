@@ -8,13 +8,16 @@ import { exportDocument } from '../core/documentExport.js';
 import { normalizeDocOptions } from '../core/documentText.js';
 import { store } from '../core/store.js';
 import { h } from './dom.js';
+import { exportCount, exportCountText, exportDoneText } from './logic.js';
 
 const INCLUDE = [
     ['floorNumbers', '楼号', '每楼前面一行"第 N 楼"'], ['time', '时间', '和楼号写在同一行'], ['user', '我说的话', '用户楼；不勾就只导出角色说的'],
     ['reasoning', '思维链', 'TXT 里用"（思考）…（思考结束）"包住；网页里是能点开的"思考过程"'],
     ['html', 'HTML 块 / 小剧场', '状态栏、小剧场这类 HTML。TXT 只留文字；网页里是静态的样子（不跑脚本）'],
     ['details', '折叠块', '正文里的折叠内容；网页里能点开'], ['tables', '表格', 'TXT 里每行单元格用空格隔开'], ['code', '代码块', ''],
-    ['hidden', '系统楼和隐藏楼', 'ST 的系统提示、旁白，和在 ST 里点过小眼睛隐藏的楼'],
+    // T99 / D47：原来的"系统楼和隐藏楼"拆成两项。小眼睛隐藏的楼是正文，默认导出
+    ['stHidden', '酒馆里隐藏过的楼', '在 ST 里点过小眼睛隐藏的楼，是正文（常用来给模型省上下文）'],
+    ['hidden', '系统提示与旁白', 'ST 自己的系统提示行（/sys）和旁白楼（/narrator），不是角色说的话'],
 ];
 
 const seg = (label, name, items) => h('div', { class: 'stcr-seg', role: 'group', 'aria-label': label },
@@ -33,6 +36,7 @@ const check = (text, on, title = '') => {
  * @param {number} opts.total 楼数
  * @param {[number,number]} opts.visible 正在看的楼（"部分楼层"的起点）
  * @param {(index:number)=>number|null} opts.swipeOf 阅读器里选的候选
+ * @param {Uint8Array} [opts.kinds] logic.floorKinds：每楼种类，给"将导出 N 楼（跳过 M 楼）"用（T99）
  * @param {object} opts.saved prefs.docExport
  * @param {(value:object)=>void} opts.remember 写回 prefs.docExport
  * @param {boolean} opts.redactOn Aa"脱敏显示"
@@ -40,7 +44,7 @@ const check = (text, on, title = '') => {
  * @param {HTMLElement} opts.root 下载链接挂这里（点击不冒泡到 ST）
  * @param {(message:string)=>void} opts.toast
  */
-export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeOf, saved, remember, redactOn, autoNames, root, toast }) {
+export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeOf, kinds = null, saved, remember, redactOn, autoNames, root, toast }) {
     const state = normalizeDocOptions(saved);
     let controller = null;
 
@@ -82,15 +86,26 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
         const value = event.target.closest('button')?.dataset[key];
         if (value) { state[key] = value; sync(); }
     });
+    // T99：范围或勾选一变就重数（只扫 kinds 数组，4000 楼也是瞬间）；导出中、出错后不覆盖进度与错误
+    let lastCount = null;
+    const recount = () => {
+        if (!kinds || controller) return;
+        const span = range();
+        if (!span) { lastCount = null; status.textContent = `楼层范围要在 1–${total} 之间，前一个不大于后一个`; return; }
+        lastCount = exportCount(kinds, span.from, span.to, state.include);
+        status.textContent = exportCountText(lastCount);
+    };
     pick(format, 'format'); pick(swipes, 'swipes'); pick(speaker, 'speaker');
     rangeSeg.addEventListener('click', event => {
         const value = event.target.closest('button')?.dataset.range;
         if (!value) return;
         rangeBox.hidden = value !== 'part';
         sync();
+        recount();
         if (!rangeBox.hidden) fromInput.focus();
     });
-    for (const item of checks) item.input.addEventListener('change', () => { state.include[item.key] = item.input.checked; });
+    for (const item of checks) item.input.addEventListener('change', () => { state.include[item.key] = item.input.checked; recount(); });
+    for (const input of [fromInput, toInput]) input.addEventListener('input', recount);
     // 输入框里的按键不给阅读器快捷键（数字、G 等）
     body.addEventListener('keydown', event => { if (event.target.matches('input')) event.stopPropagation(); });
 
@@ -141,7 +156,9 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
             const note = result.stats.warnings.length ? `（${result.stats.warnings.join('；')}）` : '';
             console.info(`[st-reader] 导出文档：${result.stats.floors} 楼，${(result.blob.size / 1024).toFixed(0)} KB，${seconds} 秒`, result.stats);
             docPanel.close();
-            toast(`已导出：${result.filename}（在浏览器的下载文件夹里）${note}`);
+            // T99：写出导出 / 跳过了几楼。隐藏、系统两项来自 core 的 stats；没勾"我说的话"跳过的用户楼取预览数
+            const counted = exportDoneText(result.stats, state.include.user ? 0 : lastCount?.user ?? 0);
+            toast(`${counted}：${result.filename}（在浏览器的下载文件夹里）${note}`);
         } catch (error) {
             if (mine.signal.aborted) { status.textContent = '已停止，没有生成文件'; return; }
             console.error('[st-reader] 导出文档失败：', error);
@@ -158,6 +175,7 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
         else docPanel.close();
     });
     sync();
+    recount();
     docPanel.open({ title: '导出为文档', body, foot, onClose: () => controller?.abort() });
     goBtn.focus({ preventScroll: true });
 }

@@ -8,6 +8,7 @@ import { makeChatKey, openChat } from '../core/chatSource.js';
 import { exportDocument } from '../core/documentExport.js';
 import { initFormatter } from '../core/formatter.js';
 import { isDevInstance } from '../core/readonlyGuard.js';
+import { exportCount, floorKinds } from './logic.js';
 import { getPrefs, setPrefs } from './prefs.js';
 import { closeReader, isReaderOpen, openReader } from './reader.js';
 
@@ -82,7 +83,20 @@ export async function testDocExportBrowser({ force = false } = {}) {
         check('脱敏：名字变 user / char、屏蔽词变方块，文件名也换', !masked.text.includes('星灯（虚构）') && !masked.text.includes('测试旅人（虚构）') && !masked.text.includes('星图') && masked.text.includes('██') && masked.filename.startsWith('char - '), masked.filename);
         // ⑥ 系统楼与隐藏楼、范围
         const all = await exportOf(ASTER, { format: 'txt', include: { hidden: true } });
-        check('系统楼与隐藏楼默认不导出，勾上才有；范围外的楼不出现', all.stats.floors > host.stats.floors && all.stats.floors === 12 && !host.text.includes('第 7 楼'), `${all.stats.floors} / 默认 ${(await exportOf(ASTER, { format: 'txt' })).stats.floors}`);
+        check('勾上系统提示与旁白共 12 楼（D47 后隐藏楼默认就在）；范围外的楼不出现', all.stats.floors > host.stats.floors && all.stats.floors === 12 && !host.text.includes('第 7 楼'), `${all.stats.floors} / 默认 ${(await exportOf(ASTER, { format: 'txt' })).stats.floors}`);
+        // T99 ⑤：对话框的楼数预览与 core 实际导出的跳楼数一致（同一套判定、同一个顺序）
+        const asterHandle = await openChat(ASTER);
+        let kinds;
+        try { kinds = floorKinds(index => asterHandle.getMessage(index), asterHandle.total); } finally { asterHandle.close(); }
+        const combos = [{}, { stHidden: false }, { hidden: true }, { user: false }, { user: false, stHidden: false }];
+        const mismatch = [];
+        for (const include of combos) {
+            const full = { floorNumbers: true, user: true, hidden: false, stHidden: true, ...include };
+            const real = (await exportOf(ASTER, { format: 'txt', include: full })).stats;
+            const guess = exportCount(kinds, 0, kinds.length - 1, full);
+            if (guess.floors !== real.floors || guess.system !== real.skippedSystem || guess.hidden !== real.skippedHidden) mismatch.push(`${JSON.stringify(include)} 预览 ${guess.floors}/${guess.system}/${guess.hidden} 实际 ${real.floors}/${real.skippedSystem}/${real.skippedHidden}`);
+        }
+        check('T99 楼数预览与实际导出一致（五种勾法）', !mismatch.length, mismatch.join('；') || `默认 ${exportCount(kinds, 0, kinds.length - 1, { user: true, hidden: false, stHidden: true }).floors} 楼`);
         // ⑦ 取消
         const controller = new AbortController();
         let progressed = 0, aborted = null;
@@ -112,13 +126,30 @@ export async function testDocExportBrowser({ force = false } = {}) {
         check('对话框：默认 TXT、整个聊天、酒馆当前、名字；包含只勾楼号与用户楼；脱敏跟随 Aa',
             dialog?.querySelector('[data-format="txt"]').classList.contains('stcr-on') && dialog.querySelector('[data-range="all"]').classList.contains('stcr-on')
             && dialog.querySelector('[data-swipes="host"]').classList.contains('stcr-on') && dialog.querySelector('[data-speaker="name"]').classList.contains('stcr-on')
-            && JSON.stringify(checked) === JSON.stringify([true, false, true, false, false, false, false, false, false])
+            && JSON.stringify(checked) === JSON.stringify([true, false, true, false, false, false, false, false, true, false])
             && dialog.querySelector('.stcr-dx-row:last-child input').checked === !!getPrefs().redact, JSON.stringify(checked));
+        // T99 ⑤：两项拆开（"酒馆里隐藏过的楼"默认勾）；下方实时显示楼数，范围和勾选一变就跟着变
+        const labels = dialog ? [...dialog.querySelectorAll('.stcr-dx-checks label')].map(label => label.textContent) : [];
+        check('T99 包含项拆成"酒馆里隐藏过的楼"（勾）与"系统提示与旁白"（不勾）', labels.at(-2) === '酒馆里隐藏过的楼' && labels.at(-1) === '系统提示与旁白' && !labels.some(text => text.includes('系统楼和隐藏楼')), labels.slice(-2).join(' / '));
+        const status = () => root.querySelector('.stcr-dx-status')?.textContent ?? '';
+        const counts = [status()];
+        const inputs = dialog ? [...dialog.querySelectorAll('.stcr-dx-checks input')] : [];
+        inputs[8]?.click(); counts.push(status()); inputs[8]?.click();
+        inputs[9]?.click(); counts.push(status()); inputs[9]?.click();
+        dialog?.querySelector('[data-range="part"]').click();
+        const fromBox = dialog?.querySelector('.stcr-dx-range input');
+        if (fromBox) { fromBox.value = '6'; fromBox.dispatchEvent(new Event('input', { bubbles: true })); }
+        counts.push(status());
+        dialog?.querySelector('[data-range="all"]').click();
+        counts.push(status());
+        check('T99 实时楼数：默认 / 不要隐藏楼 / 要系统楼（星灯没有系统楼，数不变）/ 第 6 楼起 / 回到整个聊天', /^将导出 \d+ 楼/.test(counts[0]) && counts[1] !== counts[0] && counts[1].includes('隐藏') && /^将导出 /.test(counts[2]) && counts[3] !== counts[0] && counts[4] === counts[0], counts.join(' | '));
         dialog?.querySelector('[data-format="html"]').click();
         dialog?.querySelectorAll('.stcr-dx-checks input')[3].click(); // 思维链
         root.querySelector('.stcr-dx-go')?.click();
         await until(() => captured && !root.querySelector('.stcr-doc .stcr-dx'), 20000);
         const blob = captured?.blob ? await captured.blob.text() : '';
+        const told = root.querySelector('.stcr-toast')?.textContent ?? '';
+        check('T99 完成提示写导出与跳过的楼数', /^已导出 \d+ 楼/.test(told) && told.includes('星灯（虚构） - STCR-01-正则与多候选.html'), told);
         check('导出：下载"星灯（虚构） - STCR-01-正则与多候选.html"，里面有思考过程，对话框关上', captured?.name === '星灯（虚构） - STCR-01-正则与多候选.html' && blob.includes('<details class="think">') && !root.querySelector('.stcr-dx'), captured?.name);
         const saved = getPrefs().docExport;
         check('记住上次的选择（格式、包含项）', saved.format === 'html' && saved.include.reasoning === true, JSON.stringify(saved));

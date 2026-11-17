@@ -19,8 +19,8 @@ import { createNoteEditor } from './noteEditor.js';
 import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
-import { buildFloor, buildSwipeControl, fillFloor, floorFault, floorPlainText, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, faultReport, foldRuns, followPlacement, formatStamp, isFolded, mirrorStatusText, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
+import { buildFloor, buildSwipeControl, fillFloor, floorFault, floorPlainText, swipeKeyTitle, syncBookmarkMarks } from './floorToolbar.js';
+import { effectivePrefs, faultReport, floorKinds, foldRuns, followPlacement, formatStamp, isFolded, mirrorStatusText, navCommand, navKeys, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -30,7 +30,7 @@ import { createRulesManager } from './rulesUi.js';
 import { createDocPanel } from './docPanel.js';
 import { openDocExport } from './docExport.js';
 import { createVersionRow, maybeShowWhatsNew } from './updateUi.js';
-import { diagnosticsLine, diagnosticsText, lastOpen, patchOpen, recordOpen } from './diagnostics.js';
+import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, patchOpen, recordOpen } from './diagnostics.js';
 
 const PAGE_SIZE = 30;      // 每批楼数，与 core 默认一致（03 §4.5）
 const MAX_PAGES = 4;       // DOM 里同时最多保留几批，其余释放（NF2）
@@ -549,6 +549,8 @@ function onClick(event) {
             case 'redact-off': setPrefs({ redact: false }); say('已关闭脱敏显示'); return;
             case 'close-panel': session.panel.close(); return;
             case 'jump': openJump(); return;
+            case 'first-floor': if (session.handle?.total) jumpTo(0); return;
+            case 'last-floor': if (session.handle?.total) jumpTo(session.handle.total - 1); return;
             case 'retry': if (session.chatKey) loadChat(session.chatKey, { index: session.retryIndex }); return;
             case 'stale-reload': reloadStale(); return;
             case 'reload': reloadStale(); return;
@@ -571,6 +573,7 @@ function onClick(event) {
                 return;
             }
             case 'follow-top': if (mes) scrollFloorTop(mes); return;
+            case 'follow-end': if (mes) scrollFloorEnd(mes); return;
             case 'follow-toggle': setFollowOpen(!session.follow.classList.contains('stcr-follow--open')); return;
             case 'floor-prev': stepFloor(Number(actEl.dataset.index), -1); return;
             case 'floor-next': stepFloor(Number(actEl.dataset.index), 1); return;
@@ -655,9 +658,14 @@ function handleKey(event) {
         case 'Home': if (session.handle?.total) jumpTo(0); break;
         case 'End': if (session.handle?.total) jumpTo(session.handle.total - 1); break;
         // T80：[ ] 上一楼 / 下一楼（以视口顶端这一楼为准）；换候选挪到 , .（同一个键上的 < >）
-        case '[': case ']': { const mes = currentFloor(); if (mes) stepFloor(Number(mes.getAttribute('mesid')), event.key === ']' ? 1 : -1); break; }
-        case ',': case '<': { const mes = keyTarget(); if (mes) stepSwipe(mes, -1); break; }
-        case '.': case '>': { const mes = keyTarget(); if (mes) stepSwipe(mes, 1); break; }
+        // T99：Aa → ⋯ 开"[ ] 换候选（旧习惯）"后两组对调（logic.navCommand）
+        case '[': case ']': case ',': case '<': case '.': case '>': {
+            const command = navCommand(event.key, getPrefs().legacyBrackets);
+            const step = command.endsWith('prev') ? -1 : 1;
+            if (command.startsWith('floor')) { const mes = currentFloor(); if (mes) stepFloor(Number(mes.getAttribute('mesid')), step); }
+            else { const mes = keyTarget(); if (mes) stepSwipe(mes, step); }
+            break;
+        }
         case 'r': case 'R': { const mes = getPrefs().hideReasoning ? null : keyTarget(); if (mes) toggleReasoning(mes); break; }
         case 'b': case 'B': { const mes = keyTarget(); if (mes && !mes.classList.contains('stcr-mes--system')) toggleBookmark(mes, false); break; }
         case 'g': case 'G': openJump(); break;
@@ -764,6 +772,16 @@ function onPrefs(next, previous) {
     }
     // 自动名字（T81）：脱敏显示开着时正文、小字、HTML 块都要换一遍
     if (next.autoNames !== previous.autoNames && next.redact) { refreshSideTexts(S); rerender(anchor); return; }
+    // T99：键位对调了，已经画出来的换候选按钮与胶囊的提示跟着换
+    if (next.legacyBrackets !== previous.legacyBrackets) {
+        for (const button of S.root.querySelectorAll('.stcr-swipe-prev, .stcr-swipe-next')) {
+            const title = swipeKeyTitle(button.classList.contains('stcr-swipe-prev') ? -1 : 1);
+            button.title = title;
+            button.setAttribute('aria-label', title);
+        }
+        S.follow.dataset.key = '';
+        updateFollower();
+    }
     // HTML 默认改了：清掉逐块的这一项，全部按新默认（T44b）
     const htmlReset = [next.htmlMode !== previous.htmlMode ? 'mode' : null, next.htmlNetwork !== previous.htmlNetwork ? 'network' : null].filter(Boolean);
     if (htmlReset.length) S.html.resetAll(htmlReset);
@@ -921,7 +939,7 @@ async function openInSt(fromDrawer = null) {
             const skip = h('input', { type: 'checkbox' });
             const content = h('div', { class: 'stcr-confirm-text' },
                 h('p', { text: '把酒馆切到这个聊天？酒馆会像你在它的聊天列表里点开一样，把它记为这个角色当前的聊天。阅读器自己不会改任何东西。' }),
-                h('label', { class: 'checkbox_label stcr-confirm-check' }, skip, h('span', { text: '不再提示' })));
+                h('label', { class: 'checkbox_label stcr-confirm-check' }, skip, h('span', { text: '不再提示（以后在 Aa → ⋯ 里能重新打开）' })));
             if (!await confirmDialog(content, '打开')) return;
             if (skip.checked) setPrefs({ openInStConfirm: false });
         } finally { session.openingSt = false; }
@@ -987,6 +1005,7 @@ function openExportDialog() {
     openDocExport({
         docPanel: session.docPanel, chatKey: session.chatKey, owner: session.owner, total: session.handle.total, visible: [at, at],
         swipeOf: index => (session.swipeView.has(index) ? session.swipeView.get(index) : null),
+        kinds: floorKinds(index => session.handle.getMessage(index), session.handle.total), // T99：楼数预览，打开时算一次
         saved: prefs.docExport, remember: value => setPrefs({ docExport: value }),
         redactOn: !!prefs.redact, autoNames: !!prefs.autoNames, root: session.root, toast: say,
     });
@@ -1176,7 +1195,10 @@ async function copyDiagnostics(session) {
     let version = null;
     try { version = await getVersion(); } catch { /* 拿不到就写"未知" */ }
     const mirror = getMirrorStatus();
-    const text = diagnosticsText(lastOpen(), { version, ua: navigator.userAgent, width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
+    // T99：宿主与 ST 版本。版本号取 ST 页面上已经显示的那行字（ST 启动时自己查过），不另发请求
+    const host = hostLine({ tauri: !!globalThis.__TAURI__, ua: navigator.userAgent,
+        versionText: document.getElementById('version_display')?.textContent || document.getElementById('version_display_welcome')?.textContent || '' });
+    const text = diagnosticsText(lastOpen(), { version, host, ua: navigator.userAgent, width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
         backupBytes: mirror.bytes ?? undefined, mirrorMs: mirror.durationMs ?? undefined, mirrorState: { ok: '正常', error: '出错', unavailable: '不可用', never: '还没备份', pending: '排队中', saving: '正在写' }[mirror.state] });
     if (S !== session) return;
     say(await copyText(text) ? '已复制诊断信息（只有数字，没有聊天内容）' : '复制失败，请再试一次');
@@ -1761,7 +1783,7 @@ function updateFollower(known = undefined) {
     const swipe = Number(target.dataset.swipe);
     const floorMarked = target.classList.contains('stcr-floor-bookmarked');
     const swipeMarked = target.classList.contains('stcr-swipe-bookmarked');
-    const key = `${session.chatKey}:${index}:${swipe}:${floorMarked}:${swipeMarked}`;
+    const key = `${session.chatKey}:${index}:${swipe}:${floorMarked}:${swipeMarked}:${getPrefs().legacyBrackets}`;
     if (follow.dataset.key !== key) {
         const model = session.handle.getMessage(index);
         const many = model.swipes.length > 1;
@@ -1774,6 +1796,7 @@ function updateFollower(known = undefined) {
         mark.classList.toggle('stcr-on', on);
         if (!on) mark.querySelector('i').classList.replace('fa-solid', 'fa-regular');
         const open = follow.classList.contains('stcr-follow--open');
+        const keys = navKeys(getPrefs().legacyBrackets);
         // replaceChildren 会把 null 写成文字"null"，先滤掉
         // 验收后：换候选 ‹ 2/5 › 收起时也在胶囊上，不用先展开（竖排：上一个在上，下一个在下）
         follow.replaceChildren(
@@ -1786,9 +1809,10 @@ function updateFollower(known = undefined) {
                 many ? buildSwipeControl(model, swipe) : null,
             ].filter(Boolean)),
             h('div', { class: 'stcr-follow-tools' }, ...[
-                iconButton('fa-arrow-up', '上一楼（[）', { 'data-act': 'floor-prev', 'data-index': index, disabled: index === 0 }),
+                iconButton('fa-arrow-up', `上一楼（${keys.floorPrev}）`, { 'data-act': 'floor-prev', 'data-index': index, disabled: index === 0 }),
                 iconButton('fa-arrows-up-to-line', '回到这一楼开头', { 'data-act': 'follow-top', 'data-index': index }),
-                iconButton('fa-arrow-down', '下一楼（]）', { 'data-act': 'floor-next', 'data-index': index, disabled: index >= session.handle.total - 1 }),
+                iconButton('fa-arrows-down-to-line', '到这一楼结尾', { 'data-act': 'follow-end', 'data-index': index }),
+                iconButton('fa-arrow-down', `下一楼（${keys.floorNext}）`, { 'data-act': 'floor-next', 'data-index': index, disabled: index >= session.handle.total - 1 }),
                 target.matches('.stcr-mes--system') ? null : mark,
             ].filter(Boolean)));
         follow.dataset.key = key;
@@ -1852,6 +1876,22 @@ function scrollFloorTop(mes) {
     holdAt(S, mes, mes.getBoundingClientRect().top - view.top);
     ensureWindow();
     updateProgress();
+}
+
+/**
+ * 到这一楼结尾（T99，人类反馈 2）：这一楼最后一行停在视口底部往上约一行处。
+ * 楼比视口（减去一行）短时等同于回到开头，免得开头被推出视口。
+ */
+function scrollFloorEnd(mes) {
+    const view = S.scroller.getBoundingClientRect();
+    const rect = mes.getBoundingClientRect();
+    const line = parseFloat(getComputedStyle(mes.querySelector('.mes_text') ?? mes).lineHeight) || 24;
+    if (rect.height + 8 + line >= view.height) {
+        S.scroller.scrollTop += rect.bottom - (view.bottom - line);
+        holdAt(S, mes, mes.getBoundingClientRect().top - view.top);
+        ensureWindow();
+        updateProgress();
+    } else scrollFloorTop(mes);
 }
 
 function stepSwipe(mes, delta) {

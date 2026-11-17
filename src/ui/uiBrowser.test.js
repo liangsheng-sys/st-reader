@@ -344,6 +344,79 @@ export async function testNavBrowser({ force = false, quiet = false, chatKey = '
             root.classList.toggle('stcr-html-bar-hidden', had);
             if (!had) check('关掉开关：工具条回到块上方占位', getComputedStyle(bar).position === 'static');
         } else check('样本里有渲染中的 HTML 块', false, '没找到');
+        // T99 ②："[ ] 换候选（旧习惯）"开着：[ ] 换顶端那一楼的候选，, . 上下楼；提示里的键名跟着换
+        const keepLegacy = getPrefs().legacyBrackets;
+        try {
+            setPrefs({ legacyBrackets: true });
+            scroller.focus();
+            await until(() => current() === 5, 1000);
+            const swipeOf5 = () => Number(root.querySelector('#stcr_chat .mes[mesid="5"]').dataset.swipe);
+            // 鼠标在第 5 楼上（换候选作用于鼠标所在楼）
+            root.querySelector('#stcr_chat .mes[mesid="5"] .mes_text')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            const s0 = swipeOf5();
+            key(']'); await wait(100);
+            check('T99 旧习惯：] 换候选（不换楼）', swipeOf5() === s0 + 1 && current() === 5, `候选 ${s0} → ${swipeOf5()}，当前 ${current()}`);
+            key('['); await wait(100);
+            check('T99 旧习惯：[ 换回上一个候选', swipeOf5() === s0, `候选 ${swipeOf5()}`);
+            key('.'); await wait(100);
+            check('T99 旧习惯：. 下一楼', current() === 6 && Math.abs(topOf(6) - 8) <= 2, `当前 ${current()}`);
+            key(','); await wait(100);
+            check('T99 旧习惯：, 上一楼', current() === 5, `当前 ${current()}`);
+            const upTitle = follow.querySelector('[data-act="floor-prev"]')?.title, nextTitle = root.querySelector('#stcr_chat .mes[mesid="5"] .stcr-swipe-next')?.title;
+            check('T99 旧习惯：胶囊与换候选按钮的提示写新键名', upTitle === '上一楼（,）' && nextTitle === '下一个候选（] 键）', `${upTitle} / ${nextTitle}`);
+            setPrefs({ legacyBrackets: false });
+            await wait(50);
+            const upTitle2 = follow.querySelector('[data-act="floor-prev"]')?.title, nextTitle2 = root.querySelector('#stcr_chat .mes[mesid="5"] .stcr-swipe-next')?.title;
+            check('T99 关掉旧习惯：提示回到 [ ] 上下楼、, . 换候选', upTitle2 === '上一楼（[）' && nextTitle2 === '下一个候选（. 键）', `${upTitle2} / ${nextTitle2}`);
+        } finally { setPrefs({ legacyBrackets: keepLegacy }); }
+        // T99 ③：胶囊"到这一楼结尾"。长楼：最后一行停在视口底部往上约一行；短楼：等于回到开头
+        const lineOf = mes => parseFloat(getComputedStyle(mes.querySelector('.mes_text') ?? mes).lineHeight) || 24;
+        const floors = [...root.querySelectorAll('#stcr_chat > .mes[mesid]')];
+        const tall = floors.find(mes => mes.getBoundingClientRect().height > scroller.clientHeight * 1.2);
+        const short = floors.find(mes => mes.getBoundingClientRect().height + 40 + lineOf(mes) < scroller.clientHeight && !mes.matches('.stcr-mes--system'));
+        const toEnd = async mes => {
+            scroller.scrollTop += mes.getBoundingClientRect().top - view().top + 20;
+            const index = Number(mes.getAttribute('mesid'));
+            await until(() => current() === index, 1500);
+            if (!follow.classList.contains('stcr-follow--open')) follow.querySelector('[data-act="follow-toggle"]').click();
+            follow.querySelector('[data-act="follow-end"]')?.click();
+            await wait(250);
+            return mes.getBoundingClientRect();
+        };
+        check('T99 胶囊展开列里有"到这一楼结尾"', follow.querySelector('[data-act="follow-end"] .fa-arrows-down-to-line') && follow.querySelector('[data-act="follow-end"]').title === '到这一楼结尾');
+        if (tall) {
+            const rect = await toEnd(tall), gap = view().bottom - rect.bottom, line = lineOf(tall);
+            check('T99 长楼：到结尾后最后一行在视口底部往上约一行', gap >= line * 0.5 && gap <= line * 1.6, `底边离视口底 ${Math.round(gap)}px，一行 ${Math.round(line)}px`);
+        } else check('T99 样本里有比视口高的楼', false, `视口 ${scroller.clientHeight}`);
+        if (short) {
+            const index = Number(short.getAttribute('mesid'));
+            await toEnd(short);
+            check('T99 短楼：到结尾 = 回到开头', Math.abs(topOf(index) - 8) <= 2, `楼顶 ${topOf(index)}`);
+        } else check('T99 样本里有比视口矮的楼', false);
+        scroller.click();
+        // T99 ③：底栏进度文字两旁的"第一楼 / 最后一楼"，在视口内、点得到、不挤掉进度文字
+        const first = root.querySelector('.stcr-footer [data-act="first-floor"]'), last = root.querySelector('.stcr-footer [data-act="last-floor"]');
+        const progress = root.querySelector('.stcr-progress');
+        const inView = el => {
+            const r = el?.getBoundingClientRect();
+            if (!r || !r.width) return false;
+            const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+            return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && !!hit && el.contains(hit);
+        };
+        check(`T99 底栏两枚按钮都在视口内可点（${innerWidth}×${innerHeight}）`, inView(first) && inView(last) && first.title === '第一楼（Home）' && last.title === '最后一楼（End）',
+            [first, last].map(el => { const r = el?.getBoundingClientRect(); return r ? `${Math.round(r.left)}–${Math.round(r.right)}` : '无'; }).join(' / '));
+        const fab = root.querySelector('.stcr-fab')?.getBoundingClientRect(), lastRect = last.getBoundingClientRect();
+        check('T99 进度文字还在、不被两枚按钮压没，"最后一楼"不压 Aa', progress.getBoundingClientRect().width >= 60 && progress.textContent.length > 0
+            && (!fab || lastRect.right <= fab.left || lastRect.top >= fab.bottom || lastRect.bottom <= fab.top), `进度宽 ${Math.round(progress.getBoundingClientRect().width)}`);
+        const total = Number(progress.textContent.match(/共 (\d+) 楼/)?.[1] ?? NaN);
+        last.click();
+        await until(() => root.querySelector(`#stcr_chat .mes[mesid="${total - 1}"]`), 3000);
+        await wait(300);
+        const lastFloor = root.querySelector(`#stcr_chat .mes[mesid="${total - 1}"]`);
+        check('T99 点"最后一楼"到最后一楼', !!lastFloor && lastFloor.getBoundingClientRect().top < view().bottom, `共 ${total} 楼，进度 ${progress.textContent}`);
+        first.click();
+        await wait(300);
+        check('T99 点"第一楼"回到第 1 楼', Math.abs(topOf(0)) <= 40, `楼顶 ${root.querySelector('#stcr_chat .mes[mesid="0"]') ? topOf(0) : '没渲染'}`);
         const top = [...root.querySelector('.stcr-topbar').children].filter(el => !el.matches('.stcr-title'));
         check('顶栏按钮不被压缩（I054）', top.every(el => getComputedStyle(el).flexShrink === '0'));
         const x = root.querySelector('[data-act="exit"]').getBoundingClientRect();

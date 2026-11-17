@@ -392,6 +392,10 @@
     text-overflow: ellipsis;
 }
 #stcr_root .stcr-progress:hover { color: var(--stcr-text); background: var(--stcr-hover); }
+/* T99：进度文字两旁的"第一楼 / 最后一楼"。淡、小，不抢进度文字；窄屏时进度文字先省略，两枚按钮不缩 */
+#stcr_root .stcr-foot-end { flex: none; min-width: 26px; height: 26px; font-size: 11px; color: var(--stcr-faint); opacity: .7; }
+#stcr_root .stcr-foot-end:hover { opacity: 1; color: var(--stcr-text); background: var(--stcr-hover); }
+#stcr_root .stcr-footer:not(:has(.stcr-progress:not(:empty))) .stcr-foot-end { visibility: hidden; }
 #stcr_root .stcr-progress-line { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; pointer-events: none; }
 #stcr_root .stcr-progress-line > span { display: block; height: 100%; width: 0; background: var(--stcr-accent); opacity: .7; transition: width .2s; }
 
@@ -1523,6 +1527,9 @@
     #stcr_root { --stcr-topbar: 48px; }
     #stcr_root .stcr-icon-btn { min-width: 44px; height: 44px; }
     #stcr_root .stcr-swipes .stcr-icon-btn, #stcr_root .stcr-mes-more { min-width: 36px; height: 36px; }
+    /* T99：底栏加高 6px，放得下手指点的"第一楼 / 最后一楼"（44 高会顶出屏幕） */
+    #stcr_root { --stcr-footer: 36px; }
+    #stcr_root .stcr-foot-end { min-width: 40px; height: 36px; font-size: 12px; }
     #stcr_root .stcr-mes-more { opacity: .6; }
     #stcr_root .stcr-top-percent { display: none; }
     /* 抽屉 = 全屏页 */
