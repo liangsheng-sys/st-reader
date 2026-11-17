@@ -8,9 +8,9 @@ import { READER_PALETTES } from './readerPalettes.js';
 export const DOC_FORMATS = Object.freeze(['txt', 'html']);
 export const DOC_SWIPES = Object.freeze(['host', 'reader', 'all']);
 export const DOC_SPEAKERS = Object.freeze(['name', 'role', 'none']);
-/** 包含项（D43）：默认只开楼号与用户楼。 */
+/** 包含项（D43/D47）：默认保留楼号、用户楼及酒馆隐藏过的普通楼。 */
 export const DOC_INCLUDE_DEFAULTS = Object.freeze({
-    floorNumbers: true, time: false, user: true, reasoning: false, html: false, details: false, tables: false, code: false, hidden: false,
+    floorNumbers: true, time: false, user: true, reasoning: false, html: false, details: false, tables: false, code: false, hidden: false, stHidden: true,
 });
 export const DOC_EXPORT_DEFAULTS = Object.freeze({ format: 'txt', swipes: 'host', speaker: 'name', include: DOC_INCLUDE_DEFAULTS });
 

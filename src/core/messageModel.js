@@ -45,6 +45,21 @@ export function toMessageModel(raw, index) {
         swipeId, swipes: Object.freeze(swipes) });
 }
 
+const SYSTEM_NAMES = new Set(['System', 'SillyTavern System']);
+
+/** 与 T62 的阅读器判定一致：旁白，或无其他候选的无名／系统提示。 */
+export function isSystemLikeFloor(model) {
+    if (!model) return false;
+    if (model.isNarrator) return true;
+    if (!model.isSystem) return false;
+    if ((model.swipes?.length ?? 0) > 1) return false;
+    const name = String(model.name ?? '').trim();
+    return name === '' || SYSTEM_NAMES.has(name);
+}
+
+/** 酒馆小眼睛隐藏的普通用户楼或角色楼。 */
+export const isStHiddenFloor = model => !!model?.isSystem && !isSystemLikeFloor(model);
+
 /** 深度只计算非 system 消息；system 楼返回 -1。不构造全文视图模型。 */
 export function calculateDepths(messages) {
     const depths = new Int32Array(messages.length);

@@ -327,8 +327,8 @@ export async function testUiLogic() {
         equal(effectivePrefs(normalizePrefs({ widthMode: 'custom', width: 900 })).width, 900);
         equal(effectivePrefs(normalizePrefs({ widthMode: 'host' })).full, false);
     });
-    check('T97 导出为文档的记忆：默认 TXT / 酒馆当前 / 名字 / 楼号与用户楼；坏值回默认', () => {
-        equal(normalizePrefs(null).docExport, { format: 'txt', swipes: 'host', speaker: 'name', include: { floorNumbers: true, time: false, user: true, reasoning: false, html: false, details: false, tables: false, code: false, hidden: false } });
+    check('T101 导出为文档的记忆：默认 TXT / 酒馆当前 / 名字 / 楼号、用户楼和酒馆隐藏楼；坏值回默认', () => {
+        equal(normalizePrefs(null).docExport, { format: 'txt', swipes: 'host', speaker: 'name', include: { floorNumbers: true, time: false, user: true, reasoning: false, html: false, details: false, tables: false, code: false, hidden: false, stHidden: true } });
         const p = normalizePrefs({ docExport: { format: 'html', swipes: 'nope', speaker: 'role', include: { reasoning: true, html: 1 } } }).docExport;
         equal([p.format, p.swipes, p.speaker, p.include.reasoning, p.include.html], ['html', 'host', 'role', true, false]);
     });

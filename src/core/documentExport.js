@@ -5,6 +5,7 @@
 // 图片只内嵌 data: 与同源读得到的（D23 读取器，外站一律不取）；HTML 块勾上时做成禁脚本的静态快照（htmlStatic）。
 
 import { parseChatKey } from './chatSource.js';
+import { isStHiddenFloor, isSystemLikeFloor } from './messageModel.js';
 import { maskCodeText, maskHtmlString } from './codeTransforms.js';
 import { cleanHtml, docDate, docFileName, escapeHtml, HTML_DOCUMENT_TAIL, htmlDocumentHead, htmlFloor, normalizeDocOptions, speakerLabel, textLines, txtFloor } from './documentText.js';
 import { renderMessage } from './formatter.js';
@@ -62,7 +63,7 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
 
     const warnings = [];
     const warn = message => { if (!warnings.includes(message)) warnings.push(message); };
-    const stats = { floors: 0, skipped: 0, htmlBlocks: 0, images: 0, imagePlaceholders: 0, fallbacks: 0 };
+    const stats = { floors: 0, skippedSystem: 0, skippedHidden: 0, htmlBlocks: 0, images: 0, imagePlaceholders: 0, fallbacks: 0 };
     const html = o.format === 'html';
     const loader = html ? createResourceLoader({ fetchFn: sameOriginFetch, signal, onWarning: warn }) : null;
     const scratch = document.implementation.createHTMLDocument(''); // 惰性文档：图片不加载、脚本不跑
@@ -72,7 +73,9 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
     for (let index = from; index <= to; index++) {
         signal?.throwIfAborted();
         const model = handle.getMessage(index);
-        if ((model.isUser && !o.include.user) || ((model.isSystem || model.isNarrator) && !o.include.hidden)) { stats.skipped++; continue; }
+        if (!o.include.hidden && isSystemLikeFloor(model)) { stats.skippedSystem++; continue; }
+        if (!o.include.stHidden && isStHiddenFloor(model)) { stats.skippedHidden++; continue; }
+        if (model.isUser && !o.include.user) continue;
         const maskOpts = optionsFor(model), mask = maskWith(maskOpts);
         const chosen = pickSwipes(model, o.swipes, options.swipeOf);
         const parts = [];
@@ -83,8 +86,7 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
         const speakerName = mask ? mask(String(model.name ?? '')) : model.name;
         const floor = { number: index + 1, date: model.swipes[chosen[0]]?.sendDate ?? model.date, speaker: speakerLabel(o.speaker, { name: speakerName, isUser: model.isUser }), isUser: model.isUser, parts };
         const out = html ? htmlFloor(floor, o.include) : txtFloor(floor, o.include);
-        if (out === null) stats.skipped++;
-        else { chunks.push(out); stats.floors++; }
+        if (out !== null) { chunks.push(out); stats.floors++; }
         if (performance.now() - last > 12) {
             onProgress?.(index - from + 1, to - from + 1);
             await idle();
@@ -106,7 +108,7 @@ export async function exportDocument(handle, options = {}, { onProgress, signal 
         const head = [shownTitle || shownOwner || '聊天', [shownOwner, range].filter(Boolean).join(' · ')].join('\r\n');
         blob = new Blob(['\uFEFF', head, '\r\n\r\n', chunks.join('\r\n\r\n'), '\r\n'], { type: 'text/plain;charset=utf-8' });
     }
-    return { filename, mimeType, blob, stats: { ...stats, warnings } };
+    return { filename, mimeType, blob, stats: { ...stats, skipped: stats.skippedSystem + stats.skippedHidden, warnings } };
 }
 
 /** 要导出的候选下标：酒馆当前 / 阅读器里选的 / 全部。 */

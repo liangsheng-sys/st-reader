@@ -3,6 +3,7 @@ import { listCharacters, listGroups, listRecent, listByCharacter, listByGroup, g
 import { cleanStyleText, initFormatter, formatWithStrategy, renderMessage } from './formatter.js';
 import { loadHostRuntime } from './hostRuntime.js';
 import { refreshCssScope } from './cssScope.js';
+import { exportDocument } from './documentExport.js';
 import { closeReader, openReader, isReaderOpen } from '../ui/reader.js';
 import { getPrefs, setPrefs } from '../ui/prefs.js';
 import { collectScripts, runDisplayRegex, PLACEMENT } from './regexPipeline.js';
@@ -88,6 +89,19 @@ export async function testCoreBrowser() {
             assert(group[0].chatKey === 'group:stcr-t11-island/stcr-t11-island-chat', '群组/聊天 ID 混用');
         });
         const aster = await open('STCR_T11_Aster.png', 'STCR-01-正则与多候选');
+        await test('T101 星灯整本 TXT：旧调用包含隐藏的三条正文，楼号连续，排版成功', async () => {
+            const { blob, stats } = await exportDocument(aster, { include: { hidden: false } });
+            const text = await blob.text();
+            const headings = [...text.matchAll(/^第 (\d+) 楼\r?$/gm)].map(match => Number(match[1]));
+            assert(headings.length === 12 && headings.every((number, i) => number === i + 1), '星灯 TXT 楼号不连续');
+            for (const i of [1, 2, 3]) {
+                const model = aster.getMessage(i);
+                assert(model.isSystem && text.includes(model.swipes[model.swipeId].text.split('。')[0]), `缺少星灯原始第 ${i} 楼正文`);
+            }
+            assert(stats.floors === 12 && stats.fallbacks === 0 && stats.skipped === 0, '星灯默认导出统计错误');
+            const filtered = await exportDocument(aster, { include: { stHidden: false } });
+            assert(filtered.stats.floors === 9 && filtered.stats.skippedHidden === 3 && filtered.stats.skippedSystem === 0, '小眼睛隐藏楼的计数错误');
+        });
         const paper = await open('STCR_T11_Paper.png', 'STCR-02-代码与长文');
         const plain = (index, reasoning = false) => {
             const model = aster.getMessage(index), names = aster.getRegexContext(index), swipe = model.swipes[model.swipeId];

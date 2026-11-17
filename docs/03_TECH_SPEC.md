@@ -899,3 +899,11 @@ UI（`reader.js`）：顶栏 `.stcr-open-st-btn`（`data-act="open-in-st"`，有
 实测（8100，无头 Chrome，`--enable-precise-memory-info`）：4000 楼 / 50 MiB 样本整本导出 TXT 12.0 秒、53 MB 文件，HTML 11.8 秒、53.4 MB；JS 堆打开聊天后 59–65 MB，导出峰值 176 / 228 MB，结束 GC 后回到 66 MB（聊天还在内存缓存里），清缓存后 29 MB（与导出前相同）。
 
 **T97 验收后补充（2026-11-09，D43 补充）**：`chatSource.js` 新导出 `exportRawChat(chatKey, {signal?})` → `Promise<{filename, blob}>`。请求与 ST 聊天列表的导出按钮（`public/script.js` `.exportRawChatButton`）相同：`POST /api/chats/export`，`{is_group, avatar_url（群聊为 undefined）, file: '<fileName>.jsonl', exportfilename: 同上, format: 'jsonl'}`；ST 在 `format === 'jsonl'` 时只 `readFileSync` 并把原文放在 `result` 返回（`src/endpoints/chats.js`），不写文件。`blob` 为 `application/octet-stream`，内容与磁盘上的聊天文件逐字节相同（8100 两个样本 SHA-256 核对过）；`result` 不是字符串抛 `StcrDataError('INVALID_RESPONSE')`。`READ_ENDPOINTS` 增加 `/api/chats/export` 这一项（只增）；D02 禁用名单、守卫、审计不变。
+
+**T101（D47）增补**，以下包含项与计数适用于 TXT 和 HTML。
+
+| 接口 | 约定 |
+|---|---|
+| `include.stHidden` | 布尔值，默认 `true`，旧调用省略此键时包含酒馆小眼睛隐藏过的普通楼。`include.hidden` 默认仍为 `false`，只管系统提示与旁白。`user:false` 仍可滤掉用户楼。 |
+| `stats.skippedHidden` / `stats.skippedSystem` | 分别计两个对应开关排除的楼；`stats.skipped` 是两者之和。仅因不导出用户楼或正文为空而省略的楼不计入这两项。范围内实际写出的楼数看 `stats.floors`。 |
+| `messageModel.js` 新增 `isSystemLikeFloor(model)` / `isStHiddenFloor(model)` | 与 T62 一致：旁白总是系统楼；其余仅当 `isSystem` 且候选数 ≤ 1、修剪后的名字为空、System 或 SillyTavern System 时才是系统楼。其余带 `isSystem` 的楼属于酒馆隐藏楼。 |

@@ -3,6 +3,9 @@
 import { cleanHtml, docDate, docFileName, DOC_EXPORT_DEFAULTS, floorHeading, htmlDocumentHead, htmlFloor, HTML_DOCUMENT_TAIL, normalizeDocOptions, speakerLabel, textLines, txtFloor } from './documentText.js';
 import { READER_PALETTES } from './readerPalettes.js';
 import { exportRawChat, makeChatKey } from './chatSource.js';
+import { exportDocument } from './documentExport.js';
+import { isSystemLikeFloor, isStHiddenFloor, toMessageModel } from './messageModel.js';
+import { makeSmallChats } from '../../dev/fixtures/data.mjs';
 
 const assert = (value, message = '断言失败') => { if (!value) throw new Error(message); };
 const equal = (a, b, label = '') => assert(JSON.stringify(a) === JSON.stringify(b), `${label}结果不一致：${JSON.stringify(a)} / ${JSON.stringify(b)}`);
@@ -45,9 +48,9 @@ function sample() {
 export async function testDocumentTextLogic() {
     const results = [];
     const test = async (name, run) => { await run(); results.push({ name: `T97 ${name}`, passed: true }); };
-    await test('选项：默认 TXT / 酒馆当前 / 名字 / 只含楼号与用户楼；坏值回默认', () => {
+    await test('选项：默认 TXT / 酒馆当前 / 名字 / 楼号、用户楼及酒馆隐藏楼；坏值回默认', () => {
         equal(normalizeDocOptions(null), { format: 'txt', swipes: 'host', speaker: 'name', include: { ...DOC_EXPORT_DEFAULTS.include } });
-        equal(Object.entries(DOC_EXPORT_DEFAULTS.include).filter(([, on]) => on).map(([key]) => key), ['floorNumbers', 'user']);
+        equal(Object.entries(DOC_EXPORT_DEFAULTS.include).filter(([, on]) => on).map(([key]) => key), ['floorNumbers', 'user', 'stHidden']);
         const o = normalizeDocOptions({ format: 'pdf', swipes: 'all', speaker: 'role', include: { reasoning: true, tables: 'yes', bogus: true } });
         equal([o.format, o.swipes, o.speaker, o.include.reasoning, o.include.tables, 'bogus' in o.include], ['txt', 'all', 'role', true, false, false]);
     });
@@ -118,7 +121,63 @@ export async function testDocumentTextLogic() {
         try { await exportRawChat(makeChatKey({ avatarUrl: 'A.png', fileName: 'x' }), { read: async () => ({}) }); } catch (error) { failed = error.code; }
         equal(failed, 'INVALID_RESPONSE');
     });
-    return results;
+    return [...results, ...await testHiddenExports()];
+}
+
+// Node 没有酒馆格式化器，沿用正式导出器的原文回退路径；8100 的 coreBrowser 另验实际排版。
+async function testHiddenExports() {
+    const { mock } = await import('node:test');
+    const warn = mock.method(console, 'warn', (message, index, error) => {
+        assert(message.includes('按原文') && error.message.includes('initFormatter'), '非预期的导出警告');
+    });
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { implementation: { createHTMLDocument: () => ({}) } } });
+    async function exportRows(rows, include) {
+        const models = rows.map(toMessageModel);
+        const handle = { total: models.length, chatKey: 'A.png/test', getMessage: index => models[index] };
+        const { blob, stats } = await exportDocument(handle, { include });
+        const text = await blob.text();
+        const numbers = [...text.matchAll(/^第 (\d+) 楼\r?$/gm)].map(match => Number(match[1]));
+        equal(stats.floors, numbers.length);
+        equal(stats.skipped, stats.skippedSystem + stats.skippedHidden);
+        return { numbers, text, stats };
+    }
+    try {
+        const rows = [
+            { name: '星灯', mes: '普通对白' },
+            { name: ' SillyTavern System ', is_system: true, mes: '宿主提示' },
+            { name: '旁白', extra: { type: 'narrator' }, mes: '旁白文字' },
+            { name: '旅人', is_user: true, is_system: true, mes: '隐藏用户' },
+            { name: 'System', is_system: true, swipes: ['隐藏角色', '另一个候选'], mes: '隐藏角色' },
+            { name: '', is_system: true, mes: '无名系统行' },
+        ];
+        for (const [hidden, stHidden, expected, systemCount, hiddenCount] of [
+            [false, false, [1], 3, 2], [false, true, [1, 4, 5], 3, 0],
+            [true, false, [1, 2, 3, 6], 0, 2], [true, true, [1, 2, 3, 4, 5, 6], 0, 0],
+        ]) {
+            const { numbers, stats } = await exportRows(rows, { hidden, stHidden });
+            equal([numbers, stats.skippedSystem, stats.skippedHidden], [expected, systemCount, hiddenCount]);
+        }
+        equal((await exportRows(rows, { hidden: false })).numbers, [1, 4, 5]);
+        const userOff = await exportRows([...rows, { name: '角色', mes: '' }], { user: false });
+        equal([userOff.numbers, userOff.stats.skipped], [[1, 5], 3]);
+        equal([isSystemLikeFloor(null), isStHiddenFloor(null)], [false, false]);
+
+        const aster = makeSmallChats()[0].messages;
+        equal(aster.map(toMessageModel).filter(isStHiddenFloor).map(m => m.index), [1, 2, 3]);
+        const book = await exportRows(aster);
+        equal(book.numbers, Array.from({ length: 12 }, (_, i) => i + 1));
+        equal(book.stats.skipped, 0);
+        for (const index of [1, 2, 3]) assert(book.text.includes(aster[index].mes.split('。')[0]), '缺少星灯隐藏楼正文');
+    } finally {
+        if (previous) Object.defineProperty(globalThis, 'document', previous);
+        else delete globalThis.document;
+        warn.mock.restore();
+    }
+    return [
+        { name: 'T101 系统与隐藏两项独立：四种组合、旧调用与跳过计数', passed: true },
+        { name: 'T101 星灯整本 TXT：三条隐藏正文在内，标题从第 1 楼连续到第 12 楼', passed: true },
+    ];
 }
 
 if (typeof process !== 'undefined' && process.argv?.[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {
