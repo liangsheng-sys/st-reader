@@ -2,6 +2,10 @@
 
 铁律不变：只读（D02 名单、`readonlyGuard.js`、`audit-readonly.mjs` 一字不动）；数据（只用 `.dev` 的 8100；不碰 F:/Claude/xinllm/SillyTavern/data/）；磁盘（不写 C/F 盘、不装依赖、不下载）。§5 只增不改。交付前四套自测全绿，test-release 前后备份 / 还原 `.dev/.../user/files/st-reader-backup*.json` 与 settings.json。
 
+## 开工前先顺手：I066 小修（同一分支，单独一个提交）
+
+Opus 复核 T100 时记了 I066（见 06）。先修这几条再做 T103：①`scopeDeclarationValue` 含 `var()` 的资源声明通过检查后，相对 `url()` 仍按 `scopeUrls` 的方式重定基址到原样式表地址再输出（现在原样返回，外部样式表里的相对图片地址会解析错）；②`resourceProperty` 清单加 `-webkit-box-reflect`；④`safeResourceValue` 的结果按变量名缓存一轮；另把 03 §5.22 `include` 那一行里"`hidden:false` 跳过 `isSystem` 或 `isNarrator` 的楼"的旧描述改成 T101 之后的实际行为。每条加一组 Node 回归；06 I066 记"已处理"并注明 ③（跨域表、`@property`、其他元素行内 style）留着不做的理由。
+
 ## T103 番外识别引擎（D48、F21）
 
 人类原话（社区 3 + 人类的括号）："许愿一个能够把番外单独拎出来的功能。一个页面包含所有正文，另一个页面包含所有番外。需要考虑这几种用户：1. 写作模型随正文附上小剧场／番外的，也就是在 char 楼层，让用户自己填小剧场的正则标签；2. 在新楼层直接发'请暂停正文，写一个小剧场／番外'，可以通过 user 楼层识别关键词，这种情况 user 楼层 + char 楼层都需要拎出去；3. 自己手动隐藏小剧场楼层的用户。让用户自己选自己的方式。"

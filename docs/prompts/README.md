@@ -27,7 +27,7 @@
 | `opus_T70-T73.md` / `opus_T80-T83.md` | Claude Code / Opus | 已用完（0.3.0 / 0.3.1 已发布） |
 | `opus_T90-T92.md` / `opus_T95-T97.md` | Claude Code / Opus | 已用完（0.3.2 / 0.4.0 已复查） |
 
-| `astra_T100-T101.md` | Codex / astra | M11（0.4.1）：主题变量克隆放行、导出含隐藏楼（core）。先于 Opus |
-| `opus_T99.md` | Claude Code / Opus | M11：小开关与导航合集；⑤ 等 T101 合入 main |
+| `astra_T100-T101.md` | Codex / astra | 已用完（T100、T101 已验收，0.4.1 已复查） |
+| `opus_T99.md` | Claude Code / Opus | 已用完（T99 已验收） |
 | `astra_T103.md` | Codex / astra | M12（0.5.0）：番外识别引擎；0.4.1 发布后 |
 | `opus_T104-T105.md` | Claude Code / Opus | M12：卡片模板（可先做）→ 番外视图 UI（等 T103） |
