@@ -4,10 +4,13 @@
 // 三段切换与 V 键、正文视图的折叠小条与"— 番外 · N 楼 —"、番外视图的楼号标签与跳回、三个视图下楼内文字一个字不少、
 // 阅读位置各视图各记、导出"只正文 / 只番外"的数量、"不分番外"开关、设置窗。跑完恢复偏好与规则。不读写任何聊天。
 
+import { getAnchorText } from '../core/anchor.js';
 import { makeChatKey } from '../core/chatSource.js';
 import { initFormatter } from '../core/formatter.js';
 import { isDevInstance } from '../core/readonlyGuard.js';
 import { store } from '../core/store.js';
+import { floorPick, selectionToFloors } from './cardPieces.js';
+import { getPrefs, setPrefs } from './prefs.js';
 import { closeReader, isReaderOpen, openReader } from './reader.js';
 import { SIDE_CHAT_KEY, SIDE_RULES_KEY } from './sideStory.js';
 
@@ -26,6 +29,7 @@ export async function testSideStoryBrowser({ force = false } = {}) {
     const snapshot = () => { const c = SillyTavern.getContext(); return JSON.stringify({ chat: c.chat, metadata: c.chatMetadata, id: c.getCurrentChatId() }); };
     await wait(1500); // 刚载入页面时酒馆自己还在打开聊天，先等它稳定
     const chatBefore = snapshot();
+    const keepHide = getPrefs().hideStHidden;
     const keepRules = await store.settings.get(SIDE_RULES_KEY, null), keepChat = await store.settings.get(SIDE_CHAT_KEY, null);
     const root = () => document.querySelector('#stcr_root');
     const view = () => ['main', 'side', 'all'].find(name => root().classList.contains(`stcr-view-${name}`));
@@ -98,6 +102,31 @@ export async function testSideStoryBrowser({ force = false } = {}) {
         await pickView('main');
         check('阅读位置：番外里翻过之后回到正文，仍在原来读到的地方附近', Math.abs(Number(keyOf()) - Number(mainBefore)) <= 3, `${mainBefore} → ${keyOf()}`);
 
+        // ⑤b 复查补充：卡片只摘看得见的字（正文视图跨过折起的片段、整楼 🖼、番外视图的混合楼）
+        const pickText = (el, body) => { const all = getAnchorText(el.querySelector('.mes_text')); return body ? (body.parts ?? [body]).map(part => all.slice(part.start, part.end)).join('|') : ''; };
+        const wholeRange = el => { const range = document.createRange(); range.selectNodeContents(el.querySelector('.mes_text')); return range; };
+        let mixedEl = root().querySelector(`#stcr_chat .mes[mesid="${mixedIndex}"]`);
+        let picked = selectionToFloors(wholeRange(mixedEl), [mixedEl])[0];
+        let text = pickText(mixedEl, picked?.body);
+        check('卡片（正文视图）：选区跨过折起的番外，卡片里不含番外、正文分段保留', !!picked?.body?.parts && text.includes('潮汐初涨') && !text.includes('幕外'), text.slice(0, 80));
+        text = pickText(mixedEl, floorPick(mixedEl).body);
+        check('卡片（正文视图）：整楼 🖼 也不含折起的番外', text.includes('潮汐初涨') && !text.includes('幕外'), text.slice(0, 80));
+        await pickView('side');
+        mixedEl = root().querySelector(`#stcr_chat .mes[mesid="${mixedIndex}"]`);
+        picked = mixedEl ? selectionToFloors(wholeRange(mixedEl), [mixedEl])[0] : null;
+        text = pickText(mixedEl, picked?.body);
+        check('卡片（番外视图）：混合楼只摘番外片段，不带正文', text.includes('幕外') && !text.includes('潮汐初涨'), text.slice(0, 80));
+
+        // ⑤c 复查补充：开着"隐藏 ST 已隐藏的楼"，番外视图照样把隐藏楼显示出来（D48）
+        const shownBefore = visible().length;
+        setPrefs({ hideStHidden: true });
+        await wait(900);
+        const hiddenFolds = [...root().querySelectorAll('.stcr-fold')].filter(fold => fold.offsetParent !== null);
+        check('番外视图：开着"隐藏 ST 已隐藏的楼"也不折起番外里的隐藏楼', view() === 'side' && !hiddenFolds.length && visible().length === shownBefore && visible().some(el => el.querySelector('.stcr-hidden-tag')), `${hiddenFolds.map(f => f.textContent.trim()).join(',')} ${shownBefore}→${visible().length}`);
+        setPrefs({ hideStHidden: keepHide });
+        await wait(600);
+        await pickView('main');
+
         // ⑥ 导出：范围里有"只正文 / 只番外"，数量实时变
         root().querySelector('[data-act="top-more"]').click();
         await wait(200);
@@ -141,6 +170,7 @@ export async function testSideStoryBrowser({ force = false } = {}) {
         check('测试流程没有出错', false, error?.stack || error);
     } finally {
         if (isReaderOpen()) closeReader();
+        if (getPrefs().hideStHidden !== keepHide) setPrefs({ hideStHidden: keepHide });
         await store.settings.set(SIDE_RULES_KEY, keepRules ?? {});
         await store.settings.set(SIDE_CHAT_KEY, keepChat ?? {});
     }

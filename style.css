@@ -1890,3 +1890,5 @@ body.stcr-reader-open {
     /* 手机顶栏放不下三段切换 + 七个 44px 图标：有切换时图标收到 36px（划线面板里的小按钮也是 36） */
     #stcr_root:has(.stcr-side-switch:not([hidden])) .stcr-topbar > .stcr-icon-btn { min-width: 36px; }
 }
+/* 卡片里跨过被藏起的番外 / 正文时，两段之间的"……"（T105 复查） */
+#stcr_root .stcr-card .stcr-card-gap { margin: .3em 0; text-align: center; opacity: .55; letter-spacing: .2em; }

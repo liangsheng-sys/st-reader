@@ -11,7 +11,7 @@ import { flushMirror, getMirrorStatus, mirrorNow, onMirrorStatus, restoreFromSer
 import { getVersion } from '../core/updateService.js';
 import { createPanel } from './annotationsPanel.js';
 import { backupStatus, describeStoreError, exportBackup, pickAndImport } from './backup.js';
-import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
+import { annotationToFloor, createPieceCache, floorPick, MAX_CARD_FLOORS, selectionToFloors } from './cardPieces.js';
 import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
 import { favoriteNote, isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, setFavoriteNote, toggleFavoriteChat } from './chatFavorites.js';
@@ -1148,7 +1148,7 @@ function openStudio(source) {
 function openCardForFloor(mes) {
     if (!S?.handle || mes.classList.contains('stcr-mes--broken')) return;
     openStudio({ handle: S.handle, ownsHandle: false, kind: 'floor', annotations: S.marks.records(), includeReasoning: false,
-        floors: [wholeFloor(Number(mes.getAttribute('mesid')), Number(mes.dataset.swipe))] });
+        floors: [floorPick(mes)] }); // T105：番外视图里藏起来的部分不进卡片
 }
 
 /** 选中浮层"卡片"：可跨楼；只摘看得见的楼和展开着的思维链。 */
@@ -1539,8 +1539,9 @@ function pageBuilder(pageIndex) {
     const ctx = floorContext();
     const { hideUser, hideStHidden } = getPrefs();
     const view = effectiveSideView(S), sideResult = S.side.result;
-    // T105：正文视图把番外整楼折成"— 番外 · N 楼 —"；番外视图里正文整楼直接不画（占位，不排版），不参与折叠
-    const fold = { hideUser, hideStHidden, sideFloors: view === 'main' && sideResult?.floors.size ? sideResult.floors : null };
+    // T105：正文视图把番外整楼折成"— 番外 · N 楼 —"；番外视图里正文整楼直接不画（占位，不排版），不参与折叠。
+    // 番外视图里画出来的楼都含番外：不再按"隐藏 ST 已隐藏的楼"收起（D48：番外视图把隐藏楼显示出来）
+    const fold = { hideUser, hideStHidden: hideStHidden && view !== 'side', sideFloors: view === 'main' && sideResult?.floors.size ? sideResult.floors : null };
     const goneOf = model => view === 'side' && sideKind(sideResult, model.index) === 'main';
     const runModels = view === 'side' ? messages.filter(model => !goneOf(model)) : messages;
     const runs = hideUser || hideStHidden || fold.sideFloors ? foldRuns(runModels, fold) : new Map();
