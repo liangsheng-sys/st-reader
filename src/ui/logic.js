@@ -197,31 +197,33 @@ export const isStHidden = isStHiddenFloor;
  * hideUser 收所有用户楼（含隐藏过的），hideStHidden 收所有 ST 里隐藏过的楼（用户楼和角色楼）。
  * @param {{hideUser?:boolean, hideStHidden?:boolean}} opts
  */
-export function isFolded(model, { hideUser = false, hideStHidden = false } = {}) {
+export function isFolded(model, { hideUser = false, hideStHidden = false, sideFloors = null } = {}) {
     if (isSystemLike(model)) return false;
-    return (hideUser && model.isUser) || (hideStHidden && isStHidden(model));
+    return (hideUser && model.isUser) || (hideStHidden && isStHidden(model)) || !!sideFloors?.has(model.index);
 }
 
 /**
  * 把连续要收起的楼合成一段（02 §1.3）。
  * @param {readonly object[]} models 至少含 index / isUser / isSystem；其余字段交给 isSystemLike 判断
- * @param {{hideUser?:boolean, hideStHidden?:boolean}} opts
+ * @param {{hideUser?:boolean, hideStHidden?:boolean, sideFloors?:Set<number>|null}} opts sideFloors：正文视图下要收起的番外整楼（T105）
  * @returns {Map<number, {count:number, label:string}>} 每段第一楼的楼号 → 楼数与折叠条文字
  */
 export function foldRuns(models, opts) {
     const runs = new Map();
-    let start = null, user = 0, hidden = 0;
+    let start = null, user = 0, hidden = 0, side = 0;
     const close = () => {
         if (start === null) return;
         const run = runs.get(start);
-        run.label = user === run.count && opts.hideUser ? `— 你 · ${run.count} 条 —`
+        run.label = side === run.count ? `— 番外 · ${run.count} 楼 —` // T105：这一段全是番外整楼
+            : user === run.count && opts.hideUser ? `— 你 · ${run.count} 条 —`
             : hidden === run.count ? `— 已隐藏 · ${run.count} 条 —` : `— 收起 ${run.count} 条 —`;
         start = null;
     };
     for (const model of models) {
         if (!isFolded(model, opts)) { close(); continue; }
-        if (start === null) { start = model.index; user = hidden = 0; runs.set(start, { count: 0, label: '' }); }
+        if (start === null) { start = model.index; user = hidden = side = 0; runs.set(start, { count: 0, label: '' }); }
         runs.get(start).count++;
+        if (opts.sideFloors?.has(model.index)) side++;
         if (opts.hideUser && model.isUser) user++;
         if (opts.hideStHidden && isStHidden(model)) hidden++;
     }
@@ -631,21 +633,23 @@ export function floorKinds(getMessage, total) {
  * @param {number} to
  * @param {{hidden?:boolean, stHidden?:boolean, user?:boolean}} include
  */
-export function exportCount(kinds, from, to, include) {
+export function exportCount(kinds, from, to, include, side = null) {
     const out = { floors: 0, system: 0, hidden: 0, user: 0, skipped: 0 };
+    if (side) out.view = 0;
     const start = Math.max(0, from), end = Math.min(kinds.length - 1, to);
     for (let index = start; index <= end; index++) {
         const kind = kinds[index];
         if (kind & FLOOR_KIND.system) { if (!include.hidden) { out.system++; continue; } }
         else if (kind & FLOOR_KIND.hidden && include.stHidden === false) { out.hidden++; continue; }
         if (kind & FLOOR_KIND.user && include.user === false) { out.user++; continue; }
+        if (side && sideExcluded(side, index)) { out.view++; continue; } // T105：通过上面的筛选后，整楼不属于所选视图
         out.floors++;
     }
-    out.skipped = out.system + out.hidden + out.user;
+    out.skipped = out.system + out.hidden + out.user + (out.view ?? 0);
     return out;
 }
 
-const skipParts = ({ hidden, system, user }) => [hidden ? `隐藏 ${hidden}` : '', system ? `系统 ${system}` : '', user ? `用户 ${user}` : ''].filter(Boolean).join('、');
+const skipParts = ({ hidden, system, user, view }) => [hidden ? `隐藏 ${hidden}` : '', system ? `系统 ${system}` : '', user ? `用户 ${user}` : '', view ? `不属于所选内容 ${view}` : ''].filter(Boolean).join('、');
 
 /** 对话框下方的实时预览："将导出 120 楼（跳过 3 楼：系统 3）"。 */
 export function exportCountText(count) {
@@ -660,7 +664,76 @@ export function exportCountText(count) {
  * @param {number} [userSkipped]
  */
 export function exportDoneText(stats, userSkipped = 0) {
-    const parts = { hidden: stats.skippedHidden ?? 0, system: stats.skippedSystem ?? 0, user: userSkipped || 0 };
-    const skipped = parts.hidden + parts.system + parts.user;
+    const parts = { hidden: stats.skippedHidden ?? 0, system: stats.skippedSystem ?? 0, user: userSkipped || 0, view: stats.skippedByView ?? 0 };
+    const skipped = parts.hidden + parts.system + parts.user + parts.view;
     return skipped ? `已导出 ${stats.floors} 楼，跳过 ${skipped} 楼（${skipParts(parts)}）` : `已导出 ${stats.floors} 楼`;
+}
+
+// ───────────────────────── 番外视图（T105 / D48，F21） ─────────────────────────
+// 识别由 core 的 classifySideStory 做（03 §5.23）；这里只有"怎么显示"的纯逻辑。
+
+export const SIDE_VIEWS = Object.freeze(['main', 'side', 'all']);
+export const SIDE_VIEW_LABELS = Object.freeze({ main: '正文', side: '番外', all: '全部' });
+export const normalizeSideView = value => (SIDE_VIEWS.includes(value) ? value : 'main');
+/** V 键：正文 → 番外 → 全部 → 正文。 */
+export const nextSideView = view => SIDE_VIEWS[(SIDE_VIEWS.indexOf(normalizeSideView(view)) + 1) % SIDE_VIEWS.length];
+
+/** 分类结果里有没有东西可分（没有就不显示三段切换）。 */
+export const hasSideStory = result => !!result && (result.floors.size > 0 || result.segments.size > 0);
+
+/** 一楼的种类：side 整楼是番外；mixed 只有片段是番外；main 正文。 */
+export function sideKind(result, index) {
+    if (!result) return 'main';
+    if (result.floors.has(index)) return 'side';
+    return result.segments.has(index) ? 'mixed' : 'main';
+}
+
+/** 导出预览用：这一楼是不是整楼不属于所选内容（view = 'main' | 'side' | 'all'）。混合楼两边都算。 */
+export function sideExcluded(side, index) {
+    if (!side || side.view === 'all') return false;
+    const kind = sideKind(side.result, index);
+    return side.view === 'main' ? kind === 'side' : kind === 'main';
+}
+
+/** 番外楼上的小标签文字："第 4 楼 · 候选 2/5"（只有一个候选就不写候选）。 */
+export function sideLabelText(index, swipe, swipes) {
+    return swipes > 1 ? `第 ${index + 1} 楼 · 候选 ${swipe + 1}/${swipes}` : `第 ${index + 1} 楼`;
+}
+
+/** 片段折叠条："番外 · 约 120 字 · 去番外看"（字数取整到十，不到 10 字写"不足 10 字"）。 */
+export function sideBarText(chars) {
+    const rounded = chars < 10 ? '不足 10 字' : `约 ${Math.round(chars / 10) * 10} 字`;
+    return `番外 · ${rounded} · 去番外看`;
+}
+
+/** 三段切换的提示："这个聊天有番外：整楼 11 楼，片段 3 处"。 */
+export function sideSummaryText(result) {
+    if (!hasSideStory(result)) return '';
+    const parts = [];
+    if (result.floors.size) parts.push(`整楼 ${result.floors.size} 楼`);
+    if (result.segments.size) parts.push(`片段 ${result.segments.size} 楼`);
+    return `这个聊天识别出番外：${parts.join('，')}`;
+}
+
+/**
+ * 换视图后落到哪一楼。每个视图各记各的阅读位置（saved = { main, side, all }）；没记过就取离当前楼最近的、在新视图里看得到的楼。
+ * @param {{view:string, current:number, saved?:object, result:object|null, total:number}} args
+ */
+export function sideLandingIndex({ view, current, saved = {}, result, total }) {
+    const shown = index => view === 'all' || (view === 'main' ? sideKind(result, index) !== 'side' : sideKind(result, index) !== 'main');
+    if (Number.isInteger(saved?.[view]) && saved[view] >= 0 && saved[view] < total && shown(saved[view])) return saved[view];
+    if (shown(current)) return current;
+    for (let distance = 1; distance < total; distance++) {
+        if (current + distance < total && shown(current + distance)) return current + distance;
+        if (current - distance >= 0 && shown(current - distance)) return current - distance;
+    }
+    return Math.min(total - 1, Math.max(0, current));
+}
+
+/** 分类结果的"指纹"：换候选后重新识别，指纹不变就不用重排整页。 */
+export function sideSignature(result) {
+    if (!result) return '';
+    const floors = [...result.floors].sort((a, b) => a - b).join(',');
+    const parts = [...result.segments].sort((a, b) => a[0] - b[0]).map(([index, list]) => `${index}:${list.map(r => `${r.swipe}/${r.start}-${r.end}`).join('+')}`).join(';');
+    return `${floors}|${parts}`;
 }

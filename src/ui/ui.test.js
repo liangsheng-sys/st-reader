@@ -5,7 +5,8 @@
 import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortOwners, stOwnerSort, cleanHexColor, cleanMaskWord, COLOR_PRESETS, DEFAULT_CARD_PREFS, DEFAULT_PREFS, effectivePrefs, followPlacement, foldRuns, formatListDate, formatStamp, hiddenUserRuns, isFolded, isStHidden,
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport,
-    navCommand, navKeys, FLOOR_KIND, floorKinds, exportCount, exportCountText, exportDoneText } from './logic.js';
+    navCommand, navKeys, FLOOR_KIND, floorKinds, exportCount, exportCountText, exportDoneText,
+    nextSideView, normalizeSideView, hasSideStory, sideKind, sideExcluded, sideLabelText, sideBarText, sideSummaryText, sideLandingIndex, sideSignature } from './logic.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
 import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, recordOpen } from './diagnostics.js';
 
@@ -397,6 +398,58 @@ export async function testUiLogic() {
         const p = normalizePrefs({ docExport: { format: 'html', swipes: 'nope', speaker: 'role', include: { reasoning: true, html: 1 } } }).docExport;
         equal([p.format, p.swipes, p.speaker, p.include.reasoning, p.include.html], ['html', 'host', 'role', true, false]);
     });
+    // ───────── T105：番外视图的纯逻辑 ─────────
+    const sideResult = { floors: new Set([2, 3, 8]), segments: new Map([[5, [{ swipe: 0, start: 1, end: 4 }]], [6, [{ swipe: 1, start: 0, end: 9 }, { swipe: 1, start: 12, end: 20 }]]]) };
+    check('T105 V 键轮换：正文 → 番外 → 全部 → 正文；坏值当正文', () => {
+        equal([nextSideView('main'), nextSideView('side'), nextSideView('all'), nextSideView('x')], ['side', 'all', 'main', 'side']);
+        equal([normalizeSideView('side'), normalizeSideView(undefined), normalizeSideView('全部')], ['side', 'main', 'main']);
+    });
+    check('T105 分楼：整楼 / 混合 / 正文；没有结果算正文；空结果不显示切换', () => {
+        equal([0, 2, 5, 7, 8].map(index => sideKind(sideResult, index)), ['main', 'side', 'mixed', 'main', 'side']);
+        equal(sideKind(null, 2), 'main');
+        equal([hasSideStory(sideResult), hasSideStory({ floors: new Set(), segments: new Map() }), hasSideStory(null)], [true, false, false]);
+    });
+    check('T105 正文视图折叠整楼番外：连续的番外楼合成"— 番外 · N 楼 —"，混进别的收起原因时不用这个字样', () => {
+        const models = Array.from({ length: 10 }, (_, index) => ({ index, isUser: index === 4, isSystem: false }));
+        const runs = foldRuns(models, { sideFloors: sideResult.floors });
+        equal([...runs].map(([start, run]) => [start, run.count, run.label]), [[2, 2, '— 番外 · 2 楼 —'], [8, 1, '— 番外 · 1 楼 —']]);
+        const mixedRuns = foldRuns(models, { hideUser: true, sideFloors: sideResult.floors });
+        equal(mixedRuns.get(2).label, '— 收起 3 条 —'); // 2、3 号是番外，4 号是用户楼：一段里混着，只写收起几条
+        equal(isFolded(models[5], { sideFloors: sideResult.floors }), false, '混合楼不整楼折叠：');
+    });
+    check('T105 导出数数：只正文 / 只番外 / 全部；混合楼两边都算；先过系统、隐藏、用户筛选', () => {
+        const kinds = new Uint8Array(10);
+        kinds[0] = FLOOR_KIND.system;
+        kinds[2] = FLOOR_KIND.user;
+        const all = exportCount(kinds, 0, 9, {}, null);
+        equal([all.floors, all.system, 'view' in all], [9, 1, false], '不带 side 时没有 view 键：');
+        const main = exportCount(kinds, 0, 9, {}, { result: sideResult, view: 'main' });
+        equal([main.floors, main.view, main.system, main.skipped], [6, 3, 1, 4]);
+        const only = exportCount(kinds, 0, 9, {}, { result: sideResult, view: 'side' });
+        equal([only.floors, only.view], [5, 4], '番外：整楼 3 + 混合 2 = 5：');
+        const noUser = exportCount(kinds, 0, 9, { user: false }, { result: sideResult, view: 'main' });
+        equal([noUser.floors, noUser.user, noUser.view], [6, 1, 2], '2 号既是用户楼又是番外，先算用户：');
+        equal(exportCountText(main), '将导出 6 楼（跳过 4 楼：系统 1、不属于所选内容 3）');
+        equal(exportDoneText({ floors: 6, skippedByView: 3 }), '已导出 6 楼，跳过 3 楼（不属于所选内容 3）');
+    });
+    check('T105 换视图后落到哪一楼：记过的优先，没有就取最近的看得到的楼', () => {
+        const base = { result: sideResult, total: 10 };
+        equal(sideLandingIndex({ ...base, view: 'main', current: 2, saved: {} }), 1, '正文：2 是番外，往后 3 也是，往前 1：');
+        equal(sideLandingIndex({ ...base, view: 'side', current: 0, saved: {} }), 2, '番外：最近的番外楼：');
+        equal(sideLandingIndex({ ...base, view: 'side', current: 0, saved: { side: 8 } }), 8, '记过的位置：');
+        equal(sideLandingIndex({ ...base, view: 'main', current: 5, saved: { main: 8 } }), 5, '记的位置在这个视图里看不到就不用：');
+        equal(sideLandingIndex({ ...base, view: 'all', current: 7, saved: { all: 99 } }), 7, '越界的记录不要：');
+    });
+    check('T105 小标签与折叠条文字、识别结果一句话、指纹', () => {
+        equal([sideLabelText(3, 0, 1), sideLabelText(3, 1, 5)], ['第 4 楼', '第 4 楼 · 候选 2/5']);
+        equal([sideBarText(4), sideBarText(118), sideBarText(15)], ['番外 · 不足 10 字 · 去番外看', '番外 · 约 120 字 · 去番外看', '番外 · 约 20 字 · 去番外看']);
+        equal(sideSummaryText(sideResult), '这个聊天识别出番外：整楼 3 楼，片段 2 楼');
+        equal(sideSummaryText(null), '');
+        const same = { floors: new Set([8, 2, 3]), segments: new Map([[6, [{ swipe: 1, start: 0, end: 9 }, { swipe: 1, start: 12, end: 20 }]], [5, [{ swipe: 0, start: 1, end: 4 }]]]) };
+        equal(sideSignature(same), sideSignature(sideResult), '顺序不同、内容相同指纹相同：');
+        equal(sideSignature(sideResult) === sideSignature({ ...sideResult, floors: new Set([2, 3]) }), false);
+    });
+
     return [...results];
 }
 

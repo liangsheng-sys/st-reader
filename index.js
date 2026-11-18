@@ -74,6 +74,12 @@ if (isDevInstance(window.location)) {
             results.push(...items);
             if (items.some(item => !item.passed)) throw new Error(`T97 导出为文档未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
         }
+        if (options.sideStory ?? runCore) { // T105：番外视图
+            const { testSideStoryBrowser } = await import('./src/ui/sideStoryBrowser.test.js');
+            const items = await testSideStoryBrowser();
+            results.push(...items);
+            if (items.some(item => !item.passed)) throw new Error(`T105 番外视图未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
+        }
         if (options.openInSt) { // T95：会让 ST 真的切换聊天，不进全量
             const { testOpenInStBrowser } = await import('./src/ui/openInStBrowser.test.js');
             results.push(...await testOpenInStBrowser());

@@ -44,8 +44,11 @@ const check = (text, on, title = '') => {
  * @param {HTMLElement} opts.root 下载链接挂这里（点击不冒泡到 ST）
  * @param {(message:string)=>void} opts.toast
  */
-export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeOf, kinds = null, saved, remember, redactOn, autoNames, root, toast }) {
+export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeOf, kinds = null, saved, remember, redactOn, autoNames, root, toast, side = null }) {
     const state = normalizeDocOptions(saved);
+    // T105：有番外时多一项"内容"，默认跟着阅读器现在的视图；不记住（每次从阅读器的视图起）
+    let view = side?.view ?? 'all';
+    const viewSeg = side ? seg('内容', 'view', [['all', '全部', '正文和番外都导出'], ['main', '只正文', '不含番外（整楼番外跳过，混合楼只留正文部分）'], ['side', '只番外', '只导出番外（整楼，加上混合楼里的片段）']]) : null;
     let controller = null;
 
     const format = seg('格式', 'format', [['txt', '纯文本 .txt', '像小说：名字一行、正文一段一段，记事本就能看'], ['html', '网页 .html', '单个网页文件，纸张排版，思维链和折叠块能点开，断网也能看']]);
@@ -65,6 +68,7 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
 
     const body = h('div', { class: 'stcr-dx' },
         row('格式', format), formatHint,
+        ...(viewSeg ? [row('内容', viewSeg)] : []),
         row('范围', rangeSeg, rangeBox),
         row('候选', swipes),
         row('说话人', speaker),
@@ -76,6 +80,7 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
         for (const button of format.children) button.classList.toggle('stcr-on', button.dataset.format === state.format);
         for (const button of swipes.children) button.classList.toggle('stcr-on', button.dataset.swipes === state.swipes);
         for (const button of speaker.children) button.classList.toggle('stcr-on', button.dataset.speaker === state.speaker);
+        if (viewSeg) for (const button of viewSeg.children) button.classList.toggle('stcr-on', button.dataset.view === view);
         const part = !rangeBox.hidden;
         for (const button of rangeSeg.children) button.classList.toggle('stcr-on', (button.dataset.range === 'part') === part);
         formatHint.textContent = state.format === 'html'
@@ -92,10 +97,14 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
         if (!kinds || controller) return;
         const span = range();
         if (!span) { lastCount = null; status.textContent = `楼层范围要在 1–${total} 之间，前一个不大于后一个`; return; }
-        lastCount = exportCount(kinds, span.from, span.to, state.include);
+        lastCount = exportCount(kinds, span.from, span.to, state.include, side && view !== 'all' ? { result: side.result, view } : null);
         status.textContent = exportCountText(lastCount);
     };
     pick(format, 'format'); pick(swipes, 'swipes'); pick(speaker, 'speaker');
+    viewSeg?.addEventListener('click', event => {
+        const value = event.target.closest('button')?.dataset.view;
+        if (value) { view = value; sync(); recount(); }
+    });
     rangeSeg.addEventListener('click', event => {
         const value = event.target.closest('button')?.dataset.range;
         if (!value) return;
@@ -139,7 +148,7 @@ export function openDocExport({ docPanel, chatKey, owner, total, visible, swipeO
             }
             handle = await openChat(chatKey, { signal: mine.signal });
             const started = performance.now();
-            const result = await exportDocument(handle, { ...state, ...span, swipeOf, redact: redaction, owner }, {
+            const result = await exportDocument(handle, { ...state, ...span, swipeOf, redact: redaction, owner, ...(side ? { view, sideStory: side.rules } : {}) }, {
                 signal: mine.signal,
                 onProgress: (done, all) => {
                     bar.firstChild.style.width = `${Math.round((done / all) * 100)}%`;
