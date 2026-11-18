@@ -7,7 +7,7 @@ import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortO
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport,
     navCommand, navKeys, FLOOR_KIND, floorKinds, exportCount, exportCountText, exportDoneText } from './logic.js';
 import { BUILTIN_TEMPLATES, DEFAULT_OPTIONS, FONT_SIZES, MAX_TEMPLATES, OPTION_KEYS, PADDINGS, PALETTES, addTemplate, checkTemplateCss, countCardChars, derivePalette, formatCardCount, formatCardDate,
-    isDefaultOptions, luminance, minContrast, normalizeOptions, normalizeTemplates, parseTemplateText, removeTemplate, renameTemplate, resolvePalette, scopeTemplateCss, templateClassScope, templateScope, templateToText, textureLayers, toHex } from './cardTemplates.js';
+    isDefaultOptions, luminance, minContrast, mixHex, normalizeOptions, normalizeTemplates, parseTemplateText, removeTemplate, renameTemplate, resolvePalette, scopeTemplateCss, templateClassScope, templateProblem, templateScope, templateToText, textureLayers, toHex } from './cardTemplates.js';
 import { CARD_TEMPLATES } from './logic.js';
 import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
@@ -470,12 +470,25 @@ export async function testUiLogic() {
             ['.a { .b { color: red } }', '嵌套'],
             ['   /* 只有注释 */   ', '空'],
             [`.a { color: red }${' '.repeat(9000)}`, '8 KB'],
+            ['.stcr-card { --p: fixed; position: var(--p) }', 'fixed'], // T104 复查：间接写法
+            ['.a { position:fixed }', 'fixed'],
+            ['.stcr-card ~ * { color: red }', '卡片旁边'],
+            ['.stcr-card:hover + div { color: red }', '卡片旁边'],
         ];
         for (const [css, word] of bads) {
             const r = checkTemplateCss(css);
             if (r.ok) throw new Error(`应拒绝：${css.slice(0, 60)}`);
             if (!r.error.includes(word)) throw new Error(`原因里应有「${word}」，实际：${r.error}`);
         }
+        equal(checkTemplateCss('.a { position: relative } .b { position: absolute !important; background-position: center }').ok, true, '普通 position 照常：');
+        equal(checkTemplateCss('.mes_text ~ .x, .a + .b { color: red }').ok, true, '卡片里面的兄弟选择器照常：');
+        // T104 复查：模板文件最外层多出来的项整份拒绝；另存不合法的样式不存
+        const extra = parseTemplateText(JSON.stringify({ ...JSON.parse(GOOD_FILE({})), evil: 1 }));
+        equal(extra.ok === false && extra.error.includes('evil'), true, '多出的项：');
+        const badSave = addTemplate([], { name: '坏', base: 'paper', options: {}, css: '@import url(x.css);' });
+        equal(badSave.ok === false && /自定义样式没有生效/.test(badSave.error), true, '另存坏样式：');
+        equal(addTemplate([], { name: '空', base: 'paper', options: {}, css: '   ' }).template?.css, '', '只有空白的样式当空：');
+        equal(templateProblem({ name: 'x', base: 'paper', options: {}, css: '.a { color: red }' }), null);
         const viaFile = parseTemplateText(GOOD_FILE({ css: '.a { background: url(https://x.invalid/a.png) }' }));
         equal(viaFile.ok, false); equal(viaFile.error.startsWith('css：'), true, '经模板文件导入时：');
     });
@@ -517,6 +530,18 @@ export async function testUiLogic() {
         for (const p of PALETTES) for (const key of ['text', 'name', 'quote', 'accent']) if (minContrast(p[key], p.stops) < 4.5) bad.push(`${p.id}.${key} ${minContrast(p[key], p.stops).toFixed(2)}`);
         for (const p of PALETTES) { const r = resolvePalette({ ...DEFAULT_OPTIONS, palette: p.id }); if (minContrast(r.sign, p.stops) < 4.5) bad.push(`${p.id}.sign`); if ((p.tone === 'dark') !== (luminance(r.mid) < 0.18)) bad.push(`${p.id} 深浅标注与亮度不符`); }
         equal(bad, []);
+    });
+    check('T104 复查：对比度沿整条渐变算（含中段），斜体色也 ≥ 4.5:1；预设与自定义都查', () => {
+        // 不依赖 minContrast 的实现：自己沿渐变取 65 个点，每点单独算
+        const worst = (fg, stops) => Math.min(...Array.from({ length: 65 }, (_, i) => minContrast(fg, [stops.length < 2 ? stops[0] : mixHex(stops[0], stops.at(-1), i / 64)])));
+        const bad = [];
+        const audit = (label, r) => { for (const key of ['text', 'name', 'quote', 'accent', 'em', 'sign']) { const v = worst(r[key], r.stops); if (v < 4.5) bad.push(`${label}.${key} ${v.toFixed(2)}`); } };
+        for (const p of PALETTES) audit(p.id, resolvePalette({ ...DEFAULT_OPTIONS, palette: p.id }));
+        const pairs = [['#ff0000', '#00ff00'], ['#00ffff', '#ff0000'], ['#ff00ff', '#00ff00'], ['#ff8800', '#0000ff'], ['#ffff00', '#0000ff'], ['#ff0000', '#0000ff'], ['#00ff00', '#ff00ff']];
+        let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+        for (let i = 0; i < 300; i++) pairs.push([toHex([rnd() * 255, rnd() * 255, rnd() * 255]), toHex([rnd() * 255, rnd() * 255, rnd() * 255])]);
+        for (const [a, b] of pairs) audit(`${a}→${b}`, resolvePalette({ ...DEFAULT_OPTIONS, palette: 'custom', customA: a, customB: b, customAngle: 135 }));
+        equal(bad.slice(0, 8), []);
     });
     check('T104 自定义配色：任意两色，字色都 ≥ 4.5:1（含红蓝两端这种没有一种字色能兼顾的）', () => {
         let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;

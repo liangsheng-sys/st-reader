@@ -18,7 +18,7 @@ import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
 import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
-import { checkTemplateCss, DEFAULT_OPTIONS, FRAMES, LAYOUTS, MAX_TEMPLATE_BYTES, NAME_STYLES, QUOTE_STYLES } from './cardTemplates.js';
+import { checkTemplateCss, DEFAULT_OPTIONS, FRAMES, LAYOUTS, NAME_STYLES, QUOTE_STYLES, templateProblem } from './cardTemplates.js';
 import { ALIGNS, ANGLES, BUILTIN_TEMPLATES, FONT_FAMILIES, FONT_SIZES, HEADER_ICONS, LETTER_SPACINGS, LINE_HEIGHTS, MAX_HEADER_TITLE, MAX_LEAD_TEXT, MAX_TEMPLATE_NAME,
     PADDINGS, PALETTES, RADII, TEXTURES, addTemplate, countCardChars, derivePalette, formatCardCount, formatCardDate, optionsEqual, parseTemplateText, removeTemplate,
     renameTemplate, resolvePalette, scopeTemplateCss, TEMPLATE_SCOPE_ROOT, templateClassName, templateToText, textureLayers, normalizeTemplates, newTemplateId } from './cardTemplates.js';
@@ -257,7 +257,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const tempSec = section('临时遮住（只这张卡）', tempChips);
         const note = h('div', { class: 'stcr-studio-note', role: 'status', 'aria-live': 'polite' });
 
-        const cssArea = h('textarea', { class: 'text_pole stcr-studio-textarea stcr-studio-css', rows: '8', spellcheck: 'false', 'aria-label': '自定义样式', placeholder: '.mes_text q { color: #1d9bf0; }' });
+        const cssArea = h('textarea', { class: 'text_pole stcr-studio-textarea stcr-studio-css', rows: '8', maxlength: '8192', spellcheck: 'false', 'aria-label': '自定义样式', placeholder: '.mes_text q { color: #1d9bf0; }' });
         const cssState = h('p', { class: 'stcr-studio-hint stcr-studio-css-state', role: 'status' });
         const cssBox = h('div', { class: 'stcr-studio-css-box' },
             h('p', { class: 'stcr-studio-hint', text: '给会写 CSS 的人：直接写，卡片里面的样式会马上生效，只影响这张卡。想让 AI 帮你写？点下面的按钮，把复制出来的说明发给它，再说你想要什么样。写好后点上面的“另存为模板…”。' }),
@@ -1038,7 +1038,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             closeMenu(mine);
             if (act === 'update') {
                 const next = { ...record, base: template(mine), options: { ...mine.prefs.opts }, css: mine.prefs.css ?? '' };
-                if (normalizeTemplates([next]).length !== 1) { toast(`没存上：这套模板超过 ${MAX_TEMPLATE_BYTES / 1024} KB 了`); return; }
+                const problem = templateProblem(next); // T104 复查：样式不合法也不存，原因照实说
+                if (problem) { toast(`没存上：${problem}`); return; }
                 mine.templates = mine.templates.map(t => (t.id === id ? next : t));
                 saveTemplates(mine);
                 toast(`已用现在的设置覆盖“${record.name}”`);

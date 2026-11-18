@@ -1084,7 +1084,7 @@
     background: color-mix(in srgb, var(--stcr-panel) 82%, #000);
 }
 #stcr_root .stcr-card-slot { position: relative; flex: none; }
-#stcr_root .stcr-card-scaler { position: absolute; top: 0; left: 0; transform-origin: 0 0; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); }
+#stcr_root .stcr-card-scaler { position: absolute; top: 0; left: 0; transform-origin: 0 0; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); contain: paint; } /* contain：模板 CSS 画出的东西不出卡片范围，盖不到预览区的提示与按钮（T104 复查） */
 #stcr_root .stcr-card-hover {
     position: absolute;
     z-index: 2;

@@ -161,7 +161,14 @@ export function contrastRatio(a, b) {
     const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
     return (hi + 0.05) / (lo + 0.05);
 }
-export const minContrast = (fg, stops) => Math.min(...stops.map(stop => contrastRatio(fg, stop)));
+/**
+ * fg 在整片底色上最差的对比度。两色渐变不只看两端：sRGB 线性混合的中段可能比两端都暗 / 亮（红→绿中间发灰），
+ * 所以沿渐变取 33 个点（含两端与中点）一起算（T104 复查）。
+ */
+/** 挑颜色时的目标对比度：比 4.5:1 多留一点，补上采样点之间的缝，保证整条渐变上处处 ≥ 4.5:1。 */
+const INK_MIN = 4.6;
+export const gradientSamples = stops => (stops.length < 2 ? stops : Array.from({ length: 33 }, (_, i) => mixHex(stops[0], stops.at(-1), i / 32)));
+export const minContrast = (fg, stops) => Math.min(...gradientSamples(stops).map(stop => contrastRatio(fg, stop)));
 /** a 与 b 按 t（0–1，越大越靠 b）混合。 */
 export function mixHex(a, b, t) {
     const [x, y] = [rgbOf(a), rgbOf(b)];
@@ -187,7 +194,7 @@ export function ensureContrast(fg, stops, min = 4.5, prefer = null) {
 export function pickInk(stops) {
     const dark = '#1f2329', light = '#f4f1ea';
     const best = minContrast(dark, stops) >= minContrast(light, stops) ? dark : light;
-    return minContrast(best, stops) >= 4.5 ? best : ensureContrast(best, stops, 4.5);
+    return minContrast(best, stops) >= INK_MIN ? best : ensureContrast(best, stops, INK_MIN);
 }
 
 // ───────────── 配色 ─────────────
@@ -219,21 +226,21 @@ export const PALETTES = Object.freeze([
 export function derivePalette({ a, b = null, angle = 135 }) {
     let stops = b ? [a, b] : [a];
     let text = pickInk(stops), adjusted = false;
-    // 两端亮度差太大（比如红到蓝）时没有一种字色能在两端都清楚：把底色整体压深或提亮一点，直到 ≥ 4.5:1
-    if (minContrast(text, stops) < 4.5) {
+    // 两端亮度差太大（比如红到蓝）时没有一种字色能在两端都清楚：把底色整体压深或提亮一点，直到整条渐变上 ≥ 4.5:1（目标 INK_MIN 留了余量）
+    if (minContrast(text, stops) < INK_MIN) {
         for (let t = 0.05; t <= 1.0001 && !adjusted; t += 0.05) {
             for (const [ink, toward] of [['#ffffff', '#000000'], ['#000000', '#ffffff']]) {
                 const moved = stops.map(stop => mixHex(stop, toward, t));
-                if (minContrast(ink, moved) >= 4.5) { stops = moved; text = ink; adjusted = true; break; }
+                if (minContrast(ink, moved) >= INK_MIN) { stops = moved; text = ink; adjusted = true; break; }
             }
         }
     }
     const mid = mixHex(stops[0], stops.at(-1), 0.5);
     const dark = luminance(mid) < 0.18;
     return Object.freeze({ id: 'custom', label: '自定义', tone: dark ? 'dark' : 'light', stops, angle, text, adjusted,
-        name: ensureContrast(mixHex(text, mid, 0.35), stops, 4.5, text),
-        quote: ensureContrast(dark ? '#e8a96b' : '#a5432f', stops, 4.5, text),
-        accent: ensureContrast(dark ? '#e8a96b' : '#a5432f', stops, 4.5, text) });
+        name: ensureContrast(mixHex(text, mid, 0.35), stops, INK_MIN, text),
+        quote: ensureContrast(dark ? '#e8a96b' : '#a5432f', stops, INK_MIN, text),
+        accent: ensureContrast(dark ? '#e8a96b' : '#a5432f', stops, INK_MIN, text) });
 }
 
 /** 选项里的配色 → 完整的一组颜色；没选配色（null）返回 null = 用模板自带的。 */
@@ -246,8 +253,8 @@ export function resolvePalette(options) {
     return Object.freeze({
         ...base, dark, mid,
         background: stops.length > 1 ? `linear-gradient(${base.angle}deg, ${stops[0]}, ${stops[1]})` : null,
-        em: mixHex(base.text, mid, 0.18),
-        sign: ensureContrast(mixHex(base.text, mid, 0.4), stops, 4.5, base.text),
+        em: ensureContrast(mixHex(base.text, mid, 0.18), stops, INK_MIN, base.text), // 斜体 / 思维链 / 我的想法：同样保证 ≥ 4.5:1（T104 复查）
+        sign: ensureContrast(mixHex(base.text, mid, 0.4), stops, INK_MIN, base.text),
         line: rgbaOf(base.text, 0.2), soft: rgbaOf(base.text, 0.07),
         page: dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.72)',
     });
@@ -322,12 +329,28 @@ export function uniqueName(list, name) {
 }
 
 /** 加一套：返回 { ok, list, template } 或 { ok:false, error }。 */
+/**
+ * 存之前查一遍（另存、覆盖、导入共用）：自定义样式要么空、要么能通过 checkTemplateCss，整份 ≤ 20 KB。
+ * 不合法的样式不存：否则下次打开会被 normalizeTemplates 悄悄清空，导出给别人也会被拒（T104 复查）。
+ * @returns {string|null} 给人看的原因；没问题返回 null
+ */
+export function templateProblem(template) {
+    const css = template.css ?? '';
+    if (css.trim()) {
+        const checked = checkTemplateCss(css);
+        if (!checked.ok) return `自定义样式没有生效：${checked.error}。先改好或清空再存`;
+    }
+    if (byteLength(JSON.stringify(template)) > MAX_TEMPLATE_BYTES) return `这套模板太大了（超过 ${MAX_TEMPLATE_BYTES / 1024} KB）`;
+    return null;
+}
+
 export function addTemplate(list, { name, base, options, css = '' }, { rename = true, id = newTemplateId() } = {}) {
     if (list.length >= MAX_TEMPLATES) return { ok: false, error: `最多存 ${MAX_TEMPLATES} 套自制模板，请先删掉不用的` };
     const clean = cleanName(name);
     if (!clean) return { ok: false, error: '请给模板起个名字（最多 20 个字）' };
-    const template = { id, name: rename ? uniqueName(list, clean) : clean, base, options: normalizeOptions(options), css: css || '' };
-    if (byteLength(JSON.stringify(template)) > MAX_TEMPLATE_BYTES) return { ok: false, error: '这套模板太大了（超过 20 KB）' };
+    const template = { id, name: rename ? uniqueName(list, clean) : clean, base, options: normalizeOptions(options), css: (css ?? '').trim() ? css : '' };
+    const problem = templateProblem(template);
+    if (problem) return { ok: false, error: problem };
     return { ok: true, list: [...list, template], template };
 }
 export const renameTemplate = (list, id, name) => {
@@ -339,6 +362,8 @@ export const removeTemplate = (list, id) => list.filter(t => t.id !== id);
 
 // ───────────── 模板文件 ─────────────
 
+/** 模板文件最外层只认这几项，多了整份拒绝（与 options 里的未知键同样处理）。 */
+const FILE_KEYS = Object.freeze(['format', 'version', 'name', 'base', 'options', 'css']);
 export const templateToFile = template => ({ format: TEMPLATE_FORMAT, version: TEMPLATE_VERSION, name: template.name, base: template.base, options: { ...template.options }, css: template.css || '' });
 export const templateToText = template => `${JSON.stringify(templateToFile(template), null, 2)}\n`;
 
@@ -349,6 +374,8 @@ export function parseTemplateText(text) {
     let data;
     try { data = JSON.parse(text.replace(/^\uFEFF/, '')); } catch (error) { return { ok: false, error: `不是有效的 JSON（${String(error.message ?? error).slice(0, 60)}）` }; }
     if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: '不是模板文件：最外层应为一个对象' };
+    const unknown = Object.keys(data).filter(key => !FILE_KEYS.includes(key));
+    if (unknown.length) return { ok: false, error: `有不认识的项：${unknown.slice(0, 3).join('、')}（模板文件只有 ${FILE_KEYS.join('、')}）` };
     if (data.format !== TEMPLATE_FORMAT) return { ok: false, error: `不是分享卡片模板：format 应为 "${TEMPLATE_FORMAT}"，收到 ${JSON.stringify(data.format)}` };
     if (data.version !== TEMPLATE_VERSION) return { ok: false, error: `版本不对：这个版本只认 version ${TEMPLATE_VERSION}，收到 ${JSON.stringify(data.version)}` };
     if (typeof data.name !== 'string' || !data.name.trim()) return { ok: false, error: 'name 应为模板的名字（1–20 个字）' };
@@ -439,7 +466,10 @@ function checkDeclarations(body) {
     if (/\\/.test(body)) return '不允许反斜杠转义写法';
     if (/expression\s*\(|-moz-binding|behavior\s*:|javascript:/i.test(body)) return '不允许 expression、behavior、javascript: 这类写法';
     if (/image-set\s*\(/i.test(body)) return '不允许 image-set()';
-    if (/position\s*:\s*fixed/i.test(body)) return '不允许 position: fixed（会飘到卡片外面）';
+    // position 只认直接写出的 static / relative / absolute / sticky：fixed 会飘到卡片外面，var() 等间接写法也能变出 fixed（T104 复查）
+    for (const match of body.matchAll(/(?:^|[;{\s])position\s*:\s*([^;]*)/gi)) {
+        if (!/^(?:static|relative|absolute|sticky)\s*(?:!\s*important\s*)?$/i.test(match[1].trim())) return `position 只能写 static、relative、absolute 或 sticky，不允许 fixed（会飘到卡片外面）；收到 ${match[1].trim().slice(0, 30)}`;
+    }
     for (const match of body.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]*))\s*\)/gi)) {
         const target = (match[1] ?? match[2] ?? match[3] ?? '').trim();
         if (!/^data:/i.test(target)) return `不允许外链 url(${target.slice(0, 40)}${target.length > 40 ? '…' : ''})：图片只能内嵌成 data: 开头的`;
@@ -478,6 +508,8 @@ export function checkTemplateCss(css) {
             if (node.body.includes('{')) return { error: `不支持嵌套写法（${node.prelude.slice(0, 30)} 里面又套了花括号）` };
             for (const part of splitSelectorList(node.prelude)) {
                 if (!part) return { error: `选择器里有空项：${node.prelude.slice(0, 40)}` };
+                // 卡片根后面跟 ~ / + 选的是卡片的兄弟元素，在卡片外面（T104 复查）
+                if (/^\.stcr-card(?![\w-])[^\s>~+]*\s*[~+]/.test(part)) return { error: `选择器 "${part.slice(0, 40)}" 指向了卡片旁边的元素（~ / +）：只能写卡片里面的` };
                 const bad = part.match(BAD_SELECTOR);
                 if (bad) return { error: `选择器 "${part.slice(0, 40)}" 指向了卡片以外（${bad[0].trim()}）：只能写卡片里面的，比如 .mes_text、.name_text、q` };
             }

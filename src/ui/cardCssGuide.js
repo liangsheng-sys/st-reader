@@ -84,7 +84,7 @@ export function buildCssGuide() {
 ## 四、写 CSS 的硬规则（违反的整份会被拒绝，并说出哪一条）
 
 - 总共不超过 ${MAX_TEMPLATE_CSS_BYTES / 1024} KB。
-- 不许：\`@import\`、\`@font-face\`、外链 \`url(…)\`（图片、字体都不行）、\`position: fixed\`、\`expression(…)\`；\`@media\` / \`@supports\` 可以用，不许嵌套；不许选择器嵌套（CSS nesting）。
+- 不许：\`@import\`、\`@font-face\`、外链 \`url(…)\`（图片、字体都不行）、\`expression(…)\`；\`position\` 只能直接写 \`static\` / \`relative\` / \`absolute\` / \`sticky\`（不许 \`fixed\`，也不许用 \`var(…)\` 间接给）；不许用 \`.stcr-card ~ …\` / \`.stcr-card + …\` 选卡片旁边的元素；\`@media\` / \`@supports\` 可以用，不许嵌套；不许选择器嵌套（CSS nesting）。
 - 想要背景图案：用渐变（\`linear-gradient\` / \`radial-gradient\` / \`repeating-linear-gradient\`）。想要小图标：用页眉图标（选项 \`headerIcon\`，12 枚可选），CSS 里不要自己引入别的图标。
 - 字体：只能写本机字体的名字（\`font-family: "Songti SC", serif\`），不能下载。没装的会回退。
 - **值里用了 \`var(…)\` 时，请用单项写法**：\`background-color\`、\`border-top-color\`，不要用 \`background:\`、\`border:\` 简写（导出的隔离副本会丢掉简写）。
