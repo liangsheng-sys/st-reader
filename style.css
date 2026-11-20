@@ -2032,3 +2032,34 @@ body.stcr-reader-open {
 #stcr_root .stcr-studio-css { font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; width: 100%; box-sizing: border-box; }
 #stcr_root .stcr-studio-css-box { display: flex; flex-direction: column; gap: 8px; }
 #stcr_root .stcr-studio-css-state.stcr-bad { color: var(--stcr-danger, #c0392b); }
+/* ── 番外视图（T105 / D48）：顶栏三段切换、正文视图的折叠小条、番外视图的楼号标签。不删任何节点，只换显示。── */
+#stcr_root .stcr-side-switch { flex: none; margin: 0 6px; }
+#stcr_root .stcr-side-switch .stcr-seg-btn { padding: 2px 10px; font-size: 12px; line-height: 1.6; }
+#stcr_root .stcr-side-gone { display: none !important; }
+#stcr_root.stcr-view-main .stcr-side-part { display: none !important; }
+#stcr_root.stcr-view-side .stcr-side-bar, #stcr_root.stcr-view-all .stcr-side-bar { display: none; }
+#stcr_root .stcr-side-bar {
+    display: block; width: fit-content; max-width: 100%; margin: .5em 0; padding: 2px 12px; font-size: .78em; line-height: 1.7;
+    border-radius: 999px; opacity: .72; cursor: pointer;
+}
+#stcr_root .stcr-side-bar:hover { opacity: 1; }
+/* 番外视图里的混合楼：只留番外片段（含有片段的外层元素、片段里面的东西留着，其余全藏） */
+#stcr_root.stcr-view-side .mes[data-side="mixed"] .mes_text :not(.stcr-side-part):not(.stcr-side-part *):not(:has(.stcr-side-part)) { display: none !important; }
+#stcr_root .stcr-side-tag { margin-left: 8px; padding: 0 8px; font-size: 11.5px; line-height: 1.7; border-radius: 999px; opacity: .75; white-space: nowrap; cursor: pointer; }
+#stcr_root .stcr-side-tag:hover { opacity: 1; }
+#stcr_root .stcr-side-settings .stcr-dx-block { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--stcr-border) 45%, transparent); }
+#stcr_root .stcr-side-settings .stcr-dx-row-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#stcr_root .stcr-side-settings .stcr-dx-row-inline .stcr-dx-text { flex: 1 1 10em; min-width: 6em; }
+#stcr_root .stcr-side-settings .stcr-dx-block > .stcr-dx-text { flex: none; width: 100%; box-sizing: border-box; }
+#stcr_root .stcr-side-settings .stcr-dx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+#stcr_root .stcr-side-settings .stcr-dx-chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px 1px 10px; border-radius: 999px; background: color-mix(in srgb, var(--stcr-border) 40%, transparent); font-size: 13px; }
+#stcr_root .stcr-side-settings .stcr-chip-x { padding: 0 6px; background: none; border: 0; opacity: .6; }
+#stcr_root .stcr-side-settings .stcr-bad { color: var(--stcr-danger, #c0392b); }
+@media (max-width: 599px) {
+    #stcr_root .stcr-side-switch { margin: 0 2px; }
+    #stcr_root .stcr-side-switch .stcr-seg-btn { padding: 2px 5px; }
+    /* 手机顶栏放不下三段切换 + 七个 44px 图标：有切换时图标收到 36px（划线面板里的小按钮也是 36） */
+    #stcr_root:has(.stcr-side-switch:not([hidden])) .stcr-topbar > .stcr-icon-btn { min-width: 36px; }
+}
+/* 卡片里跨过被藏起的番外 / 正文时，两段之间的"……"（T105 复查） */
+#stcr_root .stcr-card .stcr-card-gap { margin: .3em 0; text-align: center; opacity: .55; letter-spacing: .2em; }

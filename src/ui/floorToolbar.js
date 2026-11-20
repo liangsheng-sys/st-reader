@@ -5,11 +5,13 @@
 
 import { renderMessage } from '../core/formatter.js';
 import { isDevInstance } from '../core/readonlyGuard.js';
+import { locateSegments } from '../core/sideStory.js';
 import { h, iconButton } from './dom.js';
 import { formatStamp, isSystemLike, navKeys, reasoningTitle, RENDER_FAULT_MARK } from './logic.js';
 import { getPrefs } from './prefs.js';
 import { findHtmlBlocks } from './htmlBlocks.js';
 import { redactElement, visibleText } from './redact.js';
+import { markSideHtml, markSideParts, markSideWhole } from './sideStory.js';
 
 /**
  * @typedef {object} FloorContext
@@ -19,6 +21,9 @@ import { redactElement, visibleText } from './redact.js';
  * @property {(index:number, swipe:number|null)=>boolean} isBookmarked 整楼（swipe=null）或某候选是否已收藏
  * @property {(model:object)=>import('./redact.js').RedactOptions|null} [redactFor] 脱敏显示开着时给这一楼的屏蔽词 / 规则（T45）
  * @property {(textEl:HTMLElement, blocks:object[], where:object)=>void} [attachHtml] 楼里有 HTML 时接上沙箱渲染（T44b）
+ * @property {(index:number, swipe:number)=>object[]|null} [sideSegments] T105：这一楼这个候选里的番外片段（core RangeInfo[]），没有返回 null
+ * @property {(index:number)=>boolean} [sideWhole] T105：这一楼整楼是番外
+ * @property {(model:object, swipe:number)=>{text:string,title:string}|null} [sideLabel] T105：番外视图里名字行上的小标签
  */
 
 /** 建一楼。swipeIndex 是阅读器要显示的候选（可能与 ST 当前候选不同）。 */
@@ -68,6 +73,7 @@ function fillRendered(ctx, el, model, swipeIndex) {
     const hidden = model.isSystem && !systemLike; // 在 ST 里被隐藏、但其实是普通楼（I050 / T62）
     el.dataset.swipe = String(rendered.swipeIndex);
     el.classList.toggle('reasoning', !!rendered.reasoningHtml);
+    delete el.dataset.side; // T105：番外标记每次重新定
 
     // 名字行：[书签角标 名字 时间] …… [悬浮工具] [◂ 2/5 ▸] [⋯]。工具收在名字行里，不再浮到上方压住候选切换。
     const title = h('div', { class: 'flex-container alignItemsBaseline stcr-mes-title' },
@@ -75,6 +81,8 @@ function fillRendered(ctx, el, model, swipeIndex) {
         h('span', { class: 'name_text', text: model.name }),
         hidden ? h('span', { class: 'stcr-hidden-tag', 'data-stcr-ignore-anchor': '', title: '在 ST 里被隐藏、不发给模型，阅读器照常显示', text: '已隐藏' }) : null,
         h('small', { class: 'timestamp', text: formatStamp(swipe.sendDate ?? model.date) }));
+    const sideLabel = ctx.sideLabel?.(model, rendered.swipeIndex) ?? null; // T105：番外视图里每楼前的"第 N 楼 · 候选 k/n"，点它回正文
+    if (sideLabel) title.append(h('button', { type: 'button', class: 'stcr-btn stcr-side-tag', 'data-act': 'side-back', 'data-stcr-ignore-anchor': '', title: sideLabel.title, text: sideLabel.text }));
     const row = h('div', { class: 'ch_name flex-container justifySpaceBetween' },
         h('div', { class: 'flex-container flex1 alignitemscenter' }, title));
     if (!systemLike) row.append(buildToolbar(model, !!rendered.reasoningHtml));
@@ -100,12 +108,25 @@ function fillRendered(ctx, el, model, swipeIndex) {
 
     const text = h('div', { class: 'mes_text' });
     text.innerHTML = rendered.html; // core 已清洗（DOMPurify）
+    // T105：番外片段先定位（只读），等 HTML 块认完再标记；任何一段定位不到 = 整楼当番外
+    const sideSegments = ctx.sideSegments?.(model.index, rendered.swipeIndex) ?? null;
+    let sideLocated = null;
+    if (sideSegments?.length) {
+        try { sideLocated = locateSegments(text, rendered.displayText ?? swipe.text, sideSegments); } catch (error) { console.warn('[st-reader] 番外片段定位出错，这一楼整楼当番外：', error); sideLocated = [null]; }
+    }
     // HTML 块要在脱敏显示改动正文之前认出来：沙箱 / 截图 / 复制脱敏版都从原文出发（T44b）
     const htmlBlocks = ctx.attachHtml ? findHtmlBlocks(text, swipe.text, rendered.displayText ?? swipe.text) : [];
+    let sideMarked = null;
+    if (sideLocated) {
+        sideMarked = markSideParts(text, sideLocated);
+        if (sideMarked.missed) markSideWhole(text);
+        el.dataset.side = sideMarked.missed ? 'whole' : 'mixed';
+    } else if (ctx.sideWhole?.(model.index)) el.dataset.side = 'whole';
     if (redact) redactElement(text, redact); // 在加复制按钮之前：按钮文字不参与
     addCodeCopyButtons(text);
     if (htmlBlocks.length) ctx.attachHtml(text, htmlBlocks, { index: model.index, swipe: rendered.swipeIndex, model });
     scopeFloorStyles(text);
+    if (sideMarked) markSideHtml(text);
     block.append(text);
     syncBookmarkMarks(ctx, el);
     return rendered;

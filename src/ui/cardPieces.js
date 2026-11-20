@@ -25,9 +25,67 @@ function offsetIn(container, node, offset) {
     return getAnchorText(prefix.cloneContents()).length;
 }
 
+const ANCHOR_SKIP = 'style,script,button,[data-stcr-ignore-anchor]'; // 与 core getAnchorText 排除的节点一致
+const hasText = text => /\S/.test(text);
+
+/**
+ * T105：番外视图在这一楼正文里藏起来的文字（锚点文字位置区间，相邻的合并；夹在中间的空白算进去）。
+ * 只看标过番外的楼（data-side）；"全部"视图什么都没藏，返回空。
+ */
+function hiddenSpans(el, container) {
+    if (!el.dataset.side) return [];
+    const spans = [];
+    const walker = container.ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+        acceptNode: node => (node.parentElement?.closest(ANCHOR_SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    let offset = 0;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const next = offset + node.data.length;
+        const last = spans.at(-1);
+        const touching = last && last.end === offset;
+        if (!isShown(node.parentElement)) { if (touching) last.end = next; else spans.push({ start: offset, end: next }); }
+        else if (touching && !hasText(node.data)) last.end = next;
+        offset = next;
+    }
+    return spans;
+}
+
+/**
+ * 把 [start, end) 减去藏起来的区间：返回看得见、有字的几段。
+ * 一段 → {start,end}；多段 → {start,end,parts:[{start,end}...]}（卡片里用"……"隔开）；一个字都没有 → null。
+ */
+function visiblePick(text, start, end, spans) {
+    const parts = [];
+    let cursor = start;
+    for (const span of spans) {
+        if (span.end <= cursor || span.start >= end) continue;
+        if (span.start > cursor) parts.push({ start: cursor, end: span.start });
+        cursor = Math.max(cursor, span.end);
+    }
+    if (cursor < end) parts.push({ start: cursor, end });
+    const kept = parts.filter(part => hasText(text.slice(part.start, part.end)));
+    if (!kept.length) return null;
+    return kept.length === 1 ? kept[0] : { start: kept[0].start, end: kept.at(-1).end, parts: kept };
+}
+
+/**
+ * 楼层工具条 🖼 的整楼：平时就是 wholeFloor；番外视图里这楼有藏起来的部分时，只摘看得见的（T105）。
+ * @param {HTMLElement} el 阅读器里的 .mes
+ */
+export function floorPick(el) {
+    const index = Number(el.getAttribute('mesid')), swipe = Number(el.dataset.swipe);
+    const whole = wholeFloor(index, swipe);
+    const container = el.querySelector(':scope > .mes_block .mes_text');
+    const spans = container ? hiddenSpans(el, container) : [];
+    if (!spans.length) return whole;
+    const text = getAnchorText(container);
+    return { ...whole, body: visiblePick(text, 0, text.length, spans) };
+}
+
 /**
  * 阅读器里的选区 → 每楼 {index, swipe, body, reasoning}；body/reasoning 为 {start,end}（锚点文字位置）或 null。
  * 看不见的楼（隐藏的用户楼）和收起的思维链不算进去：卡片只放用户看得见、选得到的字。
+ * T105：番外视图里藏起来的片段也不算（选区跨过它时，body 带 parts，分几段摘）。
  */
 export function selectionToFloors(range, floorEls) {
     const floors = [];
@@ -41,7 +99,9 @@ export function selectionToFloors(range, floorEls) {
             const length = getAnchorText(container).length;
             const start = container.contains(range.startContainer) ? offsetIn(container, range.startContainer, range.startOffset) : 0;
             const end = container.contains(range.endContainer) ? offsetIn(container, range.endContainer, range.endOffset) : length;
-            if (end > start) entry[part] = { start, end };
+            if (end <= start) continue;
+            const spans = part === 'body' ? hiddenSpans(el, container) : [];
+            entry[part] = spans.length ? visiblePick(getAnchorText(container), start, end, spans) : { start, end };
         }
         if (entry.body || entry.reasoning) floors.push(entry);
     }
@@ -148,7 +208,21 @@ export async function buildPieces(handle, floors, options, cache) {
             if (pick === 'all') fragment = cloneChildren(source);
             else {
                 const segments = alignTexts(readerText(cache, handle, floor.index, floor.swipe, part), cardTextNodes(source).map(node => node.data).join(''));
-                fragment = cloneByOffsets(source, mapOffset(segments, pick.start, 'start'), mapOffset(segments, pick.end, 'end'));
+                const cut = ({ start, end }) => cloneByOffsets(source, mapOffset(segments, start, 'start'), mapOffset(segments, end, 'end'));
+                if (!pick.parts) fragment = cut(pick);
+                else {
+                    // T105：中间有藏起来的番外 / 正文，分段摘，段与段之间放一行"……"
+                    fragment = source.ownerDocument.createDocumentFragment();
+                    for (const one of pick.parts.map(cut).filter(hasContent)) {
+                        if (fragment.childNodes.length) {
+                            const gap = source.ownerDocument.createElement('p');
+                            gap.className = 'stcr-card-gap';
+                            gap.textContent = '……';
+                            fragment.append(gap);
+                        }
+                        fragment.append(one);
+                    }
+                }
             }
             if (hasContent(fragment)) piece[part] = fragment;
         }
@@ -178,7 +252,7 @@ export async function findThoughts(handle, floors, annotations, cache) {
             for (const record of mine) {
                 const at = await locateAnchorText(text, record.anchor, context);
                 if (at.status !== 'attached') continue;
-                if (pick !== 'all' && !(at.start < pick.end && at.end > pick.start)) continue;
+                if (pick !== 'all' && !(pick.parts ?? [pick]).some(one => at.start < one.end && at.end > one.start)) continue; // T105：只算摘进卡片的那几段
                 found.push({ key: [order, partOrder, at.start], note: record.note.trim(), id: record.id });
             }
         }

@@ -11,7 +11,7 @@ import { flushMirror, getMirrorStatus, mirrorNow, onMirrorStatus, restoreFromSer
 import { getVersion } from '../core/updateService.js';
 import { createPanel } from './annotationsPanel.js';
 import { backupStatus, describeStoreError, exportBackup, pickAndImport } from './backup.js';
-import { annotationToFloor, createPieceCache, MAX_CARD_FLOORS, selectionToFloors, wholeFloor } from './cardPieces.js';
+import { annotationToFloor, createPieceCache, floorPick, MAX_CARD_FLOORS, selectionToFloors } from './cardPieces.js';
 import { createCardStudio } from './cardStudio.js';
 import { copyText, h, iconButton, isTypingTarget, toast } from './dom.js';
 import { favoriteNote, isFavoriteChat, loadFavoriteChats, onFavoriteChatsChange, resetFavoriteChats, setFavoriteNote, toggleFavoriteChat } from './chatFavorites.js';
@@ -20,7 +20,10 @@ import { createDrawer } from './drawer.js';
 import { createHtmlManager } from './htmlBlocks.js';
 import { createHtmlShot } from './htmlShot.js';
 import { buildFloor, buildSwipeControl, fillFloor, floorFault, floorPlainText, swipeKeyTitle, syncBookmarkMarks } from './floorToolbar.js';
-import { effectivePrefs, faultReport, floorKinds, foldRuns, followPlacement, formatStamp, isFolded, mirrorStatusText, navCommand, navKeys, parseJumpInput, pickSwipe, progressText, restoreSummary, swipePreviews } from './logic.js';
+import { effectivePrefs, faultReport, floorKinds, foldRuns, followPlacement, formatStamp, hasSideStory, isFolded, mirrorStatusText, navCommand, navKeys, nextSideView, normalizeSideView, parseJumpInput, pickSwipe, progressText, restoreSummary,
+    SIDE_VIEW_LABELS, sideKind, sideLabelText, sideLandingIndex, sideSignature, sideSummaryText, swipePreviews } from './logic.js';
+import { classifySideStory, normalizeSideStoryRules } from '../core/sideStory.js';
+import { loadSideOff, loadSideRules, openSideSettings, rulesActive, saveSideOff, saveSideRules } from './sideStory.js';
 import { createMarks, highlightSupported } from './marks.js';
 import { flushProgress, getPrefs, getProgress, lastRead, loadPrefs, onPrefsChange, reloadPrefs, rememberSwipe, setPrefs, setReadPosition } from './prefs.js';
 import { createSelectionUi } from './selectionPopover.js';
@@ -85,6 +88,7 @@ export async function openReader({ tab, chatKey } = {}) {
         if (!restoreNoticeTaken && result?.restored) { restoreNotice = restoreSummary(result.restored); restoreNoticeTaken = true; }
     }
     await loadPrefs();
+    const sideRules = await loadSideRules().catch(error => { console.warn('[st-reader] 番外规则读取失败，先当全关：', error); return normalizeSideStoryRules(null); });
     const html = await SillyTavern.getContext().renderExtensionTemplateAsync(`${EXTENSION_ID}/src/ui/templates`, 'reader');
     if (S) return; // 等模板期间又被打开过一次
     const holder = document.createElement('div');
@@ -104,8 +108,12 @@ export async function openReader({ tab, chatKey } = {}) {
         chromeTimer: null, wheelAt: 0, wheelSum: 0, statusTimer: null, redact: null,
         prebuilt: new Map(), renderVersion: 0, prebuildJob: 0, firstScreen: true, // T82：空闲时先建好的前后批；T90：首屏前不预建
         banner: null, staleOff: null, reloading: false, restoring: false,
+        // T105：番外视图。rules 全局；off 是这个聊天的"不分番外"；result 是 core 的识别结果；view 是正文 / 番外 / 全部
+        side: { rules: normalizeSideStoryRules(null), off: false, result: null, view: 'main', pending: false, abort: null, sig: '', ui: null },
+        sideSwitch: root.querySelector('.stcr-side-switch'),
     };
     S = session;
+    session.side.rules = sideRules;
     session.marks = createMarks({
         getHandle: () => (S === session ? session.handle : null),
         getChatKey: () => (S === session && session.handle ? session.chatKey : null),
@@ -137,7 +145,7 @@ export async function openReader({ tab, chatKey } = {}) {
         confirm: (message, ok) => confirmDialog(message, ok),
     });
     session.docPanel = createDocPanel({ root });
-    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(), onManageRules: () => openRulesSheet(session),
+    session.settings = createSettingsBar({ onExport: () => doExport(), onImport: () => doImport(), onMirror: () => doMirror(), onRestore: () => doRestore(), onManageRules: () => openRulesSheet(session), onSideSettings: () => openSideSettingsUi(session),
         onDiagnostics: () => copyDiagnostics(session),
         versionRow: createVersionRow({ docPanel: session.docPanel }) });
     session.selUi = createSelectionUi({
@@ -589,6 +597,9 @@ function onClick(event) {
             case 'bookmark-floor': if (mes) toggleBookmark(mes, false); return;
             case 'bookmark-swipe': if (mes) toggleBookmark(mes, true); return;
             case 'card': if (mes) openCardForFloor(mes); return;
+            case 'side-view': setSideView(actEl.dataset.view); return;
+            case 'side-go': { const floor = actEl.closest('.mes[mesid]'); if (floor) setSideView('side', { index: Number(floor.getAttribute('mesid')) }); return; }
+            case 'side-back': { const floor = actEl.closest('.mes[mesid]'); if (floor) setSideView('main', { index: Number(floor.getAttribute('mesid')) }); return; }
             default: break;
         }
     }
@@ -669,6 +680,7 @@ function handleKey(event) {
         case 'r': case 'R': { const mes = getPrefs().hideReasoning ? null : keyTarget(); if (mes) toggleReasoning(mes); break; }
         case 'b': case 'B': { const mes = keyTarget(); if (mes && !mes.classList.contains('stcr-mes--system')) toggleBookmark(mes, false); break; }
         case 'g': case 'G': openJump(); break;
+        case 'v': case 'V': if (hasSideStory(session.side.result)) setSideView(nextSideView(session.side.view)); else handled = false; break; // T105
         case 'o': case 'O': openInSt(); break;
         case '\\': toggleDrawer(); break;
         case '/': togglePanel(); break;
@@ -1008,6 +1020,8 @@ function openExportDialog() {
         kinds: floorKinds(index => session.handle.getMessage(index), session.handle.total), // T99：楼数预览，打开时算一次
         saved: prefs.docExport, remember: value => setPrefs({ docExport: value }),
         redactOn: !!prefs.redact, autoNames: !!prefs.autoNames, root: session.root, toast: say,
+        // T105：有番外时多一行"内容：全部 / 只正文 / 只番外"，默认跟着阅读器现在的视图；楼数预览按它数
+        side: hasSideStory(session.side.result) ? { rules: session.side.rules, result: session.side.result, view: session.side.view } : null,
     });
 }
 
@@ -1134,7 +1148,7 @@ function openStudio(source) {
 function openCardForFloor(mes) {
     if (!S?.handle || mes.classList.contains('stcr-mes--broken')) return;
     openStudio({ handle: S.handle, ownsHandle: false, kind: 'floor', annotations: S.marks.records(), includeReasoning: false,
-        floors: [wholeFloor(Number(mes.getAttribute('mesid')), Number(mes.dataset.swipe))] });
+        floors: [floorPick(mes)] }); // T105：番外视图里藏起来的部分不进卡片
 }
 
 /** 选中浮层"卡片"：可跨楼；只摘看得见的楼和展开着的思维链。 */
@@ -1302,14 +1316,23 @@ async function loadChat(chatKey, { index = null, swipe = null, handle: ready = n
         const saved = getProgress(chatKey);
         session.swipeView = new Map(Object.entries(saved?.sw ?? {}).map(([key, value]) => [Number(key), value]));
         session.reasoning = new Map();
+        // T105：这个聊天分不分番外、识别结果、上次用的视图
+        session.side.off = await loadSideOff(chatKey).catch(() => false);
+        if (S !== session || token !== session.token) return;
+        session.side.view = normalizeSideView(saved?.v);
+        const sidePending = handle.total ? computeSide(session) : null;
+        syncSideUi(session);
         if (!handle.total) { showState('empty-chat'); updateProgress(); return; }
-        let start = index ?? saved?.i ?? 0;
+        let start = index ?? saved?.iv?.[effectiveSideView(session)] ?? saved?.i ?? 0;
         start = Math.min(handle.total - 1, Math.max(0, Number.isInteger(start) ? start : 0));
+        if (index === null && hasSideStory(session.side.result)) start = sideLandingIndex({ view: session.side.view, current: start, saved: saved?.iv, result: session.side.result, total: handle.total });
         if (Number.isInteger(swipe)) session.swipeView.set(start, swipe);
         showState(null);
         session.firstScreen = false;
         jumpTo(start);
         if (anchor?.index === start) restoreAnchor(anchor, { hold: true });
+        // 显示后才算出来的（"按显示出来的样子找"要异步）：算好了换成番外视图的排法
+        sidePending?.then(() => { if (S === session && token === session.token) applySideResult(session); });
         const builtAt = performance.now();
         // 首屏画完、能滚动的时刻：rAF 之后的第一个任务
         requestAnimationFrame(() => setTimeout(() => {
@@ -1344,6 +1367,12 @@ function releaseChat(session) {
     session.staleOff = null;
     hideStaleBanner(session);
     session.handle?.close();
+    session.side.abort?.abort();
+    session.side.abort = null;
+    session.side.result = null;
+    session.side.sig = '';
+    session.side.pending = false;
+    syncSideUi(session);
     dropPrebuilt(session);
     session.handle = null;
     session.titleOwner.textContent = '阅读器';
@@ -1473,6 +1502,17 @@ function floorContext() {
         },
         isReasoningOpen: index => session.reasoning.has(index) ? session.reasoning.get(index) : getPrefs().expandAllReasoning,
         isBookmarked: (index, swipe) => session.marks.isBookmarked(index, swipe),
+        // T105：番外。整楼番外 / 片段（只在这一楼当前候选就是识别时用的候选时给）/ 番外视图里的小标签
+        sideWhole: index => sideKind(session.side.result, index) === 'side',
+        sideSegments: (index, swipe) => {
+            if (effectiveSideView(session) === 'all') return null; // 全部视图什么都不藏，不用标
+            const list = session.side.result?.segments.get(index) ?? null;
+            return list?.length && list.every(item => item.swipe === swipe) ? list : null;
+        },
+        sideLabel: (model, swipe) => {
+            if (effectiveSideView(session) !== 'side' || sideKind(session.side.result, model.index) === 'main') return null;
+            return { text: sideLabelText(model.index, swipe, model.swipes.length), title: '点这里回到正文视图的这一楼' };
+        },
         attachHtml: (text, blocks, where) => session.html.attach(text, blocks, where),
         redactFor: model => {
             const data = getPrefs().redact && session.redact ? { ...session.redact, names: redactNames(session, model) } : null;
@@ -1498,13 +1538,22 @@ function pageBuilder(pageIndex) {
     const { messages } = S.handle.page(pageIndex);
     const ctx = floorContext();
     const { hideUser, hideStHidden } = getPrefs();
-    const fold = { hideUser, hideStHidden };
-    const runs = hideUser || hideStHidden ? foldRuns(messages, fold) : new Map();
+    const view = effectiveSideView(S), sideResult = S.side.result;
+    // T105：正文视图把番外整楼折成"— 番外 · N 楼 —"；番外视图里正文整楼直接不画（占位，不排版），不参与折叠。
+    // 番外视图里画出来的楼都含番外：不再按"隐藏 ST 已隐藏的楼"收起（D48：番外视图把隐藏楼显示出来）
+    const fold = { hideUser, hideStHidden: hideStHidden && view !== 'side', sideFloors: view === 'main' && sideResult?.floors.size ? sideResult.floors : null };
+    const goneOf = model => view === 'side' && sideKind(sideResult, model.index) === 'main';
+    const runModels = view === 'side' ? messages.filter(model => !goneOf(model)) : messages;
+    const runs = hideUser || hideStHidden || fold.sideFloors ? foldRuns(runModels, fold) : new Map();
     const nodes = [];
     let run = null, at = 0;
     const step = () => {
         if (at >= messages.length) return true;
         const model = messages[at++];
+        if (goneOf(model)) {
+            nodes.push(h('div', { class: 'mes stcr-mes stcr-mes--gone stcr-side-gone', mesid: model.index, is_user: String(model.isUser), is_system: 'false', 'data-page': String(pageIndex) }));
+            return at >= messages.length;
+        }
         if (runs.has(model.index)) {
             run = model.index;
             nodes.push(h('button', { type: 'button', class: 'stcr-btn stcr-fold', 'data-act': 'fold', 'data-run': run, 'data-page': pageIndex, 'aria-expanded': 'false',
@@ -1577,7 +1626,7 @@ function schedulePrebuild(session = S) {
 /** 新放进页面的楼：把它们的划线画上（异步，不挡翻页）。 */
 function paintNodes(nodes) {
     for (const node of nodes) {
-        if (node.matches?.('.mes[mesid]:not(.stcr-mes--broken)')) S.marks.paintFloor(node);
+        if (node.matches?.('.mes[mesid]:not(.stcr-mes--broken):not(.stcr-mes--gone)')) S.marks.paintFloor(node);
     }
 }
 
@@ -1632,6 +1681,114 @@ function rerender(anchor) {
     if (anchor) restoreAnchor(anchor, { hold: true });
 }
 
+// ───────────────────────── 番外视图（T105 / D48，F21） ─────────────────────────
+// 识别在 core（03 §5.23）。这里只管：什么时候算、算完怎么排、怎么切视图。聊天本身一个字不动，楼号不变，划线收藏锚点不变。
+
+/** 现在实际用的视图：这个聊天有番外才分，否则就是"全部"。 */
+function effectiveSideView(session) {
+    return session?.side && hasSideStory(session.side.result) ? session.side.view : 'all';
+}
+
+/**
+ * 按当前规则重新识别。同步的（关键词、隐藏、字面标签）当场得出结果，返回 null；
+ * 要等的（"按显示出来的样子找"）返回 Promise，算好后结果才换上。
+ */
+function computeSide(session) {
+    const side = session.side;
+    side.abort?.abort();
+    side.abort = null;
+    side.pending = false;
+    const handle = session.handle;
+    if (!handle || side.off || !rulesActive(side.rules)) { side.result = null; side.sig = ''; return null; }
+    const abort = new AbortController();
+    side.abort = abort;
+    const swipeOf = index => (session.swipeView.has(index) ? session.swipeView.get(index) : null);
+    try {
+        const run = classifySideStory(handle, side.rules, { swipeOf, signal: abort.signal });
+        if (!(run instanceof Promise)) { side.result = run; side.sig = sideSignature(run); return null; }
+        side.pending = true;
+        return run.then(result => {
+            if (S !== session || side.abort !== abort || session.handle !== handle) return;
+            side.pending = false; side.result = result; side.sig = sideSignature(result);
+        }).catch(error => {
+            if (abort.signal.aborted) return;
+            side.pending = false; side.result = null; side.sig = '';
+            console.warn('[st-reader] 番外识别失败，这个聊天先按全部显示：', error);
+        });
+    } catch (error) {
+        console.warn('[st-reader] 番外识别失败，这个聊天先按全部显示：', error);
+        side.result = null; side.sig = '';
+        return null;
+    }
+}
+
+/** 顶栏三段切换与根上的视图类：没有番外就整个藏起来。 */
+function syncSideUi(session) {
+    const has = hasSideStory(session.side.result);
+    const view = effectiveSideView(session);
+    for (const name of ['main', 'side', 'all']) session.root.classList.toggle(`stcr-view-${name}`, view === name);
+    const box = session.sideSwitch;
+    box.hidden = !has;
+    for (const button of box.querySelectorAll('[data-view]')) {
+        const on = button.dataset.view === view;
+        button.classList.toggle('stcr-on', on);
+        button.setAttribute('aria-pressed', String(on));
+    }
+    box.title = has ? `${sideSummaryText(session.side.result)}。点切换，或按 V` : '';
+}
+
+/** 识别结果变了（规则改了 / 异步算完）：更新顶栏，按新的排法重排，阅读位置不动。 */
+function applySideResult(session) {
+    if (S !== session || !session.handle?.total) return;
+    syncSideUi(session);
+    if (session.side.ui) session.side.ui.refresh();
+    const anchor = captureAnchor();
+    // 视图变成"全部"（没有番外了）或番外视图里原来看的楼没了：落到离它最近的看得到的楼
+    const index = anchor?.index ?? 0;
+    const landing = hasSideStory(session.side.result)
+        ? sideLandingIndex({ view: session.side.view, current: index, saved: {}, result: session.side.result, total: session.handle.total }) : index;
+    rerender(landing === index ? anchor : { index: landing, offset: 8 });
+}
+
+/** 切视图（顶栏三段、V 键、片段小条、番外视图里的小标签）。index 给了就落在那一楼，否则落在这个视图上次读到的地方。 */
+function setSideView(view, { index = null } = {}) {
+    const session = S;
+    if (!session?.handle?.total || !hasSideStory(session.side.result)) return;
+    view = normalizeSideView(view);
+    if (view === session.side.view && index === null) return;
+    const mes = currentFloor();
+    const current = mes ? Number(mes.getAttribute('mesid')) : 0;
+    updateProgress(); // 把离开的视图读到哪里记下来
+    const saved = getProgress(session.chatKey)?.iv ?? {};
+    session.side.view = view;
+    syncSideUi(session);
+    const landing = index ?? sideLandingIndex({ view, current, saved, result: session.side.result, total: session.handle.total });
+    jumpTo(landing);
+    say(`${SIDE_VIEW_LABELS[view]}视图`);
+}
+
+/** Aa →"番外设置…"：规则改了就存下来、重新识别、重排；"这个聊天不分番外"也一样。 */
+function openSideSettingsUi(session) {
+    session.settings.close();
+    const redo = () => {
+        const pending = computeSide(session);
+        const done = () => { if (S === session) applySideResult(session); };
+        if (pending) pending.then(done); else done();
+    };
+    const statusText = () => {
+        if (!session.handle) return '先打开一个聊天，这里会显示识别出几处。';
+        if (session.side.off) return '这个聊天已设为不分番外。';
+        if (session.side.pending) return '正在识别……';
+        if (!rulesActive(session.side.rules)) return '三种办法都没开。';
+        return hasSideStory(session.side.result) ? sideSummaryText(session.side.result) : '这个聊天里没有识别出番外。';
+    };
+    session.side.ui = openSideSettings({
+        docPanel: session.docPanel, rules: session.side.rules, chatOff: session.side.off, hasChat: !!session.handle, statusText,
+        onRules: rules => { session.side.rules = rules; saveSideRules(rules).catch(error => say(`番外规则没存上：${error?.message ?? error}`)); if (session.handle) redo(); },
+        onChatOff: off => { session.side.off = off; saveSideOff(session.chatKey, off).catch(error => say(`没存上：${error?.message ?? error}`)); redo(); },
+    });
+}
+
 /** 跳到某楼（零基）：只渲染它所在的一批，再按需接上前后批。swipe 给了就切到那个候选。 */
 function jumpTo(index, { swipe = null } = {}) {
     const session = S;
@@ -1653,6 +1810,14 @@ function jumpTo(index, { swipe = null } = {}) {
     if (target && !isShown(target)) {
         // 目标是被隐藏的用户楼：落到它那段的折叠条上。
         target = session.chat.querySelector(`.stcr-fold[data-run="${target.dataset.run}"]`) ?? target;
+        // T105：番外视图里目标是不画的正文楼：落到后面（没有就前面）第一个看得到的楼
+        if (!isShown(target) && target.classList?.contains('stcr-side-gone')) {
+            const shown = el => el.matches?.('.mes[mesid]') && isShown(el);
+            let next = target;
+            while ((next = next.nextElementSibling) && !shown(next));
+            if (!next) { next = target; while ((next = next.previousElementSibling) && !shown(next)); }
+            if (next) target = next;
+        }
     }
     session.scroller.scrollTop = 0;
     if (target) session.scroller.scrollTop = target.getBoundingClientRect().top - session.scroller.getBoundingClientRect().top - 8;
@@ -1667,7 +1832,8 @@ function ensureWindow() {
     const session = S;
     if (!session?.handle || session.firstPage < 0) return;
     const { scroller, handle } = session;
-    for (let guard = 0; guard < 6; guard++) {
+    const limit = effectiveSideView(session) === 'side' ? 80 : 6; // T105：番外视图里正文楼只是占位，一批可能一点高度都没有
+    for (let guard = 0; guard < limit; guard++) {
         const { scrollTop, scrollHeight, clientHeight } = scroller;
         const nearBottom = scrollHeight - scrollTop - clientHeight < clientHeight * EDGE_SCREENS;
         const nearTop = scrollTop < clientHeight * EDGE_SCREENS;
@@ -1752,7 +1918,7 @@ function updateProgress(seen = null) {
     setText(session.topPercent, percent === null ? '' : `${percent}%`);
     const width = percent === null ? '0' : `${percent}%`;
     if (session.progressLine.style.width !== width) session.progressLine.style.width = width;
-    if (first !== null) setReadPosition(session.chatKey, first, { title: session.handle.title, owner: session.owner });
+    if (first !== null) setReadPosition(session.chatKey, first, { title: session.handle.title, owner: session.owner, view: hasSideStory(session.side.result) ? session.side.view : null });
 }
 
 /** 视口顶端正在读的那一楼（露出一条缝的不算）；没有返回 null。 */
@@ -1906,6 +2072,19 @@ function setSwipe(mes, next) {
     const index = Number(mes.getAttribute('mesid'));
     const model = session.handle.getMessage(index);
     if (!Number.isInteger(next) || next < 0 || next >= model.swipes.length || next === Number(mes.dataset.swipe)) return;
+    if (session.side.result || (!session.side.off && rulesActive(session.side.rules))) {
+        // T105：换候选可能改变番外的判断（片段在不同候选里不同；你的话换了候选，后面的回复整段变番外）
+        const was = session.side.sig;
+        session.swipeView.set(index, next);
+        const pending = computeSide(session);
+        if (!pending && session.side.sig !== was) {
+            rememberSwipe(session.chatKey, index, next, next === model.swipeId);
+            syncSideUi(session);
+            rerender({ index, offset: mes.getBoundingClientRect().top - session.scroller.getBoundingClientRect().top });
+            return;
+        }
+        if (pending) pending.then(() => { if (S === session) applySideResult(session); });
+    }
     const before = mes.getBoundingClientRect().top;
     const pinned = mes.classList.contains('stcr-toolbar-pinned');
     session.marks.unpaintFloor(mes);

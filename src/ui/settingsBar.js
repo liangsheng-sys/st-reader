@@ -21,7 +21,7 @@ export function themeFontSize() {
  * @param {{onExport:()=>void, onImport:()=>void, onMirror:()=>void, onRestore:()=>void, onManageRules?:()=>void, versionRow?:{el:HTMLElement, sync:()=>void}}} actions
  * versionRow：⋯ 顶部的版本与更新（T54b）；onMirror / onRestore：立即备份 / 从服务器恢复（T70）；onManageRules：打开屏蔽词与替换规则（T81）
  */
-export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, onManageRules = () => {}, onDiagnostics = () => {}, versionRow = null }) {
+export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onRestore = () => {}, onManageRules = () => {}, onSideSettings = () => {}, onDiagnostics = () => {}, versionRow = null }) {
     const fab = h('button', { type: 'button', class: 'stcr-btn stcr-fab', title: '阅读设置', 'aria-label': '阅读设置', 'aria-expanded': 'false', text: 'Aa' });
     const modeSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '阅读模式' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-mode': 'scroll', text: '滚动' }),
@@ -68,6 +68,10 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
     const rulesBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-rules', onclick: () => onManageRules(),
         title: '屏蔽词和"某个词总是换成什么"的规则；脱敏显示、分享卡片、HTML 截图共用这一张表' },
         h('i', { class: 'fa-solid fa-list-check', 'aria-hidden': 'true' }), ' 管理屏蔽词与替换规则…');
+    // T105：番外。三种识别办法与"这个聊天不分番外"都在弹出的对话框里（sideStory.js）
+    const sideBtn = h('button', { type: 'button', class: 'stcr-btn stcr-text-btn stcr-set-side', onclick: () => onSideSettings(),
+        title: '有些聊天夹着小剧场、番外、if 线：告诉阅读器怎么认出来，就能分开读（顶栏出现"正文 / 番外 / 全部"）' },
+        h('i', { class: 'fa-solid fa-masks-theater', 'aria-hidden': 'true' }), ' 番外设置…');
     // 思维链三选一（F15②）：全部折叠 / 全部展开 / 整行隐藏（连"思考了 x 秒"和楼层工具条的 🧠 一起藏）
     const reasoningSeg = h('div', { class: 'stcr-seg', role: 'group', 'aria-label': '思维链' },
         h('button', { type: 'button', class: 'stcr-btn stcr-seg-btn', 'data-reasoning': 'fold', text: '折叠', title: '只显示"思考了 x 秒"一行，点开看' }),
@@ -143,6 +147,7 @@ export function createSettingsBar({ onExport, onImport, onMirror = () => {}, onR
             row('行距', lineRange, lineValue),
             row('宽度', widthSeg, widthCustom),
             row('思维链', reasoningSeg),
+            row('番外', sideBtn),
             row('显示', hideUser.el, hideStHidden.el, htmlBar.el, sideSeg, followOpen.el),
             redactRow),
         more,

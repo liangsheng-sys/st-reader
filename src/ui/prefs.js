@@ -95,14 +95,16 @@ export function onPrefsChange(listener) {
 }
 
 /**
- * 每个聊天一条：{t 最后阅读时间, i 最后阅读的零基楼号, title, owner 显示名, sw {楼号: 候选号}}。
+ * 每个聊天一条：{t 最后阅读时间, i 最后阅读的零基楼号, title, owner 显示名, sw {楼号: 候选号}, iv {main, side, all 各视图的楼号}, v 最后用的视图}。
  * 候选记忆只是"阅读器上次看的是第几个"，永不写回 ST。
  */
 export function getProgress(chatKey) { return progress[chatKey] ?? null; }
 
-export function setReadPosition(chatKey, index, { title, owner } = {}) {
+export function setReadPosition(chatKey, index, { title, owner, view = null } = {}) {
     const entry = progress[chatKey] ?? { sw: {} };
-    progress[chatKey] = { ...entry, t: Date.now(), i: index, title: title ?? entry.title, owner: owner ?? entry.owner };
+    // T105：番外视图下正文 / 番外 / 全部三个视图各记各的位置（iv），v 是最后用的视图。都在这条瞬时的进度记录里。
+    const views = view ? { iv: { ...(entry.iv ?? {}), [view]: index }, v: view } : {};
+    progress[chatKey] = { ...entry, t: Date.now(), i: index, title: title ?? entry.title, owner: owner ?? entry.owner, ...views };
     saveSoon(PROGRESS_KEY, () => pruneProgress(progress), 1500);
 }
 
