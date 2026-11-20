@@ -6,6 +6,11 @@ import { alignTexts, cardFileName, filterOwners, OWNER_SORTS, parseStDate, sortO
     isSystemLike, mapOffset, matchesFilter, normalizeCardPrefs, normalizePrefs, parseJumpInput, pickSwipe, previewLine, progressText, pruneProgress,
     reasoningTitle, swipePreviews, wordAt, formatBytes, mirrorStatusText, restoreSummary, faultReport, cardExportReport,
     navCommand, navKeys, FLOOR_KIND, floorKinds, exportCount, exportCountText, exportDoneText } from './logic.js';
+import { BUILTIN_TEMPLATES, DEFAULT_OPTIONS, FONT_SIZES, MAX_TEMPLATES, OPTION_KEYS, PADDINGS, PALETTES, addTemplate, checkTemplateCss, countCardChars, derivePalette, formatCardCount, formatCardDate,
+    isDefaultOptions, luminance, minContrast, mixHex, normalizeOptions, normalizeTemplates, parseTemplateText, removeTemplate, renameTemplate, resolvePalette, scopeTemplateCss, templateClassScope, templateProblem, templateScope, templateToText, textureLayers, toHex } from './cardTemplates.js';
+import { CARD_TEMPLATES } from './logic.js';
+import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
+import { BUNDLED_LINKS, BUNDLED_TEMPLATES, bundledLinks, seedBundled } from './cardBundled.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
 import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, recordOpen } from './diagnostics.js';
 
@@ -397,6 +402,263 @@ export async function testUiLogic() {
         const p = normalizePrefs({ docExport: { format: 'html', swipes: 'nope', speaker: 'role', include: { reasoning: true, html: 1 } } }).docExport;
         equal([p.format, p.swipes, p.speaker, p.include.reasoning, p.include.html], ['html', 'host', 'role', true, false]);
     });
+    // ───────── 附带的七套主题模板（cardBundled.js） ─────────
+    check('附带主题模板：七套都是合法模板；第一次全装上，删掉的不再装回，同名不重复，满了下次再补；按 id / 原名找得到留言链接', () => {
+        const bad = BUNDLED_TEMPLATES.filter(t => !parseTemplateText(JSON.stringify({ format: 'stcr-card-template', version: 1, name: t.name, base: t.base, options: t.options, css: t.css })).ok
+            || !normalizeTemplates([{ id: t.id, name: t.name, base: t.base, options: t.options, css: t.css }])[0]?.css || !BUNDLED_LINKS[t.theme]).map(t => t.id);
+        equal(bad, [], '不合法的：');
+        equal(BUNDLED_TEMPLATES.length, 7, '套数：');
+        const first = seedBundled([], [], addTemplate);
+        equal(first.list.map(t => t.id), BUNDLED_TEMPLATES.map(t => t.id), '第一次：');
+        equal(first.seeded.length, 7, '记为装过：');
+        const deleted = first.list.filter(t => t.id !== 'b-xp');
+        const again = seedBundled(deleted, first.seeded, addTemplate);
+        equal([again.changed, again.list.some(t => t.id === 'b-xp')], [false, false], '删掉后再开：');
+        const mine = seedBundled([{ id: 'tmine', name: '粗野指北', base: 'paper', options: DEFAULT_OPTIONS, css: '' }], [], addTemplate);
+        equal(mine.list.filter(t => t.name === '粗野指北').length, 1, '已有同名：');
+        const full = Array.from({ length: MAX_TEMPLATES - 2 }, (_, i) => ({ id: `t${i}`, name: `我的${i}`, base: 'paper', options: DEFAULT_OPTIONS, css: '' }));
+        const partial = seedBundled(full, [], addTemplate);
+        equal([partial.list.length, partial.seeded.length], [MAX_TEMPLATES, 2], '只剩两个空位：');
+        const later = seedBundled(partial.list.filter(t => t.id !== 't0'), partial.seeded, addTemplate);
+        equal(later.seeded.length, 3, '空出一位后补上一套：');
+        equal([bundledLinks({ id: 'b-xuyu', name: '改过名' }), bundledLinks({ id: 'tx', name: '纸上访谈 · 夜' }), bundledLinks({ id: 'tx', name: '我的' })],
+            [BUNDLED_LINKS.xuyu, BUNDLED_LINKS.zhishang, null], '链接：');
+    });
+
+    // ───────── T104：卡片模板（cardTemplates.js） ─────────
+    const GOOD_FILE = (patch = {}) => JSON.stringify({ format: 'stcr-card-template', version: 1, name: '我的', base: 'paper', options: { palette: 'sky', headerOn: true, headerTitle: '星灯夜话' }, css: '', ...patch });
+    check('T104 模板文件：好样本都能读（最小 / 完整 / 四种底子 / 自定义配色 / 20 字名 / 带 css / 空 options）', () => {
+        const good = [
+            GOOD_FILE(),
+            JSON.stringify({ format: 'stcr-card-template', version: 1, name: 'x', base: 'theme', options: {} }),
+            JSON.stringify({ format: 'stcr-card-template', version: 1, name: '深', base: 'dark', options: { ...DEFAULT_OPTIONS, palette: 'ink', texture: 'grid', lineHeight: 1.8, fontFamily: 'kai', radius: 24, padding: 'wide', fontSize: 'l', align: 'justify', letterSpacing: 0.05 } }),
+            GOOD_FILE({ base: 'digest', options: { palette: 'custom', customA: '#fce4ec', customB: '#e3f2fd', customAngle: 45 } }),
+            GOOD_FILE({ name: '一二三四五六七八九十一二三四五六七八九十' }),
+            GOOD_FILE({ css: '.mes_text q { color: #c00; }\n.stcr-card { box-shadow: 0 0 8px rgba(0,0,0,.3); }\n@media (max-width: 600px) { .name_text { display: none; } }' }),
+            `\uFEFF${GOOD_FILE({ options: { headerOn: true, headerIcon: 'fa-moon', headerDate: true, leadOn: true, leadText: '题记', footDate: true, footCount: true } })}`,
+        ];
+        const bad = good.map(parseTemplateText).filter(r => !r.ok).map(r => r.error);
+        equal(bad, []);
+        equal(parseTemplateText(good[1]).template.options, DEFAULT_OPTIONS, '空 options = 全默认：');
+    });
+    check('T104 模板文件：坏样本一律拒绝并说清哪一项（≥ 10 例）', () => {
+        const cases = [
+            [GOOD_FILE({ format: 'other' }), 'format'],
+            [GOOD_FILE({ version: 2 }), 'version'],
+            [GOOD_FILE({ version: '1' }), 'version'],
+            [GOOD_FILE({ options: { palete: 'sky' } }), 'options.palete'],
+            [GOOD_FILE({ options: { fontSize: 'xl' } }), 'options.fontSize'],
+            [GOOD_FILE({ options: { lineHeight: 2.5 } }), 'options.lineHeight'],
+            [GOOD_FILE({ options: { radius: 13 } }), 'options.radius'],
+            [GOOD_FILE({ options: { palette: 'nope' } }), 'options.palette'],
+            [GOOD_FILE({ options: { customA: 'red' } }), 'options.customA'],
+            [GOOD_FILE({ options: { headerOn: 'yes' } }), 'options.headerOn'],
+            [GOOD_FILE({ options: { headerTitle: 'x'.repeat(31) } }), 'options.headerTitle'],
+            [GOOD_FILE({ options: { headerIcon: 'fa-skull' } }), 'options.headerIcon'],
+            [GOOD_FILE({ options: [] }), 'options'],
+            [GOOD_FILE({ base: 'neon' }), 'base'],
+            [GOOD_FILE({ name: '' }), 'name'],
+            [GOOD_FILE({ name: '一二三四五六七八九十一二三四五六七八九十一' }), 'name'],
+            ['这不是 JSON', 'JSON'],
+            ['[1,2]', '对象'],
+            ['', '空'],
+        ];
+        for (const [text, word] of cases) {
+            const result = parseTemplateText(text);
+            if (result.ok) throw new Error(`应拒绝：${text.slice(0, 80)}`);
+            if (!result.error.includes(word)) throw new Error(`说明里应有「${word}」，实际：${result.error}`);
+        }
+    });
+    check('T104 模板 CSS：好写法过；@import / @font-face / 外链 url( / position:fixed / expression / 卡片外选择器 / 超 8 KB / 空，逐条拒绝并说原因', () => {
+        for (const css of ['.mes_text q { color: red; }', '.stcr-card:hover { opacity: .9; }', '.a, .b { color: red }', '@media (max-width: 500px) { .mes_text { font-size: 14px } }',
+            '.stcr-card { background-image: url("data:image/png;base64,AAAA"); }', '/* 注释 */ .name_text { letter-spacing: .3em; }']) {
+            const r = checkTemplateCss(css);
+            if (!r.ok) throw new Error(`应通过：${css} → ${r.error}`);
+        }
+        const bads = [
+            ['@import url("https://x.invalid/a.css"); .a { color: red }', '@import'],
+            ['@font-face { font-family: X; src: url(data:font/woff2;base64,AA) }', '@font-face'],
+            ['.a { background: url(https://x.invalid/a.png) }', '外链'],
+            ['.a { background: url(//x.invalid/a.png) }', '外链'],
+            ['.a { background-image: url(\'/img/a.png\') }', '外链'],
+            ['.a { position: fixed; top: 0 }', 'fixed'],
+            ['.a { position:FIXED }', 'fixed'],
+            ['.a { width: expression(alert(1)) }', 'expression'],
+            ['body { color: red }', '卡片以外'],
+            ['html, .a { color: red }', '卡片以外'],
+            ['#stcr_root .a { color: red }', '卡片以外'],
+            [':root { --x: 1 }', '卡片以外'],
+            ['.a { color: red', '配对'],
+            ['.a { content: "\\22" }', '反斜杠'],
+            ['@keyframes spin { to { opacity: 0 } }', '@keyframes'],
+            ['.a { .b { color: red } }', '嵌套'],
+            ['   /* 只有注释 */   ', '空'],
+            [`.a { color: red }${' '.repeat(9000)}`, '8 KB'],
+            ['.stcr-card { --p: fixed; position: var(--p) }', 'fixed'], // T104 复查：间接写法
+            ['.a { position:fixed }', 'fixed'],
+            ['.stcr-card ~ * { color: red }', '卡片旁边'],
+            ['.stcr-card:hover + div { color: red }', '卡片旁边'],
+        ];
+        for (const [css, word] of bads) {
+            const r = checkTemplateCss(css);
+            if (r.ok) throw new Error(`应拒绝：${css.slice(0, 60)}`);
+            if (!r.error.includes(word)) throw new Error(`原因里应有「${word}」，实际：${r.error}`);
+        }
+        equal(checkTemplateCss('.a { position: relative } .b { position: absolute !important; background-position: center }').ok, true, '普通 position 照常：');
+        equal(checkTemplateCss('.mes_text ~ .x, .a + .b { color: red }').ok, true, '卡片里面的兄弟选择器照常：');
+        // T104 复查：模板文件最外层多出来的项整份拒绝；另存不合法的样式不存
+        const extra = parseTemplateText(JSON.stringify({ ...JSON.parse(GOOD_FILE({})), evil: 1 }));
+        equal(extra.ok === false && extra.error.includes('evil'), true, '多出的项：');
+        const badSave = addTemplate([], { name: '坏', base: 'paper', options: {}, css: '@import url(x.css);' });
+        equal(badSave.ok === false && /自定义样式没有生效/.test(badSave.error), true, '另存坏样式：');
+        equal(addTemplate([], { name: '空', base: 'paper', options: {}, css: '   ' }).template?.css, '', '只有空白的样式当空：');
+        equal(templateProblem({ name: 'x', base: 'paper', options: {}, css: '.a { color: red }' }), null);
+        const viaFile = parseTemplateText(GOOD_FILE({ css: '.a { background: url(https://x.invalid/a.png) }' }));
+        equal(viaFile.ok, false); equal(viaFile.error.startsWith('css：'), true, '经模板文件导入时：');
+    });
+    check('T104 模板 CSS 前缀：每条选择器都落在该模板的卡片根里，卡片根本身可用 .stcr-card 指', () => {
+        const scope = templateScope('tabc'), cls = templateClassScope('tabc');
+        equal(scope, '#stcr_root .stcr-card[data-tpl="tabc"]');
+        equal(cls, '#stcr_root .stcr-card.stcr-tpl-tabc', '导出副本不抄 data-*，另有 class 写法：');
+        const out = scopeTemplateCss('.mes_text q, .name_text { color: red; }\n.stcr-card { opacity: .9 }\n.stcr-card:hover .x { opacity: 1 }\n@media (max-width: 500px) { .y { font-size: 12px } }', 'tabc');
+        const selectors = out.replace(/@media[^{]*\{/g, '').split('}').flatMap(chunk => chunk.split('{')[0].split(',').map(s => s.trim())).filter(Boolean);
+        equal(selectors.length, 10, '5 个选择器 × 两种根写法：');
+        for (const s of selectors) if (!s.startsWith(scope) && !s.startsWith(cls)) throw new Error(`没加前缀：${s}`);
+        equal(out.includes(`${scope} .mes_text q, ${cls} .mes_text q, ${scope} .name_text, ${cls} .name_text{color: red;}`), true, '逗号分隔都加：');
+        equal(out.includes(`${scope}, ${cls}{opacity: .9}`), true, '.stcr-card = 根本身：');
+        equal(out.includes(`${scope}:hover .x, ${cls}:hover .x{`), true, '.stcr-card:hover：');
+        equal(out.startsWith('#stcr_root .stcr-card[data-tpl="tabc"] .mes_text q'), true);
+        equal(out.includes('@media (max-width: 500px){'), true, '@media 保留：');
+        equal(scopeTemplateCss('body { color: red }', 'tabc'), '', '不合法的整份不出样式：');
+        equal(templateScope('a"]{x'), '#stcr_root .stcr-card[data-tpl="ax"]', 'id 里的怪字符被剔掉，跳不出属性选择器：');
+    });
+    check('T104 内置四套 = 预设（底子 + 全默认选项），与改造前等价；旧偏好读出来外观不变', () => {
+        equal(BUILTIN_TEMPLATES.map(t => t.id), [...CARD_TEMPLATES]);
+        for (const t of BUILTIN_TEMPLATES) { equal(t.options, DEFAULT_OPTIONS, `${t.id}：`); equal(t.base, t.id); }
+        equal(isDefaultOptions(DEFAULT_OPTIONS), true);
+        // 没有任何新选项的旧偏好：配色 / 纹理 / 页眉 / 按语 / 页脚日期字数都关，字号 1.0、行距内边距跟模板自带、直角
+        const old = normalizeCardPrefs({ template: 'paper', size: 'wide', mask: 'block', signature: '我的署名' });
+        equal(old.opts, DEFAULT_OPTIONS); equal(old.tplId, null); equal(old.defaultTpl, null); equal(old.template, 'paper');
+        equal(DEFAULT_OPTIONS.palette, null); equal(DEFAULT_OPTIONS.headerOn, false); equal(DEFAULT_OPTIONS.leadOn, false);
+        equal(DEFAULT_OPTIONS.fontSize, 's'); equal(FONT_SIZES.map(f => f.scale), [1, 1.12, 1.25]);
+        equal(DEFAULT_OPTIONS.lineHeight, null); equal(PADDINGS.find(p => p.id === DEFAULT_OPTIONS.padding).scale, 1); equal(DEFAULT_OPTIONS.radius, 0);
+        const messy = normalizeCardPrefs({ opts: { palette: 'sky', fontSize: 'huge', junk: 1 }, tplId: 't1', defaultTpl: 'bad id!' });
+        equal(messy.opts.palette, 'sky'); equal(messy.opts.fontSize, 's', '坏值回默认：'); equal('junk' in messy.opts, false); equal(messy.tplId, 't1'); equal(messy.defaultTpl, null);
+    });
+    check('T104 配色：≥ 16 组、浅深各半；字色 / 名字色 / 引号色在底色两端都 ≥ 4.5:1', () => {
+        equal(PALETTES.length >= 16, true, `共 ${PALETTES.length} 组：`);
+        equal(PALETTES.filter(p => p.tone === 'light').length, PALETTES.filter(p => p.tone === 'dark').length, '浅深各半：');
+        equal(PALETTES.some(p => p.stops.length === 2) && PALETTES.some(p => p.stops.length === 1), true, '纯色与渐变都有：');
+        equal(new Set(PALETTES.map(p => p.id)).size, PALETTES.length, 'id 不重复：');
+        const bad = [];
+        for (const p of PALETTES) for (const key of ['text', 'name', 'quote', 'accent']) if (minContrast(p[key], p.stops) < 4.5) bad.push(`${p.id}.${key} ${minContrast(p[key], p.stops).toFixed(2)}`);
+        for (const p of PALETTES) { const r = resolvePalette({ ...DEFAULT_OPTIONS, palette: p.id }); if (minContrast(r.sign, p.stops) < 4.5) bad.push(`${p.id}.sign`); if ((p.tone === 'dark') !== (luminance(r.mid) < 0.18)) bad.push(`${p.id} 深浅标注与亮度不符`); }
+        equal(bad, []);
+    });
+    check('T104 复查：对比度沿整条渐变算（含中段），斜体色也 ≥ 4.5:1；预设与自定义都查', () => {
+        // 不依赖 minContrast 的实现：自己沿渐变取 65 个点，每点单独算
+        const worst = (fg, stops) => Math.min(...Array.from({ length: 65 }, (_, i) => minContrast(fg, [stops.length < 2 ? stops[0] : mixHex(stops[0], stops.at(-1), i / 64)])));
+        const bad = [];
+        const audit = (label, r) => { for (const key of ['text', 'name', 'quote', 'accent', 'em', 'sign']) { const v = worst(r[key], r.stops); if (v < 4.5) bad.push(`${label}.${key} ${v.toFixed(2)}`); } };
+        for (const p of PALETTES) audit(p.id, resolvePalette({ ...DEFAULT_OPTIONS, palette: p.id }));
+        const pairs = [['#ff0000', '#00ff00'], ['#00ffff', '#ff0000'], ['#ff00ff', '#00ff00'], ['#ff8800', '#0000ff'], ['#ffff00', '#0000ff'], ['#ff0000', '#0000ff'], ['#00ff00', '#ff00ff']];
+        let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+        for (let i = 0; i < 300; i++) pairs.push([toHex([rnd() * 255, rnd() * 255, rnd() * 255]), toHex([rnd() * 255, rnd() * 255, rnd() * 255])]);
+        for (const [a, b] of pairs) audit(`${a}→${b}`, resolvePalette({ ...DEFAULT_OPTIONS, palette: 'custom', customA: a, customB: b, customAngle: 135 }));
+        equal(bad.slice(0, 8), []);
+    });
+    check('T104 自定义配色：任意两色，字色都 ≥ 4.5:1（含红蓝两端这种没有一种字色能兼顾的）', () => {
+        let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+        const color = () => toHex([rnd() * 255, rnd() * 255, rnd() * 255]);
+        const pairs = [['#7a7a7a', null], ['#ff0000', '#0000ff'], ['#ffffff', '#000000'], ['#808080', '#a0a0a0'], ['#000000', null], ['#00ff00', '#ff00ff']];
+        for (let i = 0; i < 300; i++) pairs.push([color(), rnd() < 0.6 ? color() : null]);
+        for (const [a, b] of pairs) {
+            const d = derivePalette({ a, b, angle: 135 });
+            if (minContrast(d.text, d.stops) < 4.5) throw new Error(`${a} ${b}：字色 ${d.text} 只有 ${minContrast(d.text, d.stops).toFixed(2)}`);
+            if (minContrast(d.name, d.stops) < 4.5 || minContrast(d.quote, d.stops) < 4.5) throw new Error(`${a} ${b}：名字 / 引号色不够`);
+        }
+        equal(derivePalette({ a: '#ffffff' }).adjusted, false, '白底不需要调：');
+        equal(derivePalette({ a: '#ff0000', b: '#0000ff' }).adjusted, true, '红蓝要压一压：');
+        const solid = resolvePalette({ ...DEFAULT_OPTIONS, palette: 'custom', customA: '#fce4ec', customB: null });
+        equal(solid.background, null, '只有一个颜色 = 纯色：');
+        equal(resolvePalette({ ...DEFAULT_OPTIONS, palette: 'custom', customA: '#fce4ec', customB: '#e3f2fd', customAngle: 45 }).background, 'linear-gradient(45deg, #fce4ec, #e3f2fd)');
+        equal(resolvePalette(DEFAULT_OPTIONS), null, '没选配色 = 用模板自带的：');
+    });
+    check('T104 纹理：纯 CSS（repeating-linear-gradient / radial-gradient），颜色是正文色的 8–10% 透明度，没有 url(', () => {
+        equal(textureLayers('none', '#000000'), []);
+        for (const [kind, word, alpha] of [['grid', 'repeating-linear-gradient', '0.08'], ['dots', 'radial-gradient', '0.1'], ['lines', 'repeating-linear-gradient', '0.08']]) {
+            const layers = textureLayers(kind, '#336699');
+            equal(layers.length >= 1, true);
+            for (const l of layers) { equal(l.image.includes(word), true, `${kind}：`); equal(l.image.includes(`rgba(51, 102, 153, ${alpha})`), true, `${kind} 透明度：`); equal(/url\(/i.test(l.image), false); }
+        }
+    });
+    check('T104 日期与字数：2026年11月16日；认不出不显示；字数不算空白', () => {
+        equal(formatCardDate('2026-11-16T08:30:00.000Z') !== null, true);
+        equal(formatCardDate(new Date(2026, 10, 16, 9, 30).toISOString()), '2026年11月16日');
+        equal(formatCardDate(new Date(2026, 0, 5, 23, 59).toISOString()), '2026年1月5日');
+        equal(formatCardDate(null), null); equal(formatCardDate(''), null); equal(formatCardDate('不是日期'), null);
+        equal(countCardChars('今晚 的\n星图 abc'), 8); equal(countCardChars(''), 0); equal(formatCardCount(1234), '1,234 字');
+    });
+    check('T104 模板列表：≤ 30 个、每个 ≤ 20 KB、名字 ≤ 20 字且重名自动加序号；改名 / 删除；坏数据读出来被过滤', () => {
+        let list = [];
+        for (let i = 0; i < MAX_TEMPLATES; i++) { const r = addTemplate(list, { name: `模板${i}`, base: 'paper', options: { palette: 'sky' } }); equal(r.ok, true); list = r.list; }
+        const over = addTemplate(list, { name: '第 31 个', base: 'paper', options: {} });
+        equal(over.ok, false); equal(over.error.includes('30'), true);
+        equal(addTemplate([], { name: '   ', base: 'paper', options: {} }).ok, false, '空名字：');
+        const a = addTemplate([], { name: '一二三四五六七八九十一二三四五六七八九十甲乙', base: 'dark', options: {} });
+        equal([...a.template.name].length, 20, '名字截到 20 字：');
+        const dup = addTemplate(a.list, { name: a.template.name, base: 'dark', options: {} });
+        equal(dup.template.name !== a.template.name && [...dup.template.name].length <= 20, true, '重名加序号：');
+        const big = addTemplate([], { name: 'x', base: 'paper', options: {}, css: `.a { color: red; /* ${'z'.repeat(21000)} */ }` });
+        equal(big.ok, false, '超 20 KB：');
+        const renamed = renameTemplate(a.list, a.template.id, '新名字');
+        equal(renamed[0].name, '新名字'); equal(renameTemplate(a.list, a.template.id, '  '), null);
+        equal(removeTemplate(renamed, a.template.id), []);
+        const dirty = normalizeTemplates([{ id: 't1', name: '好', base: 'paper', options: { palette: 'sky' } }, { id: 't1', name: '重复 id', base: 'paper' }, { id: 'bad id', name: 'x', base: 'paper' },
+            { id: 't2', name: '', base: 'paper' }, { id: 't3', name: 'x', base: 'neon' }, null, 'x', { id: 't4', name: '带坏 css', base: 'dark', css: 'body { color: red }', options: { radius: 99 } }]);
+        equal(dirty.map(t => t.id), ['t1', 't4']);
+        equal(dirty[1].css, '', '读出来时坏 css 丢掉：'); equal(dirty[1].options.radius, 0, '读出来时坏值回默认：');
+        equal(normalizeTemplates('nope'), []);
+        equal(normalizeTemplates(Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, name: `n${i}`, base: 'paper' }))).length, 30, '读出来也最多 30 个：');
+    });
+    check('T104 模板文件往返：导出 → 导入得到同一套；文件里的字段齐全', () => {
+        const t = { id: 'tx', name: '我的', base: 'dark', options: normalizeOptions({ palette: 'custom', customA: '#102030', customB: '#304050', customAngle: 225, headerOn: true, headerTitle: '夜', texture: 'dots', lineHeight: 1.6 }), css: '.mes_text q { color: #f90; }' };
+        const text = templateToText(t);
+        const file = JSON.parse(text);
+        equal(Object.keys(file), ['format', 'version', 'name', 'base', 'options', 'css']);
+        equal(file.format, 'stcr-card-template'); equal(file.version, 1);
+        const back = parseTemplateText(text);
+        equal(back.ok, true); equal(back.template, { name: '我的', base: 'dark', options: t.options, css: t.css });
+        equal(JSON.stringify(Object.keys(file.options).sort()), JSON.stringify([...OPTION_KEYS].sort()), 'options 键齐全：');
+    });
+    // ───────── T104 追加：写 CSS 的便利（类名指南、示例、新选项、自定义样式偏好） ─────────
+    check('T104 新选项：版式 / 对白 / 名字 / 边框 默认不加类（内置四套外观不变）、坏值回默认、旧模板文件照样能读', () => {
+        equal([DEFAULT_OPTIONS.layout, DEFAULT_OPTIONS.quoteStyle, DEFAULT_OPTIONS.nameStyle, DEFAULT_OPTIONS.frame], ['flow', 'color', 'plain', 'none']);
+        const messy = normalizeOptions({ layout: 'bubble', quoteStyle: 'neon', nameStyle: 'chip', frame: 'thin' });
+        equal([messy.layout, messy.quoteStyle, messy.nameStyle, messy.frame], ['bubble', 'color', 'chip', 'thin']);
+        // 不带新键的老文件（T104 第一版导出的）：读进来新选项取默认
+        const old = JSON.stringify({ format: 'stcr-card-template', version: 1, name: '老的', base: 'paper', options: { palette: 'sky' } });
+        const parsed = parseTemplateText(old);
+        equal(parsed.ok, true); equal(parsed.template.options.layout, 'flow');
+        const bad = parseTemplateText(JSON.stringify({ format: 'stcr-card-template', version: 1, name: 'x', base: 'paper', options: { layout: 'grid' } }));
+        equal(bad.ok, false); equal(/layout/.test(bad.error), true, '错误里点名 layout：');
+    });
+    check('T104 自定义样式偏好：prefs.css 只收字符串，过长回空；没记过 = null', () => {
+        equal(normalizeCardPrefs({}).css, null);
+        equal(normalizeCardPrefs({ css: '.mes_text q { color: red; }' }).css, '.mes_text q { color: red; }');
+        equal(normalizeCardPrefs({ css: 'x'.repeat(9001) }).css, '');
+        equal(normalizeCardPrefs({ css: 5 }).css, null);
+    });
+    check('T104 CSS 指南：示例是一份合法模板（推文版式）；指南里的选项取值就是代码里的真实取值', () => {
+        const text = templateToText({ id: 'x', name: EXAMPLE_TWEET.name, base: EXAMPLE_TWEET.base, options: normalizeOptions(EXAMPLE_TWEET.options), css: EXAMPLE_TWEET.css });
+        const back = parseTemplateText(text);
+        equal(back.ok, true, back.error);
+        equal(checkTemplateCss(EXAMPLE_TWEET.css).ok, true);
+        const guide = buildCssGuide();
+        for (const palette of PALETTES) equal(guide.includes(palette.id), true, `指南里有配色 ${palette.id}：`);
+        for (const word of ['stcr-card-template', 'bubble', 'highlight', 'frame', '4.5:1', '!important', '--stcr-c-name']) equal(guide.includes(word), true, `指南里有 ${word}：`);
+        equal(guide.length < 12000, true, '指南不要长到贴给 AI 嫌多：');
+    });
     return [...results];
 }
 
@@ -463,6 +725,16 @@ export async function testUiStatic() {
             if (p.quoteMix && !card.includes(`60%, ${p.quoteMix})`)) wrong.push('卡片深色强调色');
         }
         out.push({ name: 'T96 阅读器主题与卡片模板同一套颜色（readerPalettes.js）', passed: wrong.length === 0, detail: wrong.length ? wrong.join('；') : '纸张、夜读各项与配色表一致' });
+    }
+    {
+        const { readFileSync } = await import('node:fs');
+        const docText = readFileSync(path.join(dir, '..', '..', 'docs', '卡片模板CSS指南.md'), 'utf8').replaceAll('\r\n', '\n');
+        const guide = buildCssGuide();
+        const source = readFileSync(path.join(dir, '..', '..', 'style.css'), 'utf8') + readFileSync(path.join(dir, 'cardStudio.js'), 'utf8');
+        const missing = [...new Set([...guide.matchAll(/(stcr-card[\w-]*)/g)].map(m => m[1]))].filter(name => !name.endsWith('-') && name !== 'stcr-card-template' && !source.includes(name));
+        out.push({ name: 'T104 CSS 指南：docs/卡片模板CSS指南.md 与代码生成的一字不差；指南点名的类名在 style.css / cardStudio.js 里都存在',
+            passed: docText === guide && missing.length === 0,
+            detail: docText !== guide ? '文档与生成的指南不一致（重新生成：node dev/make-css-guide.mjs）' : missing.length ? `不存在的类名：${missing.join('、')}` : '一致' });
     }
     out.push({ name: '界面文件数', passed: sources.length >= 8, detail: sources.map(s => s.file).join(', ') });
     return out;

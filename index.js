@@ -74,6 +74,12 @@ if (isDevInstance(window.location)) {
             results.push(...items);
             if (items.some(item => !item.passed)) throw new Error(`T97 导出为文档未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
         }
+        if (options.cardTemplates ?? runCore) {
+            const { testCardTemplatesBrowser } = await import('./src/ui/cardTemplatesBrowser.test.js');
+            const items = await testCardTemplatesBrowser();
+            results.push(...items);
+            if (items.some(item => !item.passed)) throw new Error(`T104 卡片模板未通过：${items.filter(item => !item.passed).map(item => item.name).join('；')}`);
+        }
         if (options.openInSt) { // T95：会让 ST 真的切换聊天，不进全量
             const { testOpenInStBrowser } = await import('./src/ui/openInStBrowser.test.js');
             results.push(...await testOpenInStBrowser());
