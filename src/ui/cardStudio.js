@@ -199,6 +199,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const palGrid = h('div', { class: 'stcr-pal-grid', role: 'group', 'aria-label': '配色' });
         const palName = h('p', { class: 'stcr-pal-name' });
         const palCustom = h('div', { class: 'stcr-pal-custom', hidden: true });
+        const palAccent = h('div', { class: 'stcr-studio-field stcr-studio-field--top' }); // 强调色（页眉图标、色块、小图案），syncPalette 里重画
         const texture = optSeg('texture', TEXTURES);
 
         // ── 组 3：排版
@@ -270,7 +271,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const group = (key, title, open, ...children) => h('details', { class: 'stcr-studio-grp', 'data-grp': key, open }, h('summary', {}, title), h('div', { class: 'stcr-studio-grp-body' }, ...children));
         const sideMain = h('div', { class: 'stcr-studio-side-main' },
             group('template', '模板', true, tpl, tplState, tplActions, section('尺寸', sizes), digest),
-            group('palette', '配色', false, h('section', { class: 'stcr-studio-sec' }, palGrid, palName, palCustom), section('纹理', texture)),
+            group('palette', '配色', false, h('section', { class: 'stcr-studio-sec' }, palGrid, palName, palCustom, palAccent), section('纹理', texture)),
             group('typo', '排版', false, ...typo, showNames.el, reasoning.el),
             group('frame', '页眉页脚', false,
                 section('页眉', headerOn.el, headerBox),
@@ -290,7 +291,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
         return { studio, head, exportBtn, saveBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, tplState, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
-            cssArea, cssState, tempSec, tempChips, note, palGrid, palName, palCustom, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
+            cssArea, cssState, tempSec, tempChips, note, palGrid, palName, palCustom, palAccent, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
     }
 
     // ───────────── 事件 ─────────────
@@ -551,6 +552,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             const reasoning = mine.includeReasoning && piece.reasoning;
             if (!piece.body && !reasoning) continue;
             chat.append(h('div', { class: `mes stcr-card-mes stcr-card-mes--${piece.isUser ? 'user' : 'char'}${piece.isSystem ? ' stcr-card-mes--system' : ''}`, is_user: String(piece.isUser), is_system: String(piece.isSystem) },
+                // 原楼号（和阅读器"第 N 楼"同一个数）：默认藏着，模板想显示就显示。导出会删掉 CSS 计数器 counter()，楼号只能写成真文字
+                h('span', { class: 'stcr-card-mes-no', 'aria-hidden': 'true', text: String(piece.index + 1) }),
                 h('div', { class: 'mes_block' },
                     names ? h('div', { class: 'ch_name' }, h('span', { class: 'name_text' }, piece.name.cloneNode(true))) : null,
                     reasoning ? h('div', { class: 'stcr-card-reasoning' }, h('div', { class: 'stcr-card-reasoning-title', text: '思考过程' }),
@@ -635,7 +638,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
                 signature ? h('span', { class: 'stcr-card-sign', text: `${signature} 书摘` }) : null);
         }
         if (!signature && !meta) return null;
-        return h('div', { class: 'stcr-card-foot' }, meta, signature ? h('span', { class: 'stcr-card-sign', text: tpl === 'paper' ? `— ${signature}` : signature }) : null);
+        return h('div', { class: 'stcr-card-foot' }, meta, signature ? h('span', { class: 'stcr-card-sign', text: signature }) : null);
     }
 
     /** 页脚的日期与字数：遮盖已经上好，被遮的字不在卡片里，所以数出来的就是"去遮盖"的字数。 */
@@ -684,14 +687,16 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
     /** 每个模板的强调色（遮盖的色块/图案也用它）。必须是不透明的 #RRGGBB（03 §5.9）。 */
     function templateColors(mine, tpl, pal = null) {
         // 自选配色：整套颜色（强调色、遮盖条、纹理色）都来自它
-        if (pal) return { accent: pal.accent, bar: pal.dark ? '#ffffff' : '#000000', text: pal.text };
+        // 模板自己定的强调色（options.accent）盖过底板 / 配色给的：页眉图标、色块、小图案都跟它走
+        const own = mine.prefs.opts.accent;
+        if (pal) return { accent: own ?? pal.accent, baseAccent: pal.accent, bar: pal.dark ? '#ffffff' : '#000000', text: pal.text };
         const quote = solidColor('var(--SmartThemeQuoteColor, #e18a24)');
         const accent = tpl === 'paper' ? PAPER_RED
             : tpl === 'dark' ? solidColor('color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 60%, #a39d93)')
                 : tpl === 'digest' ? (mine.prefs.digestAccent === 'theme' ? quote : DIGEST_BLUE) : quote;
         // 正文色只有画纹理时才用得上（量主题色要走一次画布，别每次都量）
         const text = mine.prefs.opts.texture === 'none' ? '#000000' : tpl === 'paper' ? '#2a2521' : tpl === 'dark' ? '#e4e0d8' : tpl === 'digest' ? '#1f2329' : solidColor('var(--SmartThemeBodyColor, #dcdcd2)');
-        return { accent, bar: tpl === 'dark' ? '#ffffff' : '#000000', text };
+        return { accent: own ?? accent, baseAccent: accent, bar: tpl === 'dark' ? '#ffffff' : '#000000', text };
     }
 
     /** 一个词实际用的遮盖：它自己的设置优先（临时词看本卡、永久词看记住的），否则默认。 */
@@ -921,6 +926,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             btn('custom', '自定义两种颜色', { class: 'stcr-pal-btn--custom' }));
         const pal = resolvePalette(o);
         els.palName.textContent = o.palette === null ? '模板自带的配色（跟着模板走）' : o.palette === 'custom' ? '自定义' : `${pal?.label ?? ''} · ${pal?.tone === 'dark' ? '深色' : '浅色'}`;
+        els.palAccent.replaceChildren(h('span', { text: '强调色' }),
+            colorPicker({ value: o.accent, noneLabel: '跟随配色', noneSwatch: mine.colors?.baseAccent, label: '强调色（页眉图标、色块、小图案）', onPick: color => patchOpts(mine, { accent: color }) }));
         els.palCustom.hidden = o.palette !== 'custom';
         if (o.palette !== 'custom') { els.palCustom.replaceChildren(); return; }
         const derived = derivePalette({ a: o.customA, b: o.customB, angle: o.customAngle });

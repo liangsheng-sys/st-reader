@@ -222,6 +222,27 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
         let red = 0;
         for (let i = 0; i < withCss.pixels.data.length; i += 4) if (withCss.pixels.data[i] > 170 && withCss.pixels.data[i + 1] < 60 && withCss.pixels.data[i + 2] < 100) red++;
         check('附加 CSS 带进了导出的 PNG（图里有 #cc0033 的字）', red > 200, `红色像素 ${red}`);
+        // 9b. 原楼号默认藏着；纸张署名前的"— "是 CSS 加的
+        const no = card().querySelector('.stcr-card-mes-no');
+        const sign = card().querySelector('.stcr-card-sign');
+        check('每楼带原楼号（第 4 楼写 "4"），默认不显示', no?.textContent === '4' && getComputedStyle(no).display === 'none', no?.textContent);
+        check('纸张署名：文字里没有"— "，破折号来自 ::before', !sign || (!sign.textContent.startsWith('—') && getComputedStyle(sign, '::before').content.includes('—')), sign?.textContent);
+        // 9c. 模板定强调色 + 显示楼号 + 去掉破折号
+        const accentFile = mk({ name: '强调色', options: { ...file.options, accent: '#1d6fb8', headerOn: true },
+            css: '.stcr-card-mes-no { display: inline; }\n.stcr-card-sign::before { content: none; }' });
+        await click('[data-studio="import-tpl"]', 300);
+        await typeInto(studio().querySelector('.stcr-tpl-pop textarea'), accentFile);
+        await click('.stcr-tpl-pop .stcr-tpl-pop-row button', 600);
+        await until(() => tplButton('强调色'), '强调色模板');
+        const no2 = card().querySelector('.stcr-card-mes-no'), sign2 = card().querySelector('.stcr-card-sign');
+        check('options.accent：卡片强调色变量 = #1d6fb8（页眉图标、色块、小图案同源）', card().style.getPropertyValue('--stcr-card-accent') === '#1d6fb8', card().style.getPropertyValue('--stcr-card-accent'));
+        check('模板 CSS 能打开楼号、能去掉署名前的破折号', getComputedStyle(no2).display === 'inline' && (!sign2 || getComputedStyle(sign2, '::before').content === 'none'));
+        const idAccent = (await savedList()).find(t => t.name === '强调色').id;
+        await click(`[data-tpl-more="${idAccent}"]`, 250);
+        await click('.stcr-tpl-menu [data-tpl-act="delete"]', 100);
+        await confirmPopup();
+        await until(() => !tplButton('强调色'), '"强调色"删掉');
+        await click(`.stcr-tpl-btn[data-tpl="${(await savedList()).find(t => t.name === '带样式').id}"]`, 400);
 
         // ── 10. 设为默认：下次打开直接用它；取消默认
         const idCss = (await savedList()).find(t => t.name === '带样式').id;

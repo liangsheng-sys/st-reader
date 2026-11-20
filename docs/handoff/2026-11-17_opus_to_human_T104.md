@@ -187,3 +187,19 @@
 15. 展开"自定义样式（写 CSS）"，在框里写 `@import url(https://a.invalid/x.css);`，状态行说"没有生效"。点顶栏"另存为模板…"起个名字：提示"没存上：自定义样式没有生效……先改好或清空再存"，模板行不增加。清空框再存：存上了。
 16. 在框里写 `.stcr-card::after { content: ""; position: absolute; inset: -3000px; background-color: #000; }`：只有卡片本身变黑，预览区下面的提示文字、按钮仍看得见、点得到。清空框。
 17. 点"导入模板…"，粘贴：`{"format":"stcr-card-template","version":1,"name":"多一项","base":"paper","options":{},"css":"","evil":1}` → 提示"没有导入：有不认识的项：evil……"。
+
+## 追加（2026-11-20）：做模板时找到的四个卡片问题
+
+1. **模板能定强调色了**：选项里新增 `accent`（`null` = 跟随底板 / 配色，或 `#rrggbb`）。页眉图标、遮盖的色块和小图案都跟它走（用户在"遮盖样式"里另选了颜色时仍以用户为准）；`--stcr-card-accent` 变量也是它。工作台"配色"组里多了一行"强调色"，可以直接点选，存模板时一起存。纸张底板不再必然是暗红。
+2. **每楼带原楼号**：每楼多一个 `<span class="stcr-card-mes-no">14</span>`，默认隐藏，模板写 `.stcr-card-mes-no { display: inline; }` 就显示。数字和阅读器里"第 14 楼"是同一个数（ST 楼号 #13 + 1）。因为导出时会丢掉 CSS 计数器 `counter()`，这里给的是真文字，导出图里也在。
+3. **纸张署名前的"— "改用 CSS 加**：模板写 `.stcr-card-sign::before { content: none; }` 就能去掉。外观和以前一样。
+4. **导出库认不了的写法写进了《卡片模板CSS指南》**：`counter()`、`::first-letter` / `::first-line`、`content` 里的英文直引号（用中文弯引号或 `\201C` 转义就行）。这三处是导出库本身的限制，没有改库（`vendor/` 不是我的）。
+
+改动：`src/ui/cardTemplates.js`（+accent 选项）、`src/ui/cardStudio.js`、`style.css`（两条）、`src/ui/cardCssGuide.js` 与生成的指南、`docs/02_UI_SPEC.md` 一格、`src/ui/cardTemplatesBrowser.test.js`（+4 项）。没有改 `src/core/`。
+
+测试：`node src/ui/ui.test.js` 65 项全过；浏览器 `stcrSelfTest({core:false,cardTemplates:true})` 66 项全过（新增：楼号默认藏着且是"4"、署名破折号来自 ::before、导入带 accent 的模板后强调色变量正确、模板 CSS 能打开楼号并去掉破折号）。
+
+### 验收步骤
+
+18. 在阅读器里选一段做卡片，选"纸张"。展开"配色"，最下面"强调色"选一个蓝色：遮盖样式选"色块"时，被遮的词变成蓝色块（以前固定暗红）；打开页眉，页眉小图标也变蓝。点"跟随配色"回到暗红。
+19. 署名仍是"— ST Reader"。展开"自定义样式"，写 `.stcr-card-sign::before { content: none; } .stcr-card-mes-no { display: inline; margin-right: .5em; }`：署名前的破折号消失，每楼开头出现楼号（和阅读器里"第 N 楼"的 N 一样）。点"导出 PNG"，打开图片：楼号在图里，破折号不在。

@@ -1260,6 +1260,8 @@
 #stcr_root .stcr-card-reasoning-title { margin-bottom: .2em; font-size: .78em; letter-spacing: .12em; opacity: .7; }
 #stcr_root .stcr-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 #stcr_root .stcr-card-sign { font-size: 12px; letter-spacing: .08em; }
+/* 每楼的原楼号：默认藏着，模板用 display 打开（导出会删掉 counter()，所以给真文字） */
+#stcr_root .stcr-card .stcr-card-mes-no { display: none; }
 
 /* 三套固定配色的模板：楼层压平成"文字 + 小名字"，不带聊天气泡；字体用阅读器正文此刻的字体（含 Ny） */
 #stcr_root .stcr-card.stcr-card--flat { font-family: var(--stcr-card-font, inherit); text-shadow: none; }
@@ -1334,6 +1336,8 @@
 #stcr_root .stcr-card--paper .mes_text a { color: #8a3a2e; }
 #stcr_root .stcr-card--paper .stcr-card-foot { margin-top: 12px; }
 #stcr_root .stcr-card--paper .stcr-card-sign { color: #7a6f64; font-style: italic; }
+/* 署名前的破折号用 CSS 加，模板写 .stcr-card-sign::before { content: none; } 就能去掉 */
+#stcr_root .stcr-card--paper .stcr-card-sign::before { content: '— '; }
 
 /* 深色：夜读截图 */
 #stcr_root .stcr-card--dark { padding: calc(56px * var(--stcr-pad, 1)) calc(52px * var(--stcr-pad, 1)) calc(40px * var(--stcr-pad, 1)); background: #141518; color: #e4e0d8; font-size: calc(16.5px * var(--stcr-fs, 1)); }

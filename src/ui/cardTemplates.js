@@ -63,6 +63,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
     palette: null, customA: '#f3e9dc', customB: null, customAngle: 135,
     texture: 'none', fontFamily: 'follow',
     layout: 'flow', quoteStyle: 'color', nameStyle: 'plain', frame: 'none',
+    accent: null,
 });
 
 const ids = list => list.map(item => item.id);
@@ -92,6 +93,7 @@ const SPEC = {
     quoteStyle: { label: '对白样式', kind: 'enum', values: ids(QUOTE_STYLES) },
     nameStyle: { label: '名字样式', kind: 'enum', values: ids(NAME_STYLES) },
     frame: { label: '边框', kind: 'enum', values: ids(FRAMES) },
+    accent: { label: '强调色', kind: 'hex-or-null' },
 };
 export const OPTION_KEYS = Object.freeze(Object.keys(SPEC));
 

@@ -48,20 +48,21 @@ export function buildCssGuide() {
 .stcr-card                      卡片根（背景、圆角、外边距都在它身上）
   .stcr-card-page               内容区（纸张、深色等有上下细线就在它身上）
     .stcr-card-head             页眉（用户打开了页眉才有）
-      .stcr-card-head-icon      页眉图标（是一张 <img>：字形颜色 = 强调色，由配色决定，CSS 改不了；要圆底用 background-color + padding + border-radius。不要对它用 filter，会连底色一起变）
+      .stcr-card-head-icon      页眉图标（是一张 <img>：字形颜色 = 强调色，由选项 accent 或配色决定，CSS 改不了；要圆底用 background-color + padding + border-radius。不要对它用 filter，会连底色一起变）
       .stcr-card-head-title     页眉标题
       .stcr-card-head-date      页眉日期（"2026年11月16日"）
     .stcr-card-mark             书摘专用的大引号
     .stcr-card-lead             按语（正文前面的一句话，用户打开了才有）
     .stcr-card-chat             正文容器
       .mes                      每一楼（还带 .stcr-card-mes--user 或 .stcr-card-mes--char；系统楼多一个 .stcr-card-mes--system）
+        .stcr-card-mes-no       原楼号（真文字，如 "14"，和阅读器里"第 14 楼"同一个数）；默认隐藏，想显示就写 display: inline / block
         .mes_block
           .ch_name > .name_text 名字行（用户可以关掉）
           .stcr-card-reasoning  思维链（用户打开了才有）
           .mes_text             正文；里面是 <p>，对白是 <q>，斜体 <em> / <i>，粗体 <strong> / <b>，代码 <pre> / <code>
     .stcr-card-thoughts         书摘专用："我的想法"
     .stcr-card-foot             页脚
-      .stcr-card-sign           署名（默认"ST Reader"，用户可以改、可以关）
+      .stcr-card-sign           署名（默认"ST Reader"，用户可以改、可以关；纸张底板用 ::before 在前面加"— "，写 content: none 可去掉）
       .stcr-card-meta           日期 · 字数
 \`\`\`
 
@@ -76,7 +77,7 @@ export function buildCssGuide() {
 选项会给卡片根加类，写 CSS 时可以跟着用：\`.stcr-card--pal\`（选了配色）、\`.stcr-card--bubble\`（气泡版式）、\`.stcr-card--q-plain|q-underline|q-highlight\`（对白样式）、\`.stcr-card--n-chip|n-rule\`（名字样式）、\`.stcr-card--frame-thin|frame-bold|frame-dashed\`（边框）、\`.stcr-card--lh|ls|justify|ff\`（行距 / 字距 / 两端对齐 / 字体族）。
 
 可以直接使用或改写的 CSS 变量（写在 \`.stcr-card { … }\` 里）：
-- \`--stcr-card-accent\`：强调色（对白下划线、名字标签等取它）。
+- \`--stcr-card-accent\`：强调色（对白下划线、名字标签等取它）。页眉图标和遮盖的色块 / 小图案不读这个变量，要改它们的颜色请用选项 \`accent\`。
 - \`--stcr-card-font\`：字体族（卡片会用它）。
 - \`--stcr-fs\`（字号倍数）、\`--stcr-pad\`（内边距倍数）、\`--stcr-lh\`（行距）、\`--stcr-ls\`（字距）、\`--stcr-ff\`（字体族）：由选项设置，写了会覆盖选项。
 - 选了配色（\`.stcr-card--pal\`）时，名字、对白、斜体、署名的颜色规则比你写的选择器更强（直接写 \`.name_text { color: … }\` 会输），所以请改这几个变量（写在 \`.stcr-card { … }\` 里）：\`--stcr-c-text\`（正文）、\`--stcr-c-name\`（名字）、\`--stcr-c-quote\`（对白）、\`--stcr-c-em\`（斜体）、\`--stcr-c-sign\`（署名）、\`--stcr-c-line\`（线）、\`--stcr-c-soft\`（浅底）、\`--stcr-c-page\`（书摘卡面）。**配色的底色写在卡片根的行内样式里**，想盖掉它要写 \`background-color: … !important\`；更简单的是不选配色（\`"palette": null\`），直接用 \`background-color\` 自己定底色。
@@ -89,6 +90,7 @@ export function buildCssGuide() {
 - 字体：只能写本机字体的名字（\`font-family: "Songti SC", serif\`），不能下载。没装的会回退。
 - **值里用了 \`var(…)\` 时，请用单项写法**：\`background-color\`、\`border-top-color\`，不要用 \`background:\`、\`border:\` 简写（导出的隔离副本会丢掉简写）。
 - 不要用动画（导出只留静止一帧）、不要依赖 \`:hover\`。
+- 导出图片的库有三处认不了，页面上看着对、导出图里会不见：CSS 计数器 \`counter()\`（要楼号请显示 \`.stcr-card-mes-no\`）、\`::first-letter\` / \`::first-line\`（首字下沉做不了）、\`::before\` / \`::after\` 的 \`content\` 里的英文直引号 \`'\` \`"\`（要引号请用中文弯引号“”‘’，或写成 \`\\201C\` 这类转义）。
 - 要保证文字和背景的对比度 ≥ 4.5:1。
 
 ## 五、选项（options）
@@ -105,6 +107,7 @@ export function buildCssGuide() {
 - \`fontSize\`：${list(FONT_SIZES)}，默认 "s"。\`lineHeight\`：null（沿用底板）或 ${LINE_HEIGHTS.filter(item => item.id !== null).map(item => item.id).join(' / ')}。\`letterSpacing\`：${LETTER_SPACINGS.map(item => item.id).join(' / ')}。\`align\`：${list(ALIGNS)}。\`padding\`：${list(PADDINGS)}，默认 "normal"。\`radius\`：${RADII.map(item => item.id).join(' / ')}。
 - 页眉：\`headerOn\`（true/false）、\`headerIcon\`（${icons}）、\`headerTitle\`（≤ 30 字，空 = "一段故事"）、\`headerDate\`。
 - 按语：\`leadOn\`、\`leadText\`（≤ 80 字）。页脚：\`footDate\`、\`footCount\`。
+- \`accent\`（强调色）：null（跟随底板 / 配色）或 \`#rrggbb\`。页眉图标、遮盖的色块和小图案都用它（用户另选了遮盖颜色时以用户为准）；也会写进 \`--stcr-card-accent\`。
 
 写错的选项名或取值会整份拒绝，并告诉你是哪一项。
 
