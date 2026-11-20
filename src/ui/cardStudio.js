@@ -18,6 +18,7 @@ import { scopeFloorStyles } from './floorToolbar.js';
 import { CARD_ICON_CHOICES, CARD_SIZES, cardExportReport, cardFileName, cleanHexColor, cleanMaskWord, normalizeCardPrefs, wordAt } from './logic.js';
 import { createRuleEditor, createRulesManager, importAsset, patternGlyph, patternPicker, ruleScopes, textTarget } from './rulesUi.js';
 import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
+import { bundledLinks, CREDIT_TEXT, SEEDED_KEY, seedBundled } from './cardBundled.js';
 import { checkTemplateCss, DEFAULT_OPTIONS, FRAMES, LAYOUTS, NAME_STYLES, QUOTE_STYLES, templateProblem } from './cardTemplates.js';
 import { ALIGNS, ANGLES, BUILTIN_TEMPLATES, FONT_FAMILIES, FONT_SIZES, HEADER_ICONS, LETTER_SPACINGS, LINE_HEIGHTS, MAX_HEADER_TITLE, MAX_LEAD_TEXT, MAX_TEMPLATE_NAME,
     PADDINGS, PALETTES, RADII, TEXTURES, addTemplate, countCardChars, derivePalette, formatCardCount, formatCardDate, optionsEqual, parseTemplateText, removeTemplate,
@@ -106,6 +107,8 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
             if (st !== mine) return;
             mine.prefs = normalizeCardPrefs(prefs);
             mine.templates = normalizeTemplates(templates);
+            await seedTemplates(mine);
+            if (st !== mine) return;
             settleTemplate(mine);
             mine.permanent = words;
             mine.rules = rules;
@@ -167,8 +170,9 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const slot = h('div', { class: 'stcr-card-slot' }, scaler);
         const hover = h('div', { class: 'stcr-card-hover', hidden: true, 'aria-hidden': 'true' });
         const status = h('div', { class: 'stcr-studio-status', role: 'status', 'aria-live': 'polite' });
+        const credit = h('p', { class: 'stcr-studio-credit', hidden: true }); // 附带主题的留言链接，syncTemplates 里填
         const stage = h('div', { class: 'stcr-studio-stage' },
-            slot, hover, status,
+            slot, hover, status, credit,
             h('p', { class: 'stcr-studio-tip', text: '点预览里的词 = 临时遮住（只对这张卡有效）；拖选一串字也能一次遮住。点已遮住的地方，可以单独换它的样子、取消或加入永久。' }),
             // T73：导出在隔离副本里重画，美化楼偶尔会和预览有出入；说明 + 可复制的诊断（不含正文）
             h('details', { class: 'stcr-studio-diff' },
@@ -289,7 +293,7 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         const side = h('aside', { class: 'stcr-studio-side', 'aria-label': '卡片设置' }, sideMain, rulesHost);
         const studio = h('div', { class: 'stcr-studio', role: 'dialog', 'aria-modal': 'true', 'aria-label': '分享卡片', tabindex: '-1' },
             head, h('div', { class: 'stcr-studio-body' }, stage, side));
-        return { studio, head, exportBtn, saveBtn, sub, stage, slot, scaler, hover, status, side, sideMain, rulesHost, cover, tpl, tplState, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
+        return { studio, head, exportBtn, saveBtn, sub, stage, slot, scaler, hover, status, credit, side, sideMain, rulesHost, cover, tpl, tplState, sizes, masks, maskColor, icons, uniform, autoNames, myRules, mapList,
             showNames, reasoning, signOn, signText, digest, digestSource, digestTitle, accent, wordCount, wordToggle, wordBox, wordChips, wordInput,
             cssArea, cssState, tempSec, tempChips, note, palGrid, palName, palCustom, palAccent, headerOn, headerTitle, headerDate, headerBox, leadOn, leadText, footDate, footCount };
     }
@@ -881,6 +885,21 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         p.css = def.css ?? '';
     }
 
+    /** 随阅读器附带的主题模板：没装过的装进自制模板（删掉的不再装回，见 cardBundled.js）。 */
+    async function seedTemplates(mine) {
+        try {
+            const seeded = await store.settings.get(SEEDED_KEY, []);
+            const result = seedBundled(mine.templates, seeded, addTemplate);
+            if (!result.changed) return;
+            // 先存模板、再记"装过"：中途失败下次还会补
+            if (result.list.length !== mine.templates.length) await store.settings.set(TEMPLATES_KEY, result.list);
+            mine.templates = result.list;
+            await store.settings.set(SEEDED_KEY, result.seeded);
+        } catch (error) {
+            console.warn('[st-reader] 附带的卡片模板没装上（下次打开再试）：', error); // 不挡工作台
+        }
+    }
+
     function saveTemplates(mine) {
         return store.settings.set(TEMPLATES_KEY, mine.templates).catch(error => { toast(`模板没保存上：${error.message ?? error}`); });
     }
@@ -910,6 +929,11 @@ export function createCardStudio({ root, toast, confirm, getDirection, onClose }
         els.tplState.hidden = !dirty;
         els.tplState.replaceChildren(...(dirty ? [h('span', { text: '现在的设置和这套模板不一样了' }),
             h('button', { type: 'button', class: 'stcr-btn stcr-text-btn', 'data-studio': 'revert-tpl', text: '还原' })] : []));
+        const links = bundledLinks(customRecord(mine));
+        els.credit.hidden = !links;
+        els.credit.replaceChildren(...(links ? [h('span', { text: CREDIT_TEXT }), ' ',
+            ...links.flatMap(([label, url], i) => [i ? h('span', { class: 'stcr-studio-credit-dot', 'aria-hidden': 'true', text: '·' }) : null,
+                h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: label })]).filter(Boolean)] : []));
     }
 
     /** 配色格子：第一格"模板自带"，18 组预设，最后"自定义"（两色 + 角度）。 */

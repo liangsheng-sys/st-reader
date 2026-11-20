@@ -1094,6 +1094,11 @@
 }
 #stcr_root .stcr-studio-status { max-width: 540px; color: var(--stcr-faint); font-size: 13px; text-align: center; line-height: 1.7; }
 #stcr_root .stcr-studio-status--error { color: #e06c5a; }
+/* 附带主题的留言链接：和提示同样的小字淡色，不抢预览 */
+#stcr_root .stcr-studio-credit { max-width: 540px; margin: 0; color: var(--stcr-faint); font-size: 12px; line-height: 1.7; text-align: center; }
+#stcr_root .stcr-studio-credit a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 2px; }
+#stcr_root .stcr-studio-credit a:hover, #stcr_root .stcr-studio-credit a:focus-visible { color: var(--stcr-accent); }
+#stcr_root .stcr-studio-credit-dot { margin: 0 .4em; opacity: .6; }
 #stcr_root .stcr-studio-tip { max-width: 540px; margin: 0; color: var(--stcr-faint); font-size: 12px; text-align: center; line-height: 1.7; }
 #stcr_root .stcr-studio-diff { max-width: 540px; color: var(--stcr-faint); font-size: 12px; line-height: 1.7; }
 #stcr_root .stcr-studio-diff > summary { cursor: pointer; text-align: center; list-style: none; text-decoration: underline dotted; text-underline-offset: 3px; }
@@ -1121,7 +1126,7 @@
 #stcr_root .stcr-studio-sec { display: flex; flex-direction: column; gap: 9px; }
 #stcr_root .stcr-studio-sec-title { margin: 0; color: var(--stcr-faint); font-size: 12px; font-weight: 600; letter-spacing: .06em; }
 #stcr_root .stcr-studio-seg { align-self: flex-start; flex-wrap: wrap; }
-#stcr_root .stcr-studio-tpls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+#stcr_root .stcr-studio-tpls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 #stcr_root .stcr-tpl-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 2px; font-size: 12px; }
 #stcr_root .stcr-tpl-btn:hover { background: var(--stcr-hover); }
 #stcr_root .stcr-tpl-btn.stcr-on .stcr-tpl-swatch { outline: 2px solid var(--stcr-accent); outline-offset: 2px; }
@@ -1509,7 +1514,8 @@
 /* 模板行：内置四套 + 自制，每个一个缩略色块；自制的右上角有 ⋯ */
 #stcr_root .stcr-tpl-cell { position: relative; display: flex; }
 #stcr_root .stcr-tpl-cell > .stcr-tpl-btn { flex: 1; min-width: 0; }
-#stcr_root .stcr-tpl-btn > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 长名字（"纸上访谈 · 昼"）最多两行，再长省略；完整名字在 title 里 */
+#stcr_root .stcr-tpl-btn > span:last-child { max-width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; line-height: 1.3; text-align: center; overflow-wrap: anywhere; }
 #stcr_root .stcr-tpl-more { position: absolute; top: 1px; right: 1px; width: 22px; height: 22px; font-size: 11px; border-radius: 50%; background: color-mix(in srgb, var(--stcr-panel) 80%, transparent); }
 #stcr_root .stcr-tpl-swatch--custom i { background: currentColor; opacity: .75; }
 #stcr_root .stcr-tpl-default { position: absolute; top: 4px; left: 4px; font-size: 10px; color: var(--stcr-accent); }

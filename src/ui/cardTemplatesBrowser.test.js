@@ -7,6 +7,7 @@
 import { store } from '../core/store.js';
 import { isDevInstance } from '../core/readonlyGuard.js';
 import { closeReader, isReaderOpen, openReader } from './reader.js';
+import { BUNDLED_LINKS, BUNDLED_TEMPLATES, SEEDED_KEY } from './cardBundled.js';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const PREFS_KEY = 'stcr:ui:card:v1';
@@ -47,6 +48,7 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
     const check = (name, passed, detail = '') => results.push({ name, passed: !!passed, detail: String(detail) });
     const savedPrefs = await store.settings.get(PREFS_KEY, null);
     const savedTemplates = await store.settings.get(TEMPLATES_KEY, null);
+    const savedSeeded = await store.settings.get(SEEDED_KEY, null);
     // 下载被截住：导出 PNG / 模板文件都不落盘
     const downloads = [];
     const realCreate = URL.createObjectURL;
@@ -87,9 +89,33 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
     try {
         await store.settings.remove(TEMPLATES_KEY);
         await store.settings.remove(PREFS_KEY);
+        await store.settings.remove(SEEDED_KEY);
         await openReader({ chatKey: ASTER });
         await until(() => document.querySelector('#stcr_chat .mes[mesid="3"]'), '阅读器');
         [...document.querySelectorAll('#stcr_root .stcr-doc button')].find(b => /知道了/.test(b.textContent))?.click();
+
+        // ── 0. 附带的七套主题：第一次打开装进自制模板；选中时预览下有留言链接；删掉的再开不回来
+        await openStudio();
+        check('附带主题：第一次打开工作台，七套都出现在模板行', BUNDLED_TEMPLATES.every(t => tplButton(t.name)), [...studio().querySelectorAll('.stcr-tpl-btn')].map(b => b.textContent.trim()).join('、'));
+        const credit = () => studio().querySelector('.stcr-studio-credit');
+        check('选内置模板时没有留言链接', credit().hidden);
+        tplButton('粗野指北').click();
+        await wait(500);
+        const links = [...credit().querySelectorAll('a')];
+        check('选"粗野指北"：预览下一行小字 + 类脑 / 旅程 / 棱镜三个链接（新窗口打开），且不在卡片里', !credit().hidden && links.map(a => a.href).join() === BUNDLED_LINKS.brutal.map(([, url]) => url).join()
+            && links.every(a => a.target === '_blank') && !card().contains(credit()), credit().textContent);
+        check('粗野指北：卡片显示原楼号 4', getComputedStyle(card().querySelector('.stcr-card-mes-no')).display !== 'none' && card().querySelector('.stcr-card-mes-no').textContent === '4');
+        await click(`[data-tpl-more="b-brutal"]`, 250);
+        await click('.stcr-tpl-menu [data-tpl-act="delete"]', 100);
+        await confirmPopup();
+        await until(() => !tplButton('粗野指北'), '"粗野指北"删掉');
+        await closeStudio();
+        await openStudio();
+        check('删掉的附带主题，关掉再开不会装回来；其余六套还在', !tplButton('粗野指北') && (await savedList()).length === 6);
+        await closeStudio();
+        await store.settings.remove(TEMPLATES_KEY);
+        await store.settings.remove(PREFS_KEY);
+        await store.settings.set(SEEDED_KEY, BUNDLED_TEMPLATES.map(t => t.id)); // 下面的用例从"没有自制模板"开始
         await openStudio();
 
         // ── 1. 内置四套：默认选项下没有任何"新选项"的类名 / 变量，外观沿用旧规则
@@ -317,6 +343,7 @@ export async function testCardTemplatesBrowser({ force = false } = {}) {
         if (isReaderOpen()) closeReader();
         if (savedPrefs === null) await store.settings.remove(PREFS_KEY); else await store.settings.set(PREFS_KEY, savedPrefs);
         if (savedTemplates === null) await store.settings.remove(TEMPLATES_KEY); else await store.settings.set(TEMPLATES_KEY, savedTemplates);
+        if (savedSeeded === null) await store.settings.remove(SEEDED_KEY); else await store.settings.set(SEEDED_KEY, savedSeeded);
     }
     if (!popupFailure) check('测试后恢复了 stcr:ui:card:v1 与 stcr:ui:card:templates:v1', JSON.stringify(await store.settings.get(TEMPLATES_KEY, null)) === JSON.stringify(savedTemplates));
     return results;

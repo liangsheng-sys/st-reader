@@ -10,6 +10,7 @@ import { BUILTIN_TEMPLATES, DEFAULT_OPTIONS, FONT_SIZES, MAX_TEMPLATES, OPTION_K
     isDefaultOptions, luminance, minContrast, mixHex, normalizeOptions, normalizeTemplates, parseTemplateText, removeTemplate, renameTemplate, resolvePalette, scopeTemplateCss, templateClassScope, templateProblem, templateScope, templateToText, textureLayers, toHex } from './cardTemplates.js';
 import { CARD_TEMPLATES } from './logic.js';
 import { buildCssGuide, EXAMPLE_TWEET } from './cardCssGuide.js';
+import { BUNDLED_LINKS, BUNDLED_TEMPLATES, bundledLinks, seedBundled } from './cardBundled.js';
 import { hasRedaction, redactString, replacePieces, setRedactState } from './redact.js';
 import { diagnosticsLine, diagnosticsText, hostLine, lastOpen, recordOpen } from './diagnostics.js';
 
@@ -401,6 +402,29 @@ export async function testUiLogic() {
         const p = normalizePrefs({ docExport: { format: 'html', swipes: 'nope', speaker: 'role', include: { reasoning: true, html: 1 } } }).docExport;
         equal([p.format, p.swipes, p.speaker, p.include.reasoning, p.include.html], ['html', 'host', 'role', true, false]);
     });
+    // ───────── 附带的七套主题模板（cardBundled.js） ─────────
+    check('附带主题模板：七套都是合法模板；第一次全装上，删掉的不再装回，同名不重复，满了下次再补；按 id / 原名找得到留言链接', () => {
+        const bad = BUNDLED_TEMPLATES.filter(t => !parseTemplateText(JSON.stringify({ format: 'stcr-card-template', version: 1, name: t.name, base: t.base, options: t.options, css: t.css })).ok
+            || !normalizeTemplates([{ id: t.id, name: t.name, base: t.base, options: t.options, css: t.css }])[0]?.css || !BUNDLED_LINKS[t.theme]).map(t => t.id);
+        equal(bad, [], '不合法的：');
+        equal(BUNDLED_TEMPLATES.length, 7, '套数：');
+        const first = seedBundled([], [], addTemplate);
+        equal(first.list.map(t => t.id), BUNDLED_TEMPLATES.map(t => t.id), '第一次：');
+        equal(first.seeded.length, 7, '记为装过：');
+        const deleted = first.list.filter(t => t.id !== 'b-xp');
+        const again = seedBundled(deleted, first.seeded, addTemplate);
+        equal([again.changed, again.list.some(t => t.id === 'b-xp')], [false, false], '删掉后再开：');
+        const mine = seedBundled([{ id: 'tmine', name: '粗野指北', base: 'paper', options: DEFAULT_OPTIONS, css: '' }], [], addTemplate);
+        equal(mine.list.filter(t => t.name === '粗野指北').length, 1, '已有同名：');
+        const full = Array.from({ length: MAX_TEMPLATES - 2 }, (_, i) => ({ id: `t${i}`, name: `我的${i}`, base: 'paper', options: DEFAULT_OPTIONS, css: '' }));
+        const partial = seedBundled(full, [], addTemplate);
+        equal([partial.list.length, partial.seeded.length], [MAX_TEMPLATES, 2], '只剩两个空位：');
+        const later = seedBundled(partial.list.filter(t => t.id !== 't0'), partial.seeded, addTemplate);
+        equal(later.seeded.length, 3, '空出一位后补上一套：');
+        equal([bundledLinks({ id: 'b-xuyu', name: '改过名' }), bundledLinks({ id: 'tx', name: '纸上访谈 · 夜' }), bundledLinks({ id: 'tx', name: '我的' })],
+            [BUNDLED_LINKS.xuyu, BUNDLED_LINKS.zhishang, null], '链接：');
+    });
+
     // ───────── T104：卡片模板（cardTemplates.js） ─────────
     const GOOD_FILE = (patch = {}) => JSON.stringify({ format: 'stcr-card-template', version: 1, name: '我的', base: 'paper', options: { palette: 'sky', headerOn: true, headerTitle: '星灯夜话' }, css: '', ...patch });
     check('T104 模板文件：好样本都能读（最小 / 完整 / 四种底子 / 自定义配色 / 20 字名 / 带 css / 空 options）', () => {

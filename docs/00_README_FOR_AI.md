@@ -31,6 +31,8 @@ ST Reader：SillyTavern（下称 ST）的第三方 UI 扩展，在 ST 页面内�
 
 仓库根 [README](../README.md) 为公开使用说明，[CHANGELOG](../CHANGELOG.md) 记录发布版本；外链披露以 D22/D23 为准。
 
+**用户看得见的文字（D51）**：更新日志、Release 说明、README、`使用说明.md`、社区帖子、界面文案，谁都可以起草，定稿交 Opus。更新日志每版一句话 + 每条一行；每次发版 Opus 过一遍使用说明与 README，没有新用户需要知道的就不改。
+
 ## 通用规则
 1. 只做自己任务卡上的事。任务卡在 `04_TASKS.md`。
 2. 开工先看 `05_DECISIONS.md` 和 `06_ISSUES.md` 里与自己相关的条目。
