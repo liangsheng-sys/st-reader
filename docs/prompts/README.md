@@ -29,5 +29,6 @@
 
 | `astra_T100-T101.md` | Codex / astra | 已用完（T100、T101 已验收，0.4.1 已复查） |
 | `opus_T99.md` | Claude Code / Opus | 已用完（T99 已验收） |
-| `astra_T103.md` | Codex / astra | M12（0.5.0）：番外识别引擎；0.4.1 发布后 |
-| `opus_T104-T105.md` | Claude Code / Opus | M12：卡片模板（可先做）→ 番外视图 UI（等 T103） |
+| `astra_T103.md` | Codex / astra | 已用完（T103 已验收） |
+| `opus_T104-T105.md` | Claude Code / Opus | 已用完（T104、T105 已验收） |
+| `opus_T106-text.md` | Claude Code / Opus | M12 收尾：0.5.0 更新日志与 README / 使用说明定稿（D51）+ 合并后的完整自测；在 `task/T106-release-0.5.0` 上做 |
